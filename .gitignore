@@ -1,0 +1,25 @@
+# Dependencies & build output
+node_modules
+dist
+dist-ssr
+*.local
+
+# Credentials & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# WordPress upload helpers (never committed)
+upload_*.py
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea

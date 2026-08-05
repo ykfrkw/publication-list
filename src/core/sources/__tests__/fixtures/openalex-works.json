@@ -1,0 +1,175 @@
+{
+  "meta": {
+    "count": 3,
+    "page": 1,
+    "per_page": 50
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W3118615836",
+      "doi": "https://doi.org/10.1136/bmj.n71",
+      "ids": {
+        "openalex": "https://openalex.org/W3118615836",
+        "doi": "https://doi.org/10.1136/bmj.n71",
+        "mag": "3118615836",
+        "pmid": "https://pubmed.ncbi.nlm.nih.gov/33782057"
+      },
+      "type": "review",
+      "title": "The PRISMA 2020 statement: an updated guideline for reporting systematic reviews",
+      "publication_year": 2021,
+      "publication_date": "2021-03-29",
+      "primary_location": {
+        "source": {
+          "display_name": "BMJ"
+        }
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "display_name": "Matthew J. Page"
+          },
+          "raw_author_name": "Matthew J Page"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Joanne E. McKenzie"
+          },
+          "raw_author_name": "Joanne E McKenzie"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Patrick M. Bossuyt"
+          },
+          "raw_author_name": "Patrick M Bossuyt"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Isabelle Boutron"
+          },
+          "raw_author_name": "Isabelle Boutron"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Tammy Hoffmann"
+          },
+          "raw_author_name": "Tammy C Hoffmann"
+        }
+      ]
+    },
+    {
+      "id": "https://openalex.org/W7128389108",
+      "doi": "https://doi.org/10.1007/s41105-026-00635-x",
+      "ids": {
+        "openalex": "https://openalex.org/W7128389108",
+        "doi": "https://doi.org/10.1007/s41105-026-00635-x",
+        "pmid": "https://pubmed.ncbi.nlm.nih.gov/42367617"
+      },
+      "type": "article",
+      "title": "Effects of add-on asenapine therapy on sleep in schizophrenia: a case series",
+      "publication_year": 2026,
+      "publication_date": "2026-02-09",
+      "primary_location": {
+        "source": {
+          "display_name": "Sleep and Biological Rhythms"
+        }
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "display_name": "Rei Otsuki"
+          },
+          "raw_author_name": "Rei Otsuki"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Yuta Kojima"
+          },
+          "raw_author_name": "Yuta Kojima"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Nobukuni Fujii"
+          },
+          "raw_author_name": "Nobukuni Fujii"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Jun Kizuki"
+          },
+          "raw_author_name": "Jun Kizuki"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Tadashi Kanamori"
+          },
+          "raw_author_name": "Tadashi Kanamori"
+        }
+      ]
+    },
+    {
+      "id": "https://openalex.org/W7135088876",
+      "doi": "https://doi.org/10.1016/j.euroneuro.2026.112802",
+      "ids": {
+        "openalex": "https://openalex.org/W7135088876",
+        "doi": "https://doi.org/10.1016/j.euroneuro.2026.112802",
+        "pmid": "https://pubmed.ncbi.nlm.nih.gov/41825162"
+      },
+      "type": "review",
+      "title": "Efficacy of 3,4-methylenedioxymethamphetamine (MDMA)-assisted therapy for posttraumatic stress disorder: A systematic review and meta-analysis of clinical and functional outcomes",
+      "publication_year": 2026,
+      "publication_date": "2026-03-12",
+      "primary_location": {
+        "source": {
+          "display_name": "European Neuropsychopharmacology"
+        }
+      },
+      "authorships": [
+        {
+          "author_position": "first",
+          "author": {
+            "display_name": "Natalia E. Fares-Otero"
+          },
+          "raw_author_name": "Natalia E. Fares-Otero"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Yuki Furukawa"
+          },
+          "raw_author_name": "Yuki Furukawa"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Marit Sijbrandij"
+          },
+          "raw_author_name": "Marit Sijbrandij"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Stefan Leucht"
+          },
+          "raw_author_name": "Stefan Leucht"
+        },
+        {
+          "author_position": "middle",
+          "author": {
+            "display_name": "Eduard Vieta"
+          },
+          "raw_author_name": "Eduard Vieta"
+        }
+      ]
+    }
+  ]
+}

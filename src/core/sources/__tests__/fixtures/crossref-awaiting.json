@@ -1,0 +1,26 @@
+{
+  "status": "ok",
+  "message": {
+    "DOI": "10.12688/f1000research.8597.1",
+    "container-title": [
+      "F1000Research"
+    ],
+    "assertion": [
+      {
+        "name": "referee-status",
+        "value": "Awaiting Peer Review",
+        "label": "Referee status"
+      },
+      {
+        "name": "grant-information",
+        "value": "The author(s) declared that no grants were involved in supporting this work",
+        "label": "Grant Information"
+      },
+      {
+        "name": "copyright-info",
+        "value": "This is an open access article distributed under the terms of the Creative Commons Attribution Licence, which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited.",
+        "label": "Copyright"
+      }
+    ]
+  }
+}

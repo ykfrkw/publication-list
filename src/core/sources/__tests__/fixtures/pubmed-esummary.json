@@ -1,0 +1,211 @@
+{
+  "header": {
+    "type": "esummary",
+    "version": "0.3"
+  },
+  "result": {
+    "uids": [
+      "41062142",
+      "39199005",
+      "42270380"
+    ],
+    "41062142": {
+      "uid": "41062142",
+      "pubdate": "2025 Oct 7",
+      "epubdate": "2025 Oct 7",
+      "source": "BMJ Open",
+      "authors": [
+        {
+          "name": "Türkmen C",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Sacu S",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Furukawa Y",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "de Cates AN",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Schoevers RA",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Kamphuis J",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Chevance A",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Weisz JR",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Emslie GJ",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Strawn JR",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Hetrick SE",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Efthimiou O",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Salanti G",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "van Dalfsen JH",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Furukawa TA",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Cipriani A",
+          "authtype": "Author",
+          "clusterid": ""
+        }
+      ],
+      "title": "Side effect profile and comparative tolerability of newer generation antidepressants in the acute treatment of major depressive disorder in children and adolescents: protocol for a systematic review and network meta-analysis.",
+      "lang": [
+        "eng"
+      ],
+      "pubtype": [
+        "Journal Article"
+      ],
+      "articleids": [
+        {
+          "idtype": "pubmed",
+          "idtypen": 1,
+          "value": "41062142"
+        },
+        {
+          "idtype": "pmc",
+          "idtypen": 8,
+          "value": "PMC12506116"
+        },
+        {
+          "idtype": "pmcid",
+          "idtypen": 5,
+          "value": "pmc-id: PMC12506116;"
+        },
+        {
+          "idtype": "doi",
+          "idtypen": 3,
+          "value": "10.1136/bmjopen-2025-102696"
+        },
+        {
+          "idtype": "pii",
+          "idtypen": 4,
+          "value": "bmjopen-2025-102696"
+        }
+      ],
+      "fulljournalname": "BMJ open",
+      "sortpubdate": "2025/10/07 00:00"
+    },
+    "39199005": {
+      "uid": "39199005",
+      "pubdate": "2024 Nov",
+      "epubdate": "2024 Aug 28",
+      "source": "Psychiatry Clin Neurosci",
+      "authors": [
+        {
+          "name": "Furukawa Y",
+          "authtype": "Author",
+          "clusterid": ""
+        }
+      ],
+      "title": "Optimal dose of vortioxetine: High dose (≥20 mg) is overestimated, lower dose (5-10 mg) may be enough for many.",
+      "lang": [
+        "eng"
+      ],
+      "pubtype": [
+        "Letter"
+      ],
+      "articleids": [
+        {
+          "idtype": "pubmed",
+          "idtypen": 1,
+          "value": "39199005"
+        },
+        {
+          "idtype": "doi",
+          "idtypen": 3,
+          "value": "10.1111/pcn.13732"
+        }
+      ],
+      "fulljournalname": "Psychiatry and clinical neurosciences",
+      "sortpubdate": "2024/11/01 00:00"
+    },
+    "42270380": {
+      "uid": "42270380",
+      "pubdate": "2026 Jun 10",
+      "epubdate": "2026 Jun 10",
+      "source": "Nihon Koshu Eisei Zasshi",
+      "authors": [
+        {
+          "name": "Shimada K",
+          "authtype": "Author",
+          "clusterid": ""
+        },
+        {
+          "name": "Iwasa H",
+          "authtype": "Author",
+          "clusterid": ""
+        }
+      ],
+      "title": "[Factors affecting insomnia among community-dwelling older adults].",
+      "lang": [
+        "jpn"
+      ],
+      "pubtype": [
+        "English Abstract",
+        "Journal Article"
+      ],
+      "articleids": [
+        {
+          "idtype": "pubmed",
+          "idtypen": 1,
+          "value": "42270380"
+        },
+        {
+          "idtype": "doi",
+          "idtypen": 3,
+          "value": "10.11236/jph.25-142"
+        }
+      ],
+      "fulljournalname": "[Nihon koshu eisei zasshi] Japanese journal of public health",
+      "sortpubdate": "2026/06/10 00:00"
+    }
+  }
+}

@@ -1,0 +1,295 @@
+{
+  "total_items": 4,
+  "items": [
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/published_papers/52176622",
+      "rm:id": "52176622",
+      "paper_title": {
+        "en": "Effects of add-on asenapine therapy on sleep in schizophrenia: a case series."
+      },
+      "authors": {
+        "en": [
+          {
+            "name": "Rei Otsuki"
+          },
+          {
+            "name": "Yuta Kojima"
+          },
+          {
+            "name": "Nobukuni Fujii"
+          },
+          {
+            "name": "Jun Kizuki"
+          },
+          {
+            "name": "Tadashi Kanamori"
+          },
+          {
+            "name": "Yoshiyuki Kaneko"
+          },
+          {
+            "name": "Masahiro Suzuki"
+          }
+        ]
+      },
+      "publication_date": "2026-07",
+      "publication_name": {
+        "en": "Sleep and biological rhythms"
+      },
+      "languages": [
+        "eng"
+      ],
+      "published_paper_type": "scientific_journal",
+      "identifiers": {
+        "doi": [
+          "10.1007/s41105-026-00635-x"
+        ],
+        "pm_id": [
+          "42367617"
+        ],
+        "pmc_id": [
+          "PMC13303993"
+        ]
+      },
+      "volume": "24",
+      "number": "3",
+      "starting_page": "325",
+      "ending_page": "331"
+    },
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/published_papers/49597848",
+      "rm:id": "49597848",
+      "paper_title": {
+        "en": "Association between daytime sleepiness and quality of life in outpatients with schizophrenia.",
+        "ja": "Association between daytime sleepiness and quality of life in outpatients with schizophrenia"
+      },
+      "authors": {
+        "en": [
+          {
+            "name": "Nobukuni Fujii"
+          },
+          {
+            "name": "Yoshiyuki Kaneko"
+          },
+          {
+            "name": "Yuta Kojima"
+          },
+          {
+            "name": "Sohei Kamimura"
+          },
+          {
+            "name": "Tetsuya Uemura"
+          },
+          {
+            "name": "Jun Kizuki"
+          },
+          {
+            "name": "Suguru Nakajima"
+          },
+          {
+            "name": "Tadashi Kanamori"
+          },
+          {
+            "name": "Takahiro Suzuki"
+          },
+          {
+            "name": "Kouju Yamada"
+          },
+          {
+            "name": "Yukihiro Nagase"
+          },
+          {
+            "name": "Masahiro Suzuki"
+          }
+        ],
+        "ja": [
+          {
+            "name": "Fujii N"
+          },
+          {
+            "name": "Kaneko Y"
+          },
+          {
+            "name": "Kojima Y"
+          },
+          {
+            "name": "Kamimura S"
+          },
+          {
+            "name": "Uemura T"
+          },
+          {
+            "name": "Kizuki J"
+          },
+          {
+            "name": "Nakajima S"
+          },
+          {
+            "name": "Kanamori T"
+          },
+          {
+            "name": "Suzuki T"
+          },
+          {
+            "name": "Yamada K"
+          },
+          {
+            "name": "Nagase Y"
+          },
+          {
+            "name": "Suzuki M"
+          }
+        ]
+      },
+      "publication_date": "2024",
+      "publication_name": {
+        "en": "Sleep and biological rhythms",
+        "ja": "Sleep and Biological Rhythms,"
+      },
+      "languages": [
+        "eng"
+      ],
+      "published_paper_type": "scientific_journal",
+      "identifiers": {
+        "doi": [
+          "10.1007/s41105-024-00553-w"
+        ],
+        "pm_id": [
+          "39801936"
+        ],
+        "pmc_id": [
+          "PMC11717745"
+        ]
+      },
+      "volume": "23",
+      "number": "1",
+      "starting_page": "75",
+      "ending_page": "84",
+      "referee": true
+    },
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/published_papers/25072694",
+      "rm:id": "25072694",
+      "paper_title": {
+        "ja": "High-dose zolpidem abuse in a patient with insomnia comorbid with major depressive disorder",
+        "en": "High-dose zolpidem abuse in a patient with insomnia comorbid with major depressive disorder"
+      },
+      "authors": {
+        "ja": [
+          {
+            "name": "Furihata R"
+          },
+          {
+            "name": "Kizuki J"
+          },
+          {
+            "name": "Yamano Y"
+          },
+          {
+            "name": "Mizoguchi Y"
+          },
+          {
+            "name": "Nakajima S"
+          },
+          {
+            "name": "Nagai K"
+          },
+          {
+            "name": "Kaneko Y"
+          },
+          {
+            "name": "Yamada K"
+          },
+          {
+            "name": "Suzuki M"
+          },
+          {
+            "name": "Uchiyama M"
+          }
+        ],
+        "en": [
+          {
+            "name": "Furihata R"
+          },
+          {
+            "name": "Kizuki J"
+          },
+          {
+            "name": "Yamano Y"
+          },
+          {
+            "name": "Mizoguchi Y"
+          },
+          {
+            "name": "Nakajima S"
+          },
+          {
+            "name": "Nagai K"
+          },
+          {
+            "name": "Kaneko Y"
+          },
+          {
+            "name": "Yamada K"
+          },
+          {
+            "name": "Suzuki M"
+          },
+          {
+            "name": "Uchiyama M"
+          }
+        ]
+      },
+      "publication_date": "2020-01",
+      "publication_name": {
+        "ja": "Sleep Biol Rhythms",
+        "en": "Sleep Biol Rhythms"
+      },
+      "languages": [
+        "eng"
+      ],
+      "published_paper_type": "scientific_journal",
+      "referee": true
+    },
+    {
+      "@id": "https://api.researchmap.jp/read0197782/published_papers/54225393",
+      "rm:id": "54225393",
+      "paper_title": {
+        "ja": "包括的なヘルスリテラシーとマンモグラフィ検診受診の関連"
+      },
+      "authors": {
+        "ja": [
+          {
+            "name": "田口 良子"
+          },
+          {
+            "name": "中山 和弘"
+          }
+        ]
+      },
+      "publication_date": "2026-03",
+      "publication_name": {
+        "ja": "総合健診"
+      },
+      "languages": [
+        "jpn"
+      ],
+      "identifiers": {
+        "issn": [
+          "1347-0086"
+        ],
+        "e_issn": [
+          "1884-4103"
+        ],
+        "jamas_id": [
+          "2026184801"
+        ]
+      },
+      "volume": "53",
+      "number": "2",
+      "starting_page": "320",
+      "ending_page": "329",
+      "referee": true
+    }
+  ]
+}

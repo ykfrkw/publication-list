@@ -1,0 +1,152 @@
+{
+  "group": [
+    {
+      "work-summary": [
+        {
+          "put-code": 208211873,
+          "title": {
+            "title": {
+              "value": "Efficacy of 3,4-methylenedioxymethamphetamine (MDMA)-assisted therapy for posttraumatic stress disorder: A systematic review and meta-analysis of clinical and functional outcomes"
+            }
+          },
+          "external-ids": {
+            "external-id": [
+              {
+                "external-id-type": "doi",
+                "external-id-value": "10.1016/j.euroneuro.2026.112802"
+              }
+            ]
+          },
+          "type": "journal-article",
+          "publication-date": {
+            "year": {
+              "value": "2026"
+            },
+            "month": {
+              "value": "06"
+            },
+            "day": null
+          },
+          "journal-title": {
+            "value": "European Neuropsychopharmacology"
+          }
+        }
+      ]
+    },
+    {
+      "work-summary": [
+        {
+          "put-code": 204255060,
+          "title": {
+            "title": {
+              "value": "Cognitive behavioral therapy for insomnia as a suicide prevention strategy: a protocol for a systematic review and meta-analysis."
+            }
+          },
+          "external-ids": {
+            "external-id": [
+              {
+                "external-id-type": "pmid",
+                "external-id-value": "41278217"
+              },
+              {
+                "external-id-type": "pmc",
+                "external-id-value": "PMC12640200"
+              },
+              {
+                "external-id-type": "doi",
+                "external-id-value": "10.1093/sleepadvances/zpaf070"
+              }
+            ]
+          },
+          "type": "journal-article",
+          "publication-date": {
+            "year": {
+              "value": "2025"
+            },
+            "month": {
+              "value": "10"
+            },
+            "day": {
+              "value": "09"
+            }
+          },
+          "journal-title": {
+            "value": "Sleep advances : a journal of the Sleep Research Society"
+          }
+        }
+      ]
+    },
+    {
+      "work-summary": [
+        {
+          "put-code": 204255009,
+          "title": {
+            "title": {
+              "value": "Sex differences in the efficacy and tolerability of antipsychotic drugs in people with an acute exacerbation of schizophrenia: protocol for an individual-participant-data, dose-response, network meta-analysis"
+            }
+          },
+          "external-ids": {
+            "external-id": [
+              {
+                "external-id-type": "doi",
+                "external-id-value": "10.12688/f1000research.169873.1"
+              },
+              {
+                "external-id-type": "issn",
+                "external-id-value": "2046-1402"
+              }
+            ]
+          },
+          "type": "journal-article",
+          "publication-date": {
+            "year": {
+              "value": "2025"
+            },
+            "month": {
+              "value": "09"
+            },
+            "day": {
+              "value": "23"
+            }
+          },
+          "journal-title": {
+            "value": "F1000Research"
+          }
+        }
+      ]
+    },
+    {
+      "work-summary": [
+        {
+          "put-code": 222572629,
+          "title": {
+            "title": {
+              "value": "Initial treatment choices for long term remission of insomnia disorder in adults: a systematic review and network meta-analysis"
+            }
+          },
+          "external-ids": {
+            "external-id": [
+              {
+                "external-id-type": "doi",
+                "external-id-value": "10.1101/2024.04.24.24306311"
+              }
+            ]
+          },
+          "type": "preprint",
+          "publication-date": {
+            "year": {
+              "value": "2024"
+            },
+            "month": {
+              "value": "04"
+            },
+            "day": {
+              "value": "25"
+            }
+          },
+          "journal-title": null
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "header": {
+    "type": "esearch",
+    "version": "0.3"
+  },
+  "esearchresult": {
+    "count": "10",
+    "retmax": "10",
+    "retstart": "0",
+    "idlist": [
+      "41062142",
+      "40347309",
+      "39199005",
+      "39188094",
+      "38869177",
+      "36948555",
+      "35716011",
+      "35049482",
+      "32515879",
+      "31705728"
+    ],
+    "translationset": [],
+    "querytranslation": "\"0000-0003-1317-0220\"[Author - Identifier]"
+  }
+}

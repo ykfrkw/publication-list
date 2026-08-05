@@ -1,0 +1,36 @@
+{
+  "status": "ok",
+  "message": {
+    "DOI": "10.3410/f1000research.1-57.v1",
+    "container-title": [
+      "F1000Research"
+    ],
+    "assertion": [
+      {
+        "name": "referee-status",
+        "value": "Indexed",
+        "label": "Referee status"
+      },
+      {
+        "name": "referee-response-383",
+        "value": "<b>Daniel Bikle</b> Department of Medicine and Dermatology, University of California/VAMC, San Francisco, CA, USA Approv",
+        "label": "Referee Report"
+      },
+      {
+        "name": "referee-response-382",
+        "value": "<b>Dominique Garrel</b> Endocrinology Department, Hotel Dieu de CHUM Hospital, Montreal, Canada Approved: 28 November 20",
+        "label": "Referee Report"
+      },
+      {
+        "name": "referee-response-384",
+        "value": "<b>Jon Tobias</b> Musculoskeletal Research Unit, Bristol Royal Infirmary, Bristol, UK Approved with reservations: 22 Jan",
+        "label": "Referee Report"
+      },
+      {
+        "name": "referee-comment-82",
+        "value": "<b>Gordon Klein</b>; <i>Posted: 30 Nov 2012</i>; The comments from Dr Tobias are greatly appreciated. If I did not make it clear in the commentary I listed two contributory factors to post-burn vitamin D deficiency. The failure to supplement is not of itself a causative factor, I agree, but the fact that the skin cannot make vitamin D normally on exposure to UVB radiation coupled with the lack of routine supplementation means that the burn victims have no way to compensate for the skin’s failure to normally synthesize vitamin D3 from its precursor.With regard to the comment on endogenous glucocorticoids clearly Dr Tobias is correct in stating that the literature on glucocorticoid-induced osteoporosis relates to the exogenous administration of glucocorticoids. the studies that I have cited, albeit they are my own, demonstrate that the body produces large quantities of endogenous glucocorticoids in response to stress, coupled with lack of surface osteoblasts and a reduction in markers of osteoblast differentiation in marrow stromal cells taken from the burn victims as compared to unburned controls. The point to be emphasized, I believe, is that currently there is no way to equate the quantity of endogenous glucocorticoids produced in response to stress with the dosage of glucocorticoids given as therapy. In the absence of work corroborating our observations I raise the issue of similar effects of endogenous and exogenous glucocorticoids in order to increase awareness that in the case of burns at least the classic manifestations of glucocorticoid induced osteoporosis also exist in children who did not receive exogenous glucocorticoids, I would certainly agree that more studies in this area and in different conditions in which a patient is subject to stress would help clarify the situation, but I would not dismiss the argument for lack of evidence.",
+        "label": "Referee Comment"
+      }
+    ]
+  }
+}

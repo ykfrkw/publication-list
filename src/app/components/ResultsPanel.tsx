@@ -7,7 +7,21 @@
  *
  * The preview is rendered with `credit: false`: this is a preview inside the
  * tool, not a page anyone publishes. The credit block belongs to the copyable
- * snippet, and only there.
+ * output, and only there.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
+ * THE STATIC HTML OUTPUT
+ *
+ * `renderHtml(model, { credit })` and nothing else: no `.publist-embed`
+ * wrapper, no `data-*` attributes, no `<script>` tag. It is a finished list to
+ * paste once into a CMS or a hand-written page, and it never updates itself —
+ * which is the whole trade and why the control says so out loud.
+ *
+ * It takes the same `credit` boolean as the embed snippets, from the same
+ * single checkbox in `SnippetPanel`. There is deliberately no second credit
+ * control here, and this file does not build the anchor: the markup is a
+ * constant in `src/core/render.ts`, the same one every other route emits.
+ * ──────────────────────────────────────────────────────────────────────────
  */
 
 import { useMemo } from 'react'
@@ -34,8 +48,16 @@ import { CopyButton, DownloadButton } from './CopyButton'
 import { copyRich } from '../lib/clipboard'
 import { CONFIG_FILENAME } from '../lib/snippet'
 
-export function ResultsPanel({ model }: { model: ListModel }) {
+export function ResultsPanel({
+  model,
+  credit,
+}: {
+  model: ListModel
+  /** The "Include a credit link" checkbox, shared with the embed snippets. */
+  credit: boolean
+}) {
   const previewHtml = useMemo(() => renderHtml(model, { credit: false }), [model])
+  const staticHtml = useMemo(() => renderHtml(model, { credit }), [model, credit])
   const count = model.publications.length
 
   return (
@@ -67,6 +89,7 @@ export function ResultsPanel({ model }: { model: ListModel }) {
             label="WordPress blocks"
             value={() => renderWordpressBlocks(model)}
           />
+          <CopyButton label="Static HTML (no auto-update)" value={staticHtml} />
           <CopyButton label="Markdown" value={() => renderMarkdown(model)} />
           <CopyButton label="BibTeX" value={() => renderBibtex(model)} />
           <CopyButton label="RIS" value={() => renderRis(model)} />
@@ -89,6 +112,13 @@ export function ResultsPanel({ model }: { model: ListModel }) {
             mime="application/json;charset=utf-8"
           />
         </div>
+
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <strong className="font-medium text-foreground">Static HTML</strong> is
+          the finished list as plain markup — no script, no attributes, paste it
+          anywhere. It is a snapshot of today and will not update itself; for a
+          list that keeps itself current, use the embed snippet below.
+        </p>
 
         <Separator />
 

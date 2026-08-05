@@ -81,23 +81,56 @@ function parseYearMonth(value: string | undefined): string | undefined {
 }
 
 /**
- * Read a `ListConfig` out of an embed container's `data-*` attributes.
- *
- * Recognized: data-orcid, data-researchmap, data-pubmed, data-include,
- * data-exclude, data-style, data-from, data-to, data-group-by, data-japanese,
- * data-review-policy, data-limit, data-bold-names (comma-separated where
- * plural), plus the remote-config pointers data-config and data-list.
+ * Canonical parameter names, without the `data-` prefix the DOM spells them
+ * with. `parseConfigFromDataset` and `parseConfigFromSearchParams` both drive
+ * the same reader over this vocabulary, so the two transports can never drift
+ * apart on which knobs exist or how their values are coerced.
  */
-export function parseConfigFromDataset(el: HTMLElement): DatasetConfig {
+export const CONFIG_PARAM_NAMES = [
+  'orcid',
+  'researchmap',
+  'pubmed',
+  'include',
+  'exclude',
+  'bold-names',
+  'style',
+  'group-by',
+  'japanese',
+  'review-policy',
+  'from',
+  'to',
+  'limit',
+  'config',
+  'list',
+] as const
+
+/**
+ * Pulls one raw parameter value out of whatever transport is in play.
+ *
+ * `multi` says whether the parameter is a comma-separated list. A transport
+ * that can carry the same name more than once (a query string) uses it to
+ * decide between joining the repeats and taking the first; one that cannot
+ * (a `data-*` attribute) ignores it.
+ */
+type ConfigReader = (name: string, multi: boolean) => string | undefined
+
+/**
+ * The single place a `ListConfig` is coerced out of string parameters.
+ *
+ * Every rule about what is accepted lives here — which names exist, which are
+ * comma-separated, which vocabularies are closed, and what an unrecognized
+ * value does. Both public parsers are thin adapters over it.
+ */
+function readConfig(read: ConfigReader): DatasetConfig {
   const config: Partial<ListConfig> = {}
 
-  const orcid = splitList(attr(el, 'data-orcid'))?.map(normalizeOrcid)
-  const researchmap = splitList(attr(el, 'data-researchmap'))?.map(
+  const orcid = splitList(read('orcid', true))?.map(normalizeOrcid)
+  const researchmap = splitList(read('researchmap', true))?.map(
     normalizeResearchmapId,
   )
-  const pubmed: PubmedSeed[] | undefined = splitList(
-    attr(el, 'data-pubmed'),
-  )?.map((query) => ({ query }))
+  const pubmed: PubmedSeed[] | undefined = splitList(read('pubmed', true))?.map(
+    (query) => ({ query }),
+  )
 
   if (orcid || researchmap || pubmed) {
     config.seeds = {}
@@ -106,37 +139,96 @@ export function parseConfigFromDataset(el: HTMLElement): DatasetConfig {
     if (pubmed) config.seeds.pubmed = pubmed
   }
 
-  const include = splitList(attr(el, 'data-include'))
+  const include = splitList(read('include', true))
   if (include) config.include = include
-  const exclude = splitList(attr(el, 'data-exclude'))
+  const exclude = splitList(read('exclude', true))
   if (exclude) config.exclude = exclude
-  const boldNames = splitList(attr(el, 'data-bold-names'))
+  const boldNames = splitList(read('bold-names', true))
   if (boldNames) config.boldNames = boldNames
 
-  const style = oneOf(attr(el, 'data-style'), CITATION_STYLE_VALUES)
+  const style = oneOf(read('style', false), CITATION_STYLE_VALUES)
   if (style) config.style = style
-  const groupBy = oneOf(attr(el, 'data-group-by'), GROUP_BY_VALUES)
+  const groupBy = oneOf(read('group-by', false), GROUP_BY_VALUES)
   if (groupBy) config.groupBy = groupBy
-  const japanese = oneOf(attr(el, 'data-japanese'), JAPANESE_VALUES)
+  const japanese = oneOf(read('japanese', false), JAPANESE_VALUES)
   if (japanese) config.japanese = japanese
   // An unrecognized value is ignored, so a typo falls back to the safe
   // `strict` default rather than silently publishing unreviewed candidates.
-  const reviewPolicy = oneOf(attr(el, 'data-review-policy'), REVIEW_POLICY_VALUES)
+  const reviewPolicy = oneOf(read('review-policy', false), REVIEW_POLICY_VALUES)
   if (reviewPolicy) config.reviewPolicy = reviewPolicy
 
-  const from = parseYearMonth(attr(el, 'data-from'))
+  const from = parseYearMonth(read('from', false))
   if (from) config.from = from
-  const to = parseYearMonth(attr(el, 'data-to'))
+  const to = parseYearMonth(read('to', false))
   if (to) config.to = to
 
-  const limit = parsePositiveInt(attr(el, 'data-limit'))
+  const limit = parsePositiveInt(read('limit', false))
   if (limit != null) config.limit = limit
 
   return {
     config,
-    configUrl: attr(el, 'data-config'),
-    listId: attr(el, 'data-list'),
+    configUrl: read('config', false),
+    listId: read('list', false),
   }
+}
+
+/**
+ * Read a `ListConfig` out of an embed container's `data-*` attributes.
+ *
+ * Recognized: data-orcid, data-researchmap, data-pubmed, data-include,
+ * data-exclude, data-style, data-from, data-to, data-group-by, data-japanese,
+ * data-review-policy, data-limit, data-bold-names (comma-separated where
+ * plural), plus the remote-config pointers data-config and data-list.
+ */
+export function parseConfigFromDataset(el: HTMLElement): DatasetConfig {
+  return readConfig((name) => attr(el, `data-${name}`))
+}
+
+/**
+ * Names a query string may spell a parameter with.
+ *
+ * The hyphenated form is canonical, because it is what dropping the `data-`
+ * prefix off the attribute yields and therefore what the wizard's iframe
+ * snippet emits. The camelCase spellings are accepted too: they match the
+ * `ListConfig` field names, and a hand-written iframe URL is exactly where
+ * someone reaches for `groupBy` before `group-by`.
+ */
+const SEARCH_PARAM_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  'bold-names': ['bold-names', 'boldNames', 'boldnames'],
+  'group-by': ['group-by', 'groupBy', 'groupby'],
+  'review-policy': ['review-policy', 'reviewPolicy', 'reviewpolicy'],
+}
+
+/**
+ * Read a `ListConfig` out of a URL query string — the iframe fallback's
+ * transport, in place of the JS embed's `data-*` attributes.
+ *
+ * Identical vocabulary and identical coercion (both go through `readConfig`),
+ * so `?orcid=…&style=vancouver` and `data-orcid="…" data-style="vancouver"`
+ * produce the same config. Two things a query string can do that an attribute
+ * cannot, and how they are handled:
+ *
+ *   - **repeated names** — `?orcid=A&orcid=B` is treated as the list `A,B`,
+ *     the same as `?orcid=A,B`. For a single-valued parameter the first
+ *     occurrence wins and the rest are ignored.
+ *   - **camelCase spellings** — see `SEARCH_PARAM_ALIASES`.
+ */
+export function parseConfigFromSearchParams(
+  params: URLSearchParams,
+): DatasetConfig {
+  return readConfig((name, multi) => {
+    const names = SEARCH_PARAM_ALIASES[name] ?? [name]
+    const values: string[] = []
+    for (const alias of names) {
+      for (const raw of params.getAll(alias)) {
+        const trimmed = raw.trim()
+        if (trimmed === '') continue
+        values.push(trimmed)
+        if (!multi) return trimmed
+      }
+    }
+    return values.length > 0 ? values.join(',') : undefined
+  })
 }
 
 /** Canonicalize an include/exclude reference string; drops unusable entries. */

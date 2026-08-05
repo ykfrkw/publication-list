@@ -246,7 +246,12 @@ export default function App() {
             />
           ) : null}
 
-          <ResultsPanel model={model} />
+          {/*
+            `credit` is the checkbox in SnippetPanel below. The static HTML
+            output honours the same one switch as the embed snippets — one
+            control, every route.
+          */}
+          <ResultsPanel model={model} credit={draft.credit} />
 
           <SnippetPanel
             model={model}

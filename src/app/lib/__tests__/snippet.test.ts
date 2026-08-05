@@ -208,3 +208,42 @@ describe('buildIframeSnippet', () => {
     expect(snippet).toContain('e.origin !== new URL(f.src, location.href).origin')
   })
 })
+
+/**
+ * The iframe route carries the checkbox in the frame's URL, because the credit
+ * is rendered by `widget.html` rather than by this snippet. `credit=0` is the
+ * parameter `src/widget/main.ts` reads; these tests pin that it is emitted
+ * when, and only when, the checkbox is off.
+ */
+describe('the credit checkbox reaches the iframe snippet', () => {
+  it('appends credit=0 when the checkbox is off', () => {
+    const snippet = buildIframeSnippet(model().config, { credit: false })
+    expect(snippet).toContain('credit=0')
+  })
+
+  it('says nothing about the credit when the checkbox is on', () => {
+    const snippet = buildIframeSnippet(model().config, { credit: true })
+    expect(snippet).not.toContain('credit=')
+  })
+
+  it('says nothing about the credit when the option is omitted', () => {
+    const snippet = buildIframeSnippet(model().config)
+    expect(snippet).not.toContain('credit=')
+  })
+
+  it('carries credit=0 on the hosted-config variant too', () => {
+    const snippet = buildIframeSnippet(model().config, {
+      configUrl: 'https://example.org/pubs.json',
+      credit: false,
+    })
+    expect(snippet).toContain('credit=0')
+    expect(snippet).toContain('config=https%3A%2F%2Fexample.org%2Fpubs.json')
+    expect(snippet).not.toContain('orcid=')
+  })
+
+  it('changes nothing else about the snippet', () => {
+    const on = buildIframeSnippet(model().config, { credit: true })
+    const off = buildIframeSnippet(model().config, { credit: false })
+    expect(off.replace('&amp;credit=0', '')).toBe(on)
+  })
+})

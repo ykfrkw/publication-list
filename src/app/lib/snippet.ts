@@ -11,9 +11,12 @@
  * nothing in the UI may hand the user a way to edit them. Read the comment
  * above `CREDIT_HTML` in `src/core/render.ts` before changing anything below.
  *
- * The checkbox controls exactly one thing: the boolean passed to `renderHtml`.
- * Off means zero credit blocks in the emitted snippet and no other difference
- * whatsoever — no nag, no watermark, no reduced output.
+ * The checkbox controls exactly one thing, spelled two ways because the two
+ * embed routes carry it differently: the script snippet gets the boolean
+ * passed to `renderHtml`, and the iframe snippet gets `credit=0` in the
+ * frame's URL, which `src/widget/main.ts` reads and honours. Off means zero
+ * credit blocks either way, and no other difference whatsoever — no nag, no
+ * watermark, no reduced output.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
@@ -166,6 +169,12 @@ export interface IframeSnippetOptions {
   configUrl?: string
   /** CSS height before the frame reports its own, in px. */
   fallbackHeight?: number
+  /**
+   * Same checkbox as `EmbedSnippetOptions.credit`, carried by the frame's URL
+   * instead of by the markup. Omitted means on, which is the default the
+   * widget applies to a URL that says nothing about it.
+   */
+  credit?: boolean
 }
 
 /**
@@ -173,19 +182,29 @@ export interface IframeSnippetOptions {
  *
  * The height listener follows the `embed:height` postMessage convention used
  * across yukifurukawa.jp: the frame posts its content height, and the parent
- * validates both the message source and its origin before resizing. There is
- * no credit link here — an iframe's content is not part of the host page's
- * markup, so a link inside it would be exactly the runtime-injected widget
- * link the static snapshot exists to avoid.
+ * validates both the message source and its origin before resizing.
+ *
+ * The snippet itself contains no credit markup, and cannot: the frame's
+ * content is a separate document served from our own origin, so the credit
+ * line is rendered *there*, by `src/widget/main.ts`. The checkbox still
+ * reaches it — turning it off appends `credit=0` to the frame's `src`, which
+ * is the iframe route's equivalent of dropping the `<p class="publist-credit">`
+ * line from the script snippet. Neither route can put a runtime-injected link
+ * into the host page's markup, which is the thing that must stay true.
  */
 export function buildIframeSnippet(
   config: ListConfig,
   opts: IframeSnippetOptions = {},
 ): string {
-  const query =
+  const attrs: DataAttribute[] =
     opts.configUrl && opts.configUrl.trim() !== ''
-      ? attributesToQuery([['config', opts.configUrl.trim()] as const])
-      : attributesToQuery(configToDataAttributes(config))
+      ? [['config', opts.configUrl.trim()] as const]
+      : configToDataAttributes(config)
+  // Only written when it is off: an absent parameter already means "on", and a
+  // snippet should not carry a parameter that changes nothing.
+  if (opts.credit === false) attrs.push(['credit', '0'] as const)
+
+  const query = attributesToQuery(attrs)
   const src = query === '' ? WIDGET_URL : `${WIDGET_URL}?${query}`
   const height = opts.fallbackHeight ?? 900
 

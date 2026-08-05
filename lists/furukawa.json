@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "seeds": {
+    "orcid": ["0000-0003-1317-0220"],
+    "researchmap": ["yk_frkw"]
+  },
+  "boldNames": ["Yuki Furukawa"],
+  "style": "vancouver",
+  "groupBy": "category",
+  "japanese": "separate",
+  "reviewPolicy": "strict"
+}

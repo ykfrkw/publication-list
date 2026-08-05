@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Publication List Generator"
+abstract: >-
+  A browser-based tool that builds an auto-updating publication list for a
+  researcher, laboratory or research group. It assembles records from ORCID,
+  PubMed and researchmap, enriches their metadata with OpenAlex and Crossref,
+  de-duplicates and categorises them, and emits a formatted list in one of five
+  citation styles. The generated embed snippet carries a pre-rendered snapshot
+  and refreshes itself in each visitor's browser, so a laboratory publication
+  page stays current without a server, an account, an API key or any scheduled
+  job. Additional outputs cover article reference lists, WordPress block markup,
+  Markdown, BibTeX and RIS.
+type: software
+authors:
+  - given-names: Yuki
+    family-names: Furukawa
+    orcid: "https://orcid.org/0000-0003-1317-0220"
+repository-code: "https://github.com/ykfrkw/publication-list"
+url: "https://ykfrkw.github.io/publication-list/"
+license: MIT
+keywords:
+  - publication list
+  - bibliography
+  - ORCID
+  - PubMed
+  - OpenAlex
+  - researchmap
+  - Crossref
+  - research software
+# doi: 10.5281/zenodo.XXXXXXX
+# Uncomment and fill in the DOI above after the first GitHub release is archived
+# by Zenodo. Zenodo mints the concept DOI on that first release; use the concept
+# DOI (the one that always resolves to the latest version) rather than a
+# version-specific one.

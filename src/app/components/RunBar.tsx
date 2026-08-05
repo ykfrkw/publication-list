@@ -2,18 +2,28 @@
  * Generate / Cancel, plus the progress readout.
  *
  * A real ORCID + researchmap + PubMed run takes several seconds and makes
- * calls to five different services, so this reports the stage it is on rather
- * than a spinner: "Enriching metadata (OpenAlex)" tells the user the tool is
- * alive and roughly how much is left, and a spinner tells them nothing.
+ * calls to five different services, so this shows a spinner *and* the stage it
+ * is on: the spinner says the tool is alive, and "Enriching metadata
+ * (OpenAlex)" plus the percentage says how far along it is. A bare spinner
+ * would answer only the first question, and several seconds of silence
+ * answered neither — which is what this replaced.
+ *
+ * The spinner respects `prefers-reduced-motion` (see `Spinner`); when the
+ * animation is suppressed the progress bar, the stage name and the percentage
+ * are all still there, so nothing is only conveyed by movement.
+ *
+ * Cancel stays on screen for the whole run, next to the disabled Generate
+ * button, so there is never a moment where the only thing to do is wait.
  */
 
-import { Loader2Icon, PlayIcon, XIcon } from 'lucide-react'
+import { PlayIcon, XIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Progress,
   ProgressLabel,
   ProgressValue,
 } from '@/components/ui/progress'
+import { Spinner } from './Spinner'
 import type { RunState } from '../hooks/useBuildList'
 
 export function RunBar({
@@ -33,7 +43,7 @@ export function RunBar({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" onClick={onRun} disabled={!canRun || running}>
-          {running ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
+          {running ? <Spinner /> : <PlayIcon />}
           {running ? 'Building…' : 'Generate list'}
         </Button>
         {running ? (
@@ -54,7 +64,10 @@ export function RunBar({
 
       {running ? (
         <Progress value={state.pct} aria-label="Build progress">
-          <ProgressLabel>{state.message}</ProgressLabel>
+          <span className="flex min-w-0 items-center gap-2">
+            <Spinner className="text-muted-foreground" />
+            <ProgressLabel>{state.message}</ProgressLabel>
+          </span>
           <ProgressValue />
         </Progress>
       ) : null}

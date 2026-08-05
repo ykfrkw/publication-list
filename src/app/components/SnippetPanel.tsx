@@ -2,11 +2,12 @@
  * The embed snippet generator.
  *
  * ──────────────────────────────────────────────────────────────────────────
- * CREDIT LINK — the checkbox below flips exactly one boolean, the `credit`
- * option of `renderHtml`. The anchor text and href are constants in
- * `src/core/render.ts` and are never editable from the UI. Turning the
- * checkbox off must not restrict anything: same formats, same snippet, same
- * live updating, no reminder to turn it back on.
+ * CREDIT LINK — the checkbox below flips exactly one boolean. It reaches the
+ * script snippet as the `credit` option of `renderHtml` and the iframe snippet
+ * as `credit=0` in the frame's URL, so both routes obey it. The anchor text
+ * and href are constants in `src/core/render.ts` and are never editable from
+ * the UI. Turning the checkbox off must not restrict anything: same formats,
+ * same snippets, same live updating, no reminder to turn it back on.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
@@ -65,8 +66,9 @@ export function SnippetPanel({
     () =>
       buildIframeSnippet(model.config, {
         configUrl: hosted ? configUrl : undefined,
+        credit,
       }),
-    [model.config, configUrl, hosted],
+    [model.config, credit, configUrl, hosted],
   )
   const configJson = useMemo(() => serializeConfig(model.config), [model.config])
 

@@ -25,6 +25,20 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+      # The embed script is injected into other people's pages, so its transfer
+      # size is a promise, not a detail. 20 KB gzipped is the budget; without
+      # this check a stray dependency would blow it silently.
+      - name: Check the embed size budget
+        run: |
+          budget=20480
+          size=$(gzip -9 -c dist/embed.js | wc -c | tr -d ' ')
+          echo "dist/embed.js: $size bytes gzipped (budget $budget)"
+          if [ "$size" -gt "$budget" ]; then
+            echo "::error file=src/embed/entry.ts::dist/embed.js is $size bytes gzipped, over the $budget-byte budget by $((size - budget)) bytes."
+            exit 1
+          fi
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

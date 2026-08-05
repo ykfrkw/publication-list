@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { fetchOrcidName, fetchOrcidWorks, fetchOrcidWorksWithWarnings } from '../orcid'
+import {
+  fetchOrcidName,
+  fetchOrcidPerson,
+  fetchOrcidWorks,
+  fetchOrcidWorksWithWarnings,
+} from '../orcid'
 import { httpStatusResponse, loadFixture, stubFetch } from './helpers'
 
 const ORCID_ID = '0000-0003-1317-0220'
@@ -147,5 +152,35 @@ describe('fetchOrcidName', () => {
     restore = stub.restore
 
     await expect(fetchOrcidName(ORCID_ID)).resolves.toBeUndefined()
+  })
+})
+
+describe('fetchOrcidPerson', () => {
+  it('returns the given/family split alongside the display name', async () => {
+    const stub = stubFetch(() => person)
+    restore = stub.restore
+
+    // The split is the only one this pipeline gets pre-separated, and it is
+    // what lets researchmap author lists be read rather than guessed at.
+    await expect(fetchOrcidPerson(ORCID_ID)).resolves.toEqual({
+      name: 'Yuki Furukawa',
+      anchor: { given: 'Yuki', family: 'Furukawa' },
+    })
+  })
+
+  it('has no anchor when ORCID holds only one half of the name', async () => {
+    const stub = stubFetch(() => ({
+      name: { 'family-name': { value: 'Furukawa' }, 'credit-name': null },
+    }))
+    restore = stub.restore
+
+    await expect(fetchOrcidPerson(ORCID_ID)).resolves.toEqual({ name: 'Furukawa' })
+  })
+
+  it('returns nothing at all when the profile is unavailable', async () => {
+    const stub = stubFetch(() => httpStatusResponse(404))
+    restore = stub.restore
+
+    await expect(fetchOrcidPerson(ORCID_ID)).resolves.toEqual({})
   })
 })

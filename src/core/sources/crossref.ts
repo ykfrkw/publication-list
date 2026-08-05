@@ -248,7 +248,7 @@ export async function enrichAuthorNamesWithWarnings(
     try {
       const names = await fetchCrossrefAuthorNames(pub.doi as string, signal)
       if (names.length === 0) continue
-      const merged: Publication = { ...pub, authorsFull: names }
+      const merged: Publication = { ...pub, authorsFull: names, authorsSource: 'crossref' }
       if ((pub.authors ?? []).length !== names.length) {
         merged.authors = names.map((n) => formatAuthorShort(n))
       }

@@ -17,6 +17,7 @@ import { normalizeDoi, pubKey, stripDoiVersion, normalizeOrcid } from '../ids'
 import type { Publication } from '../types'
 import { errorMessage, getJson } from './http'
 import { tidyPersonName } from './names'
+import type { PersonNameAnchor } from './names'
 
 const ORCID_BASE = 'https://pub.orcid.org/v3.0'
 
@@ -153,6 +154,56 @@ export async function fetchOrcidWorks(
   return publications
 }
 
+export interface OrcidPerson {
+  /** credit name if the researcher set one, otherwise `given family` */
+  name?: string
+  /**
+   * `given-names` and `family-name` as ORCID stores them — **separately**.
+   *
+   * This is the whole reason `/person` is worth a request beyond the display
+   * name: it is the only place in this pipeline where a person's name arrives
+   * pre-split, which is what lets `researchmap.ts` measure the order of an
+   * author list instead of assuming one (see `detectNameOrder`).
+   */
+  anchor?: PersonNameAnchor
+}
+
+/**
+ * The researcher's name from `/person`, display form and split form.
+ *
+ * Returns `{}` when ORCID has no name or the request fails — a missing name is
+ * never fatal.
+ */
+export async function fetchOrcidPerson(
+  orcidId: string,
+  signal?: AbortSignal,
+): Promise<OrcidPerson> {
+  const id = normalizeOrcid(orcidId)
+  if (id === '') return {}
+
+  try {
+    const data = await getJson<OrcidPersonResponse>(
+      `${ORCID_BASE}/${encodeURIComponent(id)}/person`,
+      { signal },
+    )
+    // ORCID often stores these shouting ("YUKI FURUKAWA"), hence `tidyPersonName`.
+    const given = tidyPersonName(text(data.name?.['given-names']))
+    const family = tidyPersonName(text(data.name?.['family-name']))
+
+    const person: OrcidPerson = {}
+    if (given !== '' && family !== '') person.anchor = { given, family }
+
+    const credit = tidyPersonName(text(data.name?.['credit-name']))
+    const name = credit !== '' ? credit : [given, family].filter((p) => p !== '').join(' ')
+    if (name !== '') person.name = name
+
+    return person
+  } catch (err) {
+    if (signal?.aborted) throw err
+    return {}
+  }
+}
+
 /**
  * The researcher's display name: the credit name if they set one, otherwise
  * `given family`. Returns `undefined` when ORCID has neither or the request
@@ -162,23 +213,6 @@ export async function fetchOrcidName(
   orcidId: string,
   signal?: AbortSignal,
 ): Promise<string | undefined> {
-  const id = normalizeOrcid(orcidId)
-  if (id === '') return undefined
-
-  try {
-    const data = await getJson<OrcidPersonResponse>(
-      `${ORCID_BASE}/${encodeURIComponent(id)}/person`,
-      { signal },
-    )
-    const credit = tidyPersonName(text(data.name?.['credit-name']))
-    if (credit !== '') return credit
-
-    const given = tidyPersonName(text(data.name?.['given-names']))
-    const family = tidyPersonName(text(data.name?.['family-name']))
-    const full = [given, family].filter((p) => p !== '').join(' ')
-    return full === '' ? undefined : full
-  } catch (err) {
-    if (signal?.aborted) throw err
-    return undefined
-  }
+  const { name } = await fetchOrcidPerson(orcidId, signal)
+  return name
 }

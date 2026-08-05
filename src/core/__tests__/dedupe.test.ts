@@ -178,6 +178,36 @@ describe('dedupePublications', () => {
     expect(warnings[0]).toContain('Cognitive behavioural therapy for insomnia')
   })
 
+  it('carries authorsSource with the author list that survived', () => {
+    const input = [
+      // ORCID work summaries have no author list at all.
+      pub({ title: 'A', doi: '10.1/a', sources: ['orcid'] }),
+      pub({
+        title: 'A',
+        doi: '10.1/a',
+        sources: ['researchmap'],
+        authors: ['Yuki Furukawa', 'Masatsugu Sakata'],
+        authorsFull: ['Yuki Furukawa', 'Masatsugu Sakata'],
+        authorsSource: 'researchmap',
+      }),
+    ]
+
+    const [merged] = dedupePublications(input).publications
+
+    // Without the provenance travelling with the names, the merged record would
+    // look authoritative to openalex.ts and never get upgraded.
+    expect(merged.authors).toEqual(['Yuki Furukawa', 'Masatsugu Sakata'])
+    expect(merged.authorsSource).toBe('researchmap')
+  })
+
+  it('leaves authorsSource unset when no record declared one', () => {
+    const input = [
+      pub({ title: 'A', doi: '10.1/a', authors: ['Furukawa Y'] }),
+      pub({ title: 'A', doi: '10.1/a' }),
+    ]
+    expect(dedupePublications(input).publications[0].authorsSource).toBeUndefined()
+  })
+
   it('warns by name when a same-title/same-year merge happens', () => {
     const input = [
       pub({ title: 'Sleep and mood: a review', doi: '10.1/a', year: 2023 }),

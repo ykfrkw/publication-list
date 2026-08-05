@@ -295,6 +295,29 @@ function formatAuthorList(
 
 const DOI_BASE = 'https://doi.org/'
 
+/**
+ * Does this segment already end in sentence punctuation?
+ *
+ * Trailing close tags are skipped, so `<em>Sleep Med.</em>` counts as ending in
+ * a period while `<b>Furukawa Y</b>` does not.
+ */
+function endsWithTerminalPunctuation(segment: string): boolean {
+  return /[.!?](?:<\/[a-z]+>)*$/.test(segment)
+}
+
+/**
+ * Terminate a citation segment with a period, unless it already ends in one.
+ *
+ * Three of the strings this module assembles arrive pre-terminated and the
+ * unconditional `${x}.` produced a visible double period on real data:
+ * `formatAuthorList` ends a truncated list with "et al." (20 of 34 records in
+ * the live check), PubMed titles routinely carry a trailing period, and
+ * abbreviated journal names such as "Sleep Med." do too.
+ */
+function terminate(segment: string): string {
+  return endsWithTerminalPunctuation(segment) ? segment : `${segment}.`
+}
+
 function buildCitation(
   pub: Publication,
   style: CitationStyle,
@@ -333,8 +356,8 @@ function buildCitation(
       parts = [
         authorStr,
         year && `(${year}).`,
-        title && `${title}.`,
-        journal && `${journal}.`,
+        title && terminate(title),
+        journal && terminate(journal),
         doiPart,
       ]
       break
@@ -344,15 +367,15 @@ function buildCitation(
         authorStr,
         year && `(${year})`,
         title && `'${title}',`,
-        journal && `${journal}.`,
+        journal && terminate(journal),
         doiPart,
       ]
       break
     case 'chicago':
       // Authors. "Title." Journal (Year). doi: …
       parts = [
-        authorStr && `${authorStr}.`,
-        title && `"${title}."`,
+        authorStr && terminate(authorStr),
+        title && `"${terminate(title)}"`,
         journal,
         year && `(${year}).`,
         doiPart,
@@ -361,8 +384,8 @@ function buildCitation(
     case 'nature':
       // Authors. Title. Journal **Year**. doi: …
       parts = [
-        authorStr && `${authorStr}.`,
-        title && `${title}.`,
+        authorStr && terminate(authorStr),
+        title && terminate(title),
         journal,
         year && `${yearBold}.`,
         doiPart,
@@ -372,9 +395,9 @@ function buildCitation(
     default:
       // Authors. Title. Journal. Year. doi: …
       parts = [
-        authorStr && `${authorStr}.`,
-        title && `${title}.`,
-        journal && `${journal}.`,
+        authorStr && terminate(authorStr),
+        title && terminate(title),
+        journal && terminate(journal),
         year && `${year}.`,
         doiPart,
       ]

@@ -17,6 +17,11 @@ interface OpenAlexFixture {
 }
 
 const works = loadFixture<OpenAlexFixture>('openalex-works.json')
+/**
+ * `works?filter=doi:10.1093/sleepadvances/zpaf070`, captured 2026-08-05 — the
+ * record researchmap supplies as `Türkmen C`, `van Dalfsen JH` and so on.
+ */
+const shortFormWork = loadFixture<OpenAlexFixture>('openalex-works-short-form.json')
 
 function pub(overrides: Partial<Publication> & Pick<Publication, 'title'>): Publication {
   const base: Publication = {
@@ -40,7 +45,15 @@ afterEach(() => {
 })
 
 describe('enrichByDoi', () => {
-  it('fills only the gaps and never overwrites a populated field', async () => {
+  // NARROWED 2026-08-05. This used to read "never overwrites a populated
+  // field", which is still true of every scalar and of an author list that is
+  // full and aligned — the case asserted below. It is NOT true of author names
+  // in general any more: a populated `authorsFull` full of short forms, or one
+  // that came from researchmap, is now upgraded rather than preserved. That
+  // rule change has its own tests further down; this one pins the half that
+  // still holds, because "OpenAlex must not win over a curated seed record" is
+  // the reason this module exists.
+  it('fills only the gaps, and never overwrites a populated scalar or a usable author list', async () => {
     const stub = stubFetch(() => works)
     restore = stub.restore
 
@@ -81,6 +94,112 @@ describe('enrichByDoi', () => {
 
     // The input array is not mutated.
     expect(input[1].journal).toBe('')
+  })
+
+  it('upgrades short forms that were stored as full names', async () => {
+    const stub = stubFetch(() => shortFormWork)
+    restore = stub.restore
+
+    // Exactly what researchmap used to hand over for this DOI: `Türkmen C` and
+    // friends parked in `authorsFull`, which made every downstream consumer
+    // believe the full names were already known.
+    const input = [
+      pub({
+        title: 'Cognitive behavioral therapy for insomnia as a suicide prevention strategy',
+        authors: ['Türkmen C', 'Schneider CL', 'Furukawa Y', 'van Dalfsen JH'],
+        authorsFull: ['Türkmen C', 'Schneider CL', 'Furukawa Y', 'van Dalfsen JH'],
+        doi: '10.1093/sleepadvances/zpaf070',
+      }),
+    ]
+
+    const out = await enrichByDoi(input)
+
+    expect(out[0].authorsFull.slice(0, 4)).toEqual([
+      'Cagdas Türkmen',
+      'Carlotta L. Schneider',
+      'Yuki Furukawa',
+      'Jens H. van Dalfsen',
+    ])
+    // Replaced together, so the two arrays stay index-aligned — format.ts stops
+    // bolding anyone the moment they diverge.
+    expect(out[0].authors).toHaveLength(out[0].authorsFull.length)
+    expect(out[0].authors.slice(0, 4)).toEqual([
+      'Türkmen C',
+      'Schneider CL',
+      'Furukawa Y',
+      'van Dalfsen JH',
+    ])
+    expect(out[0].authorsSource).toBe('openalex')
+  })
+
+  it('upgrades researchmap-derived names even when they look full', async () => {
+    const stub = stubFetch(() => shortFormWork)
+    restore = stub.restore
+
+    // Raw researchmap strings of undetermined order: full-looking, but nothing
+    // established whether they read given-first or family-first.
+    const input = [
+      pub({
+        title: 'Cognitive behavioral therapy for insomnia as a suicide prevention strategy',
+        authors: ['Cagdas Türkmen', 'Carlotta L. Schneider'],
+        authorsFull: ['Cagdas Türkmen', 'Carlotta L. Schneider'],
+        authorsSource: 'researchmap',
+        doi: '10.1093/sleepadvances/zpaf070',
+      }),
+    ]
+
+    const out = await enrichByDoi(input)
+
+    expect(out[0].authors[0]).toBe('Türkmen C')
+    expect(out[0].authorsSource).toBe('openalex')
+  })
+
+  it('leaves researchmap names alone when OpenAlex has none to offer', async () => {
+    const stub = stubFetch(() => ({ results: [{ doi: 'https://doi.org/10.1/x', authorships: [] }] }))
+    restore = stub.restore
+
+    const out = await enrichByDoi([
+      pub({
+        title: 'x',
+        authors: ['Otsuki R'],
+        authorsFull: ['Rei Otsuki'],
+        authorsSource: 'researchmap',
+        doi: '10.1/x',
+      }),
+    ])
+
+    expect(out[0].authors).toEqual(['Otsuki R'])
+    expect(out[0].authorsFull).toEqual(['Rei Otsuki'])
+  })
+
+  it('does not re-request a DOI whose record was already built from OpenAlex', async () => {
+    const stub = stubFetch(() => works)
+    restore = stub.restore
+
+    const out = await enrichByDoi(
+      [
+        pub({ title: 'Pinned', doi: '10.1136/bmj.n71' }),
+        pub({ title: 'Seeded', doi: '10.1007/s41105-026-00635-x' }),
+      ],
+      undefined,
+      { skipDois: new Set(['10.1136/bmj.n71']) },
+    )
+
+    const filter = decodeURIComponent(new URL(stub.calls[0]).searchParams.get('filter') ?? '')
+    expect(stub.calls).toHaveLength(1)
+    expect(filter).toBe('doi:10.1007/s41105-026-00635-x')
+    expect(out[0].journal).toBe('')
+  })
+
+  it('makes no request at all when every DOI is already enriched', async () => {
+    const stub = stubFetch(() => works)
+    restore = stub.restore
+
+    await enrichByDoi([pub({ title: 'Pinned', doi: '10.1136/bmj.n71' })], undefined, {
+      skipDois: new Set(['10.1136/bmj.n71']),
+    })
+
+    expect(stub.calls).toHaveLength(0)
   })
 
   it('sends a select= projection and no mailto', async () => {

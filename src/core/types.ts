@@ -22,6 +22,15 @@ export type PublicationCategory =
 
 export type SourceName = 'orcid' | 'pubmed' | 'researchmap' | 'manual'
 
+/**
+ * Where the author names on a record came from.
+ *
+ * Wider than `SourceName` because the enrichment stages write author names too,
+ * and the point of the field is to rank *name quality*, not to record which seed
+ * found the work (that is `Publication.sources`).
+ */
+export type AuthorNameSource = SourceName | 'openalex' | 'crossref'
+
 /** confirmed = auto-included; candidate = needs review */
 export type Trust = 'confirmed' | 'candidate'
 
@@ -31,8 +40,24 @@ export interface Publication {
   title: string
   /** short form, e.g. "Furukawa Y" */
   authors: string[]
-  /** full form when available, e.g. "Yuki Furukawa" */
+  /**
+   * Full form when available, e.g. "Yuki Furukawa".
+   *
+   * Only genuinely full names belong here (see `isFullPersonName`). A short
+   * form parked in this array reads as "we already have the full names" to
+   * `openalex.ts`, `crossref.ts` and the bold-name repair in `pipeline.ts`, all
+   * of which then decline to fetch the real ones.
+   */
   authorsFull: string[]
+  /**
+   * Provenance of `authors` / `authorsFull`, so enrichment can tell an upgrade
+   * from an overwrite. `undefined` means "unknown, treat as authoritative".
+   *
+   * researchmap-derived names rank *below* everything else: its `authors.en`
+   * order varies per account, and it stores short forms in a field that reads
+   * like a full-name field.
+   */
+  authorsSource?: AuthorNameSource
   journal: string
   year: number
   month?: number

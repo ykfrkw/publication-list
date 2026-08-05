@@ -263,6 +263,75 @@ describe('author truncation', () => {
   })
 })
 
+// ───────────────────────────────────────────── segments that self-terminate ──
+
+describe('segments that already end in a period', () => {
+  /** Real shape: >6 authors, so the list ends in "et al." */
+  const truncated = makePub({
+    authors: [
+      'Furukawa Y', 'Sakata M', 'Cipriani A', 'Efthimiou O',
+      'Perlis M', 'Luo Y', 'Noma H',
+    ],
+    authorsFull: [
+      'Yuki Furukawa', 'Masatsugu Sakata', 'Andrea Cipriani', 'Orestis Efthimiou',
+      'Michael Perlis', 'Yan Luo', 'Hisashi Noma',
+    ],
+  })
+
+  it('does not double the period after "et al."', () => {
+    // 20 of 34 citations in the 2026-08-05 live run read "…, et al.." here.
+    for (const style of ['vancouver', 'chicago', 'nature'] as const) {
+      const html = formatCitation(truncated, style)
+      expect(html).toContain('Furukawa Y, Sakata M, Cipriani A, et al.')
+      expect(html).not.toContain('et al..')
+    }
+    expect(formatCitationPlain(truncated, 'vancouver')).not.toContain('et al..')
+  })
+
+  it('still terminates an author list of six or fewer', () => {
+    expect(formatCitation(makePub(), 'vancouver')).toContain('Cipriani A. ')
+  })
+
+  it('does not double the period after a title that carries its own', () => {
+    // PubMed titles routinely arrive with a trailing period.
+    const pub = makePub({
+      title: 'Mental Health of Health Care Workers During the COVID-19 Pandemic.',
+    })
+    for (const style of ['vancouver', 'apa', 'chicago', 'nature'] as const) {
+      const html = formatCitation(pub, style)
+      expect(html).not.toContain('Pandemic..')
+      expect(html).toContain('Pandemic.')
+    }
+    expect(formatCitationPlain(pub, 'vancouver')).not.toContain('Pandemic..')
+  })
+
+  it('keeps the quotes around a Chicago title outside its period', () => {
+    const pub = makePub({ title: 'Sleep and depression.' })
+    expect(formatCitation(pub, 'chicago')).toContain('"Sleep and depression."')
+  })
+
+  it('does not double the period after an abbreviated journal name', () => {
+    // The period lands outside <em>, so the check has to see through the tag.
+    const pub = makePub({ journal: 'Sleep Med.' })
+    for (const style of ['vancouver', 'apa', 'harvard'] as const) {
+      expect(formatCitation(pub, style)).toContain('<em>Sleep Med.</em>')
+      expect(formatCitation(pub, style)).not.toContain('<em>Sleep Med.</em>.')
+    }
+    expect(formatCitationPlain(pub, 'vancouver')).not.toContain('Sleep Med..')
+  })
+
+  it('still terminates a journal name that does not', () => {
+    expect(formatCitation(makePub(), 'vancouver')).toContain(
+      '<em>JAMA Psychiatry</em>.',
+    )
+  })
+
+  it('leaves a bolded last author terminated', () => {
+    const html = formatCitation(makePub(), 'vancouver', ['Andrea Cipriani'])
+    expect(html).toContain('<b>Cipriani A</b>. ')
+  })
+})
+
 describe('HTML escaping of upstream metadata', () => {
   it('escapes the title and the journal', () => {
     const pub = makePub({

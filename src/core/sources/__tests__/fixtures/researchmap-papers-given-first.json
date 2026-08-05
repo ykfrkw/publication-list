@@ -1,0 +1,198 @@
+{
+  "total_items": 4,
+  "items": [
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/published_papers/52957436",
+      "rm:id": "52957436",
+      "paper_title": {
+        "en": "Efficacy of 3,4-methylenedioxymethamphetamine (MDMA)-assisted therapy for posttraumatic stress disorder: A systematic review and meta-analysis of clinical and functional outcomes"
+      },
+      "authors": {
+        "en": [
+          {
+            "name": "Natalia E. Fares-Otero"
+          },
+          {
+            "name": "Yuki Furukawa"
+          },
+          {
+            "name": "Marit Sijbrandij"
+          },
+          {
+            "name": "Stefan Leucht"
+          },
+          {
+            "name": "Eduard Vieta"
+          },
+          {
+            "name": "Pim Cuijpers"
+          },
+          {
+            "name": "Mathias Harrer"
+          },
+          {
+            "name": "Soraya Seedat"
+          }
+        ]
+      },
+      "publication_date": "2026-06",
+      "publication_name": {
+        "en": "European Neuropsychopharmacology"
+      },
+      "published_paper_type": "scientific_journal",
+      "identifiers": {
+        "doi": [
+          "10.1016/j.euroneuro.2026.112802"
+        ],
+        "orcid_put_cd": [
+          "208211873"
+        ]
+      }
+    },
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/published_papers/52144648",
+      "rm:id": "52144648",
+      "paper_title": {
+        "en": "Cognitive behavioral therapy for insomnia as a suicide prevention strategy: a protocol for a systematic review and meta-analysis."
+      },
+      "authors": {
+        "en": [
+          {
+            "name": "Türkmen C"
+          },
+          {
+            "name": "Schneider CL"
+          },
+          {
+            "name": "Furukawa Y"
+          },
+          {
+            "name": "van Dalfsen JH"
+          },
+          {
+            "name": "McCall WV"
+          },
+          {
+            "name": "Pigeon WR"
+          },
+          {
+            "name": "Tubbs AS"
+          },
+          {
+            "name": "Perlis ML"
+          },
+          {
+            "name": "Riemann D"
+          },
+          {
+            "name": "Spiegelhalder K"
+          },
+          {
+            "name": "Langsrud K"
+          },
+          {
+            "name": "Kallestad H"
+          },
+          {
+            "name": "Hertenstein E"
+          }
+        ]
+      },
+      "publication_date": "2025-10-09",
+      "publication_name": {
+        "en": "Sleep advances : a journal of the Sleep Research Society"
+      },
+      "published_paper_type": "scientific_journal",
+      "identifiers": {
+        "doi": [
+          "10.1093/sleepadvances/zpaf070"
+        ],
+        "orcid_put_cd": [
+          "204255060"
+        ],
+        "pm_id": [
+          "41278217"
+        ],
+        "pmc_id": [
+          "PMC12640200"
+        ]
+      }
+    },
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/published_papers/47548066",
+      "rm:id": "47548066",
+      "paper_title": {
+        "en": "Initial treatment choices for long‐term remission of chronic insomnia disorder in adults: a systematic review and network meta‐analysis"
+      },
+      "authors": {
+        "en": [
+          {
+            "name": "Yuki Furukawa"
+          },
+          {
+            "name": "Masatsugu Sakata"
+          },
+          {
+            "name": "Toshiaki A. Furukawa"
+          },
+          {
+            "name": "Orestis Efthimiou"
+          },
+          {
+            "name": "Michael Perlis"
+          }
+        ]
+      },
+      "publication_date": "2024-08-26",
+      "publication_name": {
+        "en": "Psychiatry and Clinical Neurosciences"
+      },
+      "published_paper_type": "scientific_journal",
+      "identifiers": {
+        "doi": [
+          "10.1111/pcn.13730"
+        ],
+        "issn": [
+          "1323-1316"
+        ],
+        "e_issn": [
+          "1440-1819"
+        ]
+      },
+      "referee": true
+    },
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/published_papers/48340514",
+      "rm:id": "48340514",
+      "paper_title": {
+        "en": "Tasuki for neck pain: An individually-randomized, open-label, waiting-list-controlled trial."
+      },
+      "authors": {
+        "en": [
+          {
+            "name": "YUKI FURUKAWA"
+          }
+        ]
+      },
+      "publication_date": "2019-11-08",
+      "publication_name": {
+        "en": "Journal of occupational health"
+      },
+      "published_paper_type": "scientific_journal",
+      "identifiers": {
+        "doi": [
+          "10.1002/1348-9585.12097"
+        ],
+        "orcid_put_cd": [
+          "92009571"
+        ],
+        "pm_id": [
+          "31705728"
+        ],
+        "pmc_id": [
+          "PMC6970410"
+        ]
+      }
+    }
+  ]
+}

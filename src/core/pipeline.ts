@@ -28,11 +28,12 @@ import { normalizeDoi, parseIdRef, pubKey, stripDoiVersion } from './ids'
 import { dedupePublications } from './dedupe'
 import { categorizeAll } from './categorize'
 import { matchesBoldName } from './format'
-import { fetchOrcidName, fetchOrcidWorksWithWarnings } from './sources/orcid'
+import { fetchOrcidPerson, fetchOrcidWorksWithWarnings } from './sources/orcid'
 import {
-  fetchResearchmapName,
+  fetchResearchmapProfile,
   fetchResearchmapWorksWithWarnings,
 } from './sources/researchmap'
+import type { ResearchmapProfile } from './sources/researchmap'
 import {
   fetchPubmedSummariesWithWarnings,
   isAuidQuery,
@@ -49,6 +50,7 @@ import {
 } from './sources/crossref'
 import { chunk, errorMessage, getJson } from './sources/http'
 import { formatAuthorShort } from './sources/names'
+import type { PersonNameAnchor } from './sources/names'
 
 export interface BuildListOptions {
   /** Caller-owned cancellation, propagated to every request. */
@@ -120,33 +122,89 @@ export function mergeMembers(members: Member[]): Member[] {
   })
 }
 
-async function resolveMembers(
+interface SeedResolution {
+  /** Merged member rows. Resolves once any researchmap profile lookup lands. */
+  members: Promise<Member[]>
+  /**
+   * Everyone whose given/family split is known, so `researchmap.ts` can measure
+   * whether an author list is written given-first or family-first instead of
+   * assuming. Same timing as `members`; handed straight to the papers fetch so
+   * the two requests overlap.
+   */
+  anchors: Promise<PersonNameAnchor[]>
+}
+
+/**
+ * Resolve seed identifiers to people.
+ *
+ * Awaits only the ORCID `/person` calls — cheap (~200 ms, a few hundred bytes)
+ * and the only endpoint here that returns a name pre-split. Everything that
+ * depends on a researchmap profile comes back as a promise so the caller can
+ * fire the papers request against it rather than after it.
+ *
+ * A researchmap profile costs ~2 s and ~60–200 KB to yield the same two fields,
+ * so it is skipped outright once an ORCID seed has supplied both a display name
+ * (or `config.boldNames` has) *and* an anchor. `boldNames` alone is not enough:
+ * it covers the display-name half of what the profile is for and nothing of the
+ * name-order half, and dropping the anchor is what corrupts author names.
+ *
+ * When the profile is skipped and exactly one ORCID name was resolved, that
+ * name is attributed to the researchmap seed too. It is the same assumption the
+ * skip itself rests on — one person, seeded twice — and without it
+ * `mergeMembers` would split them into two rows purely because we declined to
+ * pay for the lookup.
+ */
+async function resolveSeeds(
   config: ListConfig,
   signal?: AbortSignal,
-): Promise<Member[]> {
+): Promise<SeedResolution> {
   const orcids = config.seeds.orcid ?? []
   const researchmaps = config.seeds.researchmap ?? []
-  if (orcids.length === 0 && researchmaps.length === 0) return []
+  if (orcids.length === 0 && researchmaps.length === 0) {
+    return { members: Promise.resolve([]), anchors: Promise.resolve([]) }
+  }
 
-  const names = await Promise.all([
-    ...orcids.map((id) => fetchOrcidName(id, signal)),
-    ...researchmaps.map((id) => fetchResearchmapName(id, signal)),
+  const people = await Promise.all(orcids.map((id) => fetchOrcidPerson(id, signal)))
+  const orcidAnchors = people
+    .map((p) => p.anchor)
+    .filter((a): a is PersonNameAnchor => a !== undefined)
+
+  const namedByOrcid = [...new Set(people.map((p) => p.name).filter((n): n is string => !!n))]
+  const skipProfile =
+    orcidAnchors.length > 0 && (namedByOrcid.length > 0 || !!config.boldNames?.length)
+
+  // Deliberately not awaited: the caller passes `anchors` into the papers
+  // fetch, so a profile lookup that does happen runs alongside it.
+  const profiles: Promise<ResearchmapProfile[]> = skipProfile
+    ? Promise.resolve(researchmaps.map(() => ({})))
+    : Promise.all(researchmaps.map((id) => fetchResearchmapProfile(id, signal)))
+
+  const inheritedName = skipProfile && namedByOrcid.length === 1 ? namedByOrcid[0] : undefined
+
+  const anchors = profiles.then((resolved) => [
+    ...orcidAnchors,
+    ...resolved
+      .map((p) => p.anchor)
+      .filter((a): a is PersonNameAnchor => a !== undefined),
   ])
 
-  const raw: Member[] = []
-  orcids.forEach((id, i) => {
-    const member: Member = { id, orcid: id }
-    if (names[i]) member.name = names[i]
-    raw.push(member)
-  })
-  researchmaps.forEach((id, i) => {
-    const member: Member = { id, researchmap: id }
-    const name = names[orcids.length + i]
-    if (name) member.name = name
-    raw.push(member)
+  const members = profiles.then((resolved) => {
+    const raw: Member[] = []
+    orcids.forEach((id, i) => {
+      const member: Member = { id, orcid: id }
+      if (people[i].name) member.name = people[i].name
+      raw.push(member)
+    })
+    researchmaps.forEach((id, i) => {
+      const member: Member = { id, researchmap: id }
+      const name = resolved[i].name ?? inheritedName
+      if (name) member.name = name
+      raw.push(member)
+    })
+    return mergeMembers(raw)
   })
 
-  return mergeMembers(raw)
+  return { members, anchors }
 }
 
 // ────────────────────────────────────────────────────────── bold names ──
@@ -305,6 +363,7 @@ async function fetchPinnedDois(
           title,
           authors: fullNames.map((n) => formatAuthorShort(n)),
           authorsFull: fullNames,
+          authorsSource: 'openalex',
           journal: (work.primary_location?.source?.display_name ?? '').trim(),
           year:
             typeof work.publication_year === 'number' ? work.publication_year : 0,
@@ -463,35 +522,35 @@ export async function buildList(
   const warnings: string[] = []
 
   // ── 1. seeds → members ────────────────────────────────────────────────
+  // Only the ORCID `/person` calls are awaited here. Anything that needs a
+  // researchmap profile comes back as a promise and is resolved during stage 2,
+  // so the slowest profile lookup overlaps the works fetches instead of
+  // preceding them.
   report(2, 'Resolving seed profiles')
-  const members = await resolveMembers(config, signal)
-  const boldNames = resolveBoldNames(config.boldNames, members)
+  const seeds = await resolveSeeds(config, signal)
 
   // ── 2. fetch ──────────────────────────────────────────────────────────
   report(10, 'Fetching publications')
   const fetched: Publication[] = []
 
   const orcidSeeds = config.seeds.orcid ?? []
-  if (orcidSeeds.length > 0) {
-    const results = await Promise.all(
-      orcidSeeds.map((id) => fetchOrcidWorksWithWarnings(id, signal)),
-    )
-    for (const result of results) {
-      fetched.push(...result.publications)
-      warnings.push(...result.warnings)
-    }
+  const researchmapSeeds = config.seeds.researchmap ?? []
+
+  const [orcidResults, researchmapResults] = await Promise.all([
+    Promise.all(orcidSeeds.map((id) => fetchOrcidWorksWithWarnings(id, signal))),
+    Promise.all(
+      researchmapSeeds.map((id) =>
+        fetchResearchmapWorksWithWarnings(id, { signal, anchors: seeds.anchors }),
+      ),
+    ),
+  ])
+  for (const result of [...orcidResults, ...researchmapResults]) {
+    fetched.push(...result.publications)
+    warnings.push(...result.warnings)
   }
 
-  const researchmapSeeds = config.seeds.researchmap ?? []
-  if (researchmapSeeds.length > 0) {
-    const results = await Promise.all(
-      researchmapSeeds.map((id) => fetchResearchmapWorksWithWarnings(id, signal)),
-    )
-    for (const result of results) {
-      fetched.push(...result.publications)
-      warnings.push(...result.warnings)
-    }
-  }
+  const members = await seeds.members
+  const boldNames = resolveBoldNames(config.boldNames, members)
 
   // PubMed runs serially: `sources/pubmed.ts` already funnels every request
   // through one rate limiter, so parallelism here would only queue.
@@ -582,6 +641,11 @@ export async function buildList(
     }
   }
 
+  // DOIs already materialized straight out of an OpenAlex work. Stage 5 skips
+  // them: `fetchPinnedDois` copies exactly the fields `mergeOpenAlexWork` would,
+  // so re-requesting them buys nothing but a round trip.
+  const enrichedDois = new Set<string>()
+
   if (missingDois.length > 0) {
     const pinned = await fetchPinnedDois(missingDois, signal)
     working = [...working, ...pinned.publications]
@@ -589,6 +653,9 @@ export async function buildList(
     const found = new Set(
       pinned.publications.map((p) => stripDoiVersion(p.doi ?? '').doi),
     )
+    for (const pub of pinned.publications) {
+      if (pub.doi) enrichedDois.add(pub.doi)
+    }
     for (const doi of missingDois) {
       if (!found.has(stripDoiVersion(doi).doi)) {
         warnings.push(`Pinned DOI ${doi} could not be retrieved.`)
@@ -608,7 +675,7 @@ export async function buildList(
   // Must finish before ANY rendering: `format.ts` decides bold authors from
   // `authorsFull`, and OpenAlex is what populates it.
   report(58, 'Enriching metadata (OpenAlex)')
-  const byDoi = await enrichByDoiWithWarnings(pubs, signal)
+  const byDoi = await enrichByDoiWithWarnings(pubs, signal, { skipDois: enrichedDois })
   pubs = byDoi.publications
   warnings.push(...byDoi.warnings)
 

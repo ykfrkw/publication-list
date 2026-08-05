@@ -1,0 +1,105 @@
+{
+  "meta": {
+    "count": 1
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W4416738516",
+      "doi": "https://doi.org/10.1093/sleepadvances/zpaf070",
+      "ids": {
+        "openalex": "https://openalex.org/W4416738516",
+        "doi": "https://doi.org/10.1093/sleepadvances/zpaf070",
+        "pmid": "https://pubmed.ncbi.nlm.nih.gov/41278217"
+      },
+      "type": "review",
+      "title": "Cognitive behavioral therapy for insomnia as a suicide prevention strategy: a protocol for a systematic review and meta-analysis",
+      "publication_year": 2025,
+      "publication_date": "2025-01-01",
+      "primary_location": {
+        "source": {
+          "display_name": "SLEEP Advances"
+        }
+      },
+      "authorships": [
+        {
+          "raw_author_name": "Cagdas Türkmen",
+          "author": {
+            "display_name": "Cagdas Türkmen"
+          }
+        },
+        {
+          "raw_author_name": "Carlotta L Schneider",
+          "author": {
+            "display_name": "Carlotta L. Schneider"
+          }
+        },
+        {
+          "raw_author_name": "Yuki Furukawa",
+          "author": {
+            "display_name": "Yuki Furukawa"
+          }
+        },
+        {
+          "raw_author_name": "Jens H van Dalfsen",
+          "author": {
+            "display_name": "Jens H. van Dalfsen"
+          }
+        },
+        {
+          "raw_author_name": "William V McCall",
+          "author": {
+            "display_name": "W. Vaughn McCall"
+          }
+        },
+        {
+          "raw_author_name": "Wilfred R Pigeon",
+          "author": {
+            "display_name": "Wilfred R. Pigeon"
+          }
+        },
+        {
+          "raw_author_name": "Andrew S Tubbs",
+          "author": {
+            "display_name": "Andrew Tubbs"
+          }
+        },
+        {
+          "raw_author_name": "Michael L Perlis",
+          "author": {
+            "display_name": "Michael L. Perlis"
+          }
+        },
+        {
+          "raw_author_name": "Dieter Riemann",
+          "author": {
+            "display_name": "Dieter Riemann"
+          }
+        },
+        {
+          "raw_author_name": "Kai Spiegelhalder",
+          "author": {
+            "display_name": "Kai Spiegelhalder"
+          }
+        },
+        {
+          "raw_author_name": "Knut Langsrud",
+          "author": {
+            "display_name": "Knut Langsrud"
+          }
+        },
+        {
+          "raw_author_name": "Håvard Kallestad",
+          "author": {
+            "display_name": "Håvard Kallestad"
+          }
+        },
+        {
+          "raw_author_name": "Elisabeth Hertenstein",
+          "author": {
+            "display_name": "Elisabeth Hertenstein"
+          }
+        }
+      ]
+    }
+  ]
+}

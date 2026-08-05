@@ -104,12 +104,24 @@ function longestArray(
   records: Publication[],
   pick: (pub: Publication) => string[] | undefined,
 ): string[] {
-  let best: string[] = []
+  return [...longestArrayFrom(records, pick).value]
+}
+
+/** `longestArray`, plus which record it came from. */
+function longestArrayFrom(
+  records: Publication[],
+  pick: (pub: Publication) => string[] | undefined,
+): { value: string[]; owner?: Publication } {
+  let value: string[] = []
+  let owner: Publication | undefined
   for (const pub of records) {
     const v = pick(pub)
-    if (Array.isArray(v) && v.length > best.length) best = v
+    if (Array.isArray(v) && v.length > value.length) {
+      value = v
+      owner = pub
+    }
   }
-  return [...best]
+  return { value, owner }
 }
 
 function unionStrings(values: (string[] | undefined)[]): string[] {
@@ -145,10 +157,15 @@ function mergeGroup(group: Publication[]): Publication {
     ? 'confirmed'
     : 'candidate'
 
+  // `authorsSource` describes the array that actually survived, so it has to
+  // travel with it — a merged record carrying researchmap names but no
+  // provenance would be treated as authoritative by `openalex.ts`.
+  const authors = longestArrayFrom(ordered, (p) => p.authors)
+
   const merged: Publication = {
     key: keyOf(base),
     title: firstString(ordered, (p) => p.title) ?? '',
-    authors: longestArray(ordered, (p) => p.authors),
+    authors: [...authors.value],
     authorsFull: longestArray(ordered, (p) => p.authorsFull),
     journal: firstString(ordered, (p) => p.journal) ?? '',
     year: firstNumber(ordered, (p) => p.year) ?? base.year,
@@ -156,6 +173,9 @@ function mergeGroup(group: Publication[]): Publication {
     seedIds: unionStrings(ordered.map((p) => p.seedIds)),
     trust,
   }
+
+  const authorsSource = authors.owner?.authorsSource
+  if (authorsSource !== undefined) merged.authorsSource = authorsSource
 
   const month = firstNumber(ordered, (p) => p.month)
   if (month !== undefined) merged.month = month

@@ -18,13 +18,20 @@
  * Enrichment never overwrites a populated field: the seed (ORCID, researchmap,
  * PubMed) is the researcher's own curated record and outranks OpenAlex.
  *
+ * **Author names are the one exception**, because "populated" turned out not to
+ * mean "usable". researchmap fills `authorsFull` with short forms such as
+ * `Türkmen C` and in an order that varies by account, and a populated-but-short
+ * `authorsFull` is worse than an empty one: it looks like the full names are
+ * already known, so nothing downstream goes and gets them. Names may therefore
+ * be upgraded — see `shouldReplaceAuthorNames` for exactly when.
+ *
  * `Access-Control-Allow-Origin: *` (verified 2026-08-05).
  */
 
 import { normalizeDoi, pubKey, titleSlug } from '../ids'
-import type { Publication } from '../types'
+import type { AuthorNameSource, Publication } from '../types'
 import { chunk, errorMessage, getJson } from './http'
-import { formatAuthorShort } from './names'
+import { formatAuthorShort, isFullPersonName } from './names'
 
 const OPENALEX_WORKS = 'https://api.openalex.org/works'
 
@@ -72,8 +79,66 @@ function isBlank(value: string | undefined): boolean {
   return value === undefined || value.trim() === ''
 }
 
+// ─────────────────────────────────────────────────────── author names ──
+
 /**
- * Copy OpenAlex fields onto a publication, filling gaps only.
+ * How much to trust the author names already on a record.
+ *
+ * Only researchmap sits below the rest, and for two measured reasons: the order
+ * of its `authors.en` varies by account (so the names may not be abbreviatable
+ * at all), and it stores short forms in that field (so `authorsFull` can be
+ * empty even where the seed "has" author names). Everything else — ORCID,
+ * PubMed, Crossref, a pinned OpenAlex record, or `undefined` for a caller that
+ * never said — is treated as authoritative and left alone.
+ */
+function authorNameRank(source: AuthorNameSource | undefined): number {
+  return source === 'researchmap' ? 0 : 1
+}
+
+const OPENALEX_NAME_RANK = 1
+
+/**
+ * Should OpenAlex's author list replace the one already on the record?
+ *
+ * Three ways yes:
+ *
+ * 1. **Gap** — the record has no author names at all (ORCID work summaries
+ *    never carry any).
+ * 2. **Provenance** — the existing names are researchmap-derived, which
+ *    OpenAlex outranks.
+ * 3. **Upgrade** — the existing "full" names are not actually full (`Türkmen C`
+ *    stored as a full name) while the incoming ones are, or the two arrays do
+ *    not line up, which makes `format.ts` fall back to short-form matching.
+ *
+ * Otherwise no: a curated seed record outranks OpenAlex, which is the rule this
+ * module was built on and still the right default.
+ */
+export function shouldReplaceAuthorNames(
+  pub: Publication,
+  incoming: readonly string[],
+  incomingRank = OPENALEX_NAME_RANK,
+): boolean {
+  if (incoming.length === 0) return false
+
+  const authors = pub.authors ?? []
+  const full = pub.authorsFull ?? []
+
+  if (authors.length === 0 && full.length === 0) return true
+  if (authorNameRank(pub.authorsSource) < incomingRank) return true
+  if (full.length === 0 || full.length !== authors.length) return true
+  if (!full.every((n) => isFullPersonName(n)) && incoming.some((n) => isFullPersonName(n))) {
+    return true
+  }
+  return false
+}
+
+/**
+ * Copy OpenAlex fields onto a publication.
+ *
+ * Everything except the author names is gap-fill only. Author names may also be
+ * *upgraded* — see `shouldReplaceAuthorNames` — and when they are, `authors` and
+ * `authorsFull` are replaced together so the two arrays stay index-aligned;
+ * `format.ts` silently stops bolding anyone the moment they diverge.
  *
  * Returns a new object; the input is never mutated. `key` is recomputed
  * because filling in a PMID can promote a record off its title-slug key.
@@ -93,11 +158,11 @@ export function mergeOpenAlexWork(pub: Publication, work: OpenAlexWork): Publica
   const fullNames = (work.authorships ?? [])
     .map((a) => (a.author?.display_name ?? a.raw_author_name ?? '').trim())
     .filter((n) => n !== '')
-  if (merged.authorsFull.length === 0 && fullNames.length > 0) {
+  if (shouldReplaceAuthorNames(merged, fullNames)) {
     merged.authorsFull = fullNames
-  }
-  if (merged.authors.length === 0 && fullNames.length > 0) {
+    // OpenAlex writes display names given-first, whatever the author's culture.
     merged.authors = fullNames.map((n) => formatAuthorShort(n))
+    merged.authorsSource = 'openalex'
   }
 
   // Dates: only ever fill a missing one.
@@ -163,15 +228,32 @@ async function enrichByField(
   return { publications, warnings }
 }
 
+export interface EnrichByDoiOptions {
+  /**
+   * Normalized DOIs whose record was already built from an OpenAlex work.
+   *
+   * `pipeline.ts` materializes pinned DOIs straight out of `works?filter=doi:`,
+   * copying exactly the fields `mergeOpenAlexWork` would copy. Re-requesting
+   * them here would spend a second round trip to compute the same values.
+   */
+  skipDois?: ReadonlySet<string>
+}
+
 /** Enrich every publication that has a DOI, 50 DOIs per request. */
 export async function enrichByDoiWithWarnings(
   pubs: Publication[],
   signal?: AbortSignal,
+  opts: EnrichByDoiOptions = {},
 ): Promise<EnrichResult> {
+  const skip = opts.skipDois
   return enrichByField(
     pubs,
     'doi',
-    (pub) => (isBlank(pub.doi) ? undefined : normalizeDoi(pub.doi as string)),
+    (pub) => {
+      if (isBlank(pub.doi)) return undefined
+      const doi = normalizeDoi(pub.doi as string)
+      return skip?.has(doi) ? undefined : doi
+    },
     (work) => {
       const raw = work.doi ?? work.ids?.doi
       return raw ? normalizeDoi(raw) : undefined
@@ -184,8 +266,9 @@ export async function enrichByDoiWithWarnings(
 export async function enrichByDoi(
   pubs: Publication[],
   signal?: AbortSignal,
+  opts: EnrichByDoiOptions = {},
 ): Promise<Publication[]> {
-  const { publications } = await enrichByDoiWithWarnings(pubs, signal)
+  const { publications } = await enrichByDoiWithWarnings(pubs, signal, opts)
   return publications
 }
 

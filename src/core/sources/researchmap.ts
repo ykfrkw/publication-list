@@ -21,10 +21,14 @@
  *   }] }
  * ```
  *
- * Two shapes bite:
+ * Three shapes bite:
  * - every bilingual field is an object keyed `en` / `ja`, and *either* key can
  *   be missing (not empty — missing);
- * - `identifiers.*` values are arrays, not scalars.
+ * - `identifiers.*` values are arrays, not scalars;
+ * - `authors.en` is **not** a normalized field. Its order is per-account
+ *   (`yk_frkw` writes `Yuki Furukawa`, `7000024045` writes `Osaka Ken'ichi`),
+ *   and it happily holds short forms (`Türkmen C`, `Osaka, K.`) that are not
+ *   full names at all. Both are handled below rather than assumed away.
  *
  * `Access-Control-Allow-Origin: *` (verified 2026-08-05).
  */
@@ -32,7 +36,13 @@
 import { normalizeDoi, normalizeResearchmapId, pubKey, stripDoiVersion } from '../ids'
 import type { Publication } from '../types'
 import { errorMessage, getJson } from './http'
-import { formatAuthorFamilyFirst } from './names'
+import {
+  detectNameOrder,
+  formatAuthorFamilyFirst,
+  formatAuthorShort,
+  isFullPersonName,
+} from './names'
+import type { PersonNameAnchor } from './names'
 
 const RESEARCHMAP_BASE = 'https://api.researchmap.jp'
 /** researchmap paginates; 1000 covers any realistic personal record. */
@@ -72,6 +82,28 @@ interface ResearchmapProfileResponse {
 export interface ResearchmapWorksResult {
   publications: Publication[]
   warnings: string[]
+}
+
+export interface ResearchmapFetchOptions {
+  signal?: AbortSignal
+  /**
+   * People whose given/family split is known independently (ORCID `/person`,
+   * a researchmap profile). Used to measure the order of each `authors.en`
+   * list. Without one, author names are kept verbatim.
+   *
+   * A promise is accepted so the caller can start this request *before* the
+   * anchors are known — parsing needs them, the HTTP round trip does not, and
+   * a researchmap profile lookup is slow enough (~2 s) to be worth overlapping.
+   */
+  anchors?: readonly PersonNameAnchor[] | Promise<readonly PersonNameAnchor[]>
+}
+
+/** Given/family display name pulled off a researchmap profile. */
+export interface ResearchmapProfile {
+  /** `Given Family` in English, or `姓 名` in Japanese. */
+  name?: string
+  /** Only set when the profile carries both halves in the same script. */
+  anchor?: PersonNameAnchor
 }
 
 function clean(value: string | null | undefined): string {
@@ -122,10 +154,23 @@ export function parseResearchmapDate(raw: string | null | undefined): {
   }
 }
 
+/**
+ * Short forms (`Türkmen C`) into `authors`, full names (`Yuki Furukawa`) into
+ * `authorsFull`, and nothing that is not actually full into the latter.
+ *
+ * researchmap mixes the two in the same `authors.en` field — 11 of `yk_frkw`'s
+ * 34 records hold short forms there. Copying those into `authorsFull` is what
+ * stopped OpenAlex from ever supplying the real names.
+ */
+function splitFullNames(names: string[]): string[] {
+  return names.every((n) => isFullPersonName(n)) ? [...names] : []
+}
+
 /** One `items[]` entry → `Publication`. Exported for the unit tests. */
 export function parseResearchmapPaper(
   item: ResearchmapPaper,
   permalink: string,
+  anchors: readonly PersonNameAnchor[] = [],
 ): Publication | undefined {
   const titleEn = clean(item.paper_title?.en)
   const titleJa = clean(item.paper_title?.ja)
@@ -138,15 +183,36 @@ export function parseResearchmapPaper(
   const doiVersion = doi ? stripDoiVersion(doi).version : undefined
   const { year, month } = parseResearchmapDate(item.publication_date)
 
-  // Authors. `authors.en` holds Japanese names in family-first order, so the
-  // family-first formatter is the right one (R commit 9eb5e68). A record with
-  // only `authors.ja` keeps its names verbatim — initialising 田口 良子 to
-  // "田口 良" would be wrong.
+  // Authors. Which way round `authors.en` is written varies by account, so the
+  // order is measured against the seed member's own name rather than assumed
+  // (see `detectNameOrder`). A record with only `authors.ja` keeps its names
+  // verbatim — initialising 田口 良子 to "田口 良" would be wrong.
   const authorsEn = (item.authors?.en ?? []).map((a) => clean(a.name)).filter((n) => n !== '')
   const authorsJa = (item.authors?.ja ?? []).map((a) => clean(a.name)).filter((n) => n !== '')
-  const authorsFull = authorsEn.length > 0 ? authorsEn : authorsJa
-  const authors =
-    authorsEn.length > 0 ? authorsEn.map((n) => formatAuthorFamilyFirst(n)) : [...authorsJa]
+
+  let authors: string[]
+  let authorsFull: string[]
+  if (authorsEn.length === 0) {
+    authors = [...authorsJa]
+    authorsFull = splitFullNames(authorsJa)
+  } else {
+    const order = detectNameOrder(authorsEn, anchors)
+    if (order === 'given-first') {
+      authors = authorsEn.map((n) => formatAuthorShort(n))
+    } else if (order === 'family-first') {
+      authors = authorsEn.map((n) => formatAuthorFamilyFirst(n))
+    } else if (authorsEn.every((n) => !isFullPersonName(n))) {
+      // Every name is already `Family I`; both formatters agree on those, so
+      // this is a tidy-up rather than a guess about the order.
+      authors = authorsEn.map((n) => formatAuthorShort(n))
+    } else {
+      // No anchor, or the list contradicts itself. Abbreviating now would be a
+      // coin flip that silently renames every co-author, so keep the raw
+      // strings and let OpenAlex enrichment replace them (see `authorsSource`).
+      authors = [...authorsEn]
+    }
+    authorsFull = splitFullNames(authorsEn)
+  }
 
   // Language: an item with no English title at all is a Japanese-language
   // paper, whatever `languages` claims. Otherwise trust `languages[0]`.
@@ -160,6 +226,10 @@ export function parseResearchmapPaper(
     title,
     authors,
     authorsFull,
+    // Marks these names as the weakest kind: the order may be undetermined and
+    // the "full" list may be empty. `openalex.ts` uses this to upgrade rather
+    // than merely fill.
+    authorsSource: 'researchmap',
     journal: preferEnglish(item.publication_name),
     year,
     month,
@@ -177,8 +247,9 @@ export function parseResearchmapPaper(
 /** Fetch a researchmap `published_papers` record, with the failure reason. */
 export async function fetchResearchmapWorksWithWarnings(
   permalink: string,
-  signal?: AbortSignal,
+  opts: ResearchmapFetchOptions = {},
 ): Promise<ResearchmapWorksResult> {
+  const { signal } = opts
   const id = normalizeResearchmapId(permalink)
   if (id === '') return { publications: [], warnings: ['researchmap: empty permalink'] }
 
@@ -187,9 +258,10 @@ export async function fetchResearchmapWorksWithWarnings(
       `${RESEARCHMAP_BASE}/${encodeURIComponent(id)}/published_papers?format=json&limit=${PAPER_LIMIT}`,
       { signal },
     )
+    const anchors = (await opts.anchors) ?? []
     const publications: Publication[] = []
     for (const item of data.items ?? []) {
-      const pub = parseResearchmapPaper(item, id)
+      const pub = parseResearchmapPaper(item, id, anchors)
       if (pub) publications.push(pub)
     }
     return { publications, warnings: [] }
@@ -202,10 +274,58 @@ export async function fetchResearchmapWorksWithWarnings(
 /** `fetchResearchmapWorksWithWarnings` without the warnings. */
 export async function fetchResearchmapWorks(
   permalink: string,
-  signal?: AbortSignal,
+  opts: ResearchmapFetchOptions = {},
 ): Promise<Publication[]> {
-  const { publications } = await fetchResearchmapWorksWithWarnings(permalink, signal)
+  const { publications } = await fetchResearchmapWorksWithWarnings(permalink, opts)
   return publications
+}
+
+/**
+ * Display name **and** given/family split from a researchmap profile.
+ *
+ * Both halves matter: the name is what the wizard shows, and the split is the
+ * only name-order anchor available for a researchmap seed that has no ORCID
+ * alongside it.
+ *
+ * This request costs ~2 s and returns ~60–200 KB to extract two fields, so
+ * `pipeline.ts` skips it whenever an ORCID seed has already supplied both.
+ */
+export async function fetchResearchmapProfile(
+  permalink: string,
+  signal?: AbortSignal,
+): Promise<ResearchmapProfile> {
+  const id = normalizeResearchmapId(permalink)
+  if (id === '') return {}
+
+  try {
+    const data = await getJson<ResearchmapProfileResponse>(
+      `${RESEARCHMAP_BASE}/${encodeURIComponent(id)}?format=json`,
+      { signal },
+    )
+    const familyEn = clean(data.family_name?.en)
+    const givenEn = clean(data.given_name?.en)
+    if (familyEn !== '' && givenEn !== '') {
+      return {
+        name: `${givenEn} ${familyEn}`,
+        anchor: { given: givenEn, family: familyEn },
+      }
+    }
+
+    const familyJa = clean(data.family_name?.ja)
+    const givenJa = clean(data.given_name?.ja)
+    if (familyJa !== '' && givenJa !== '') {
+      return {
+        name: `${familyJa} ${givenJa}`,
+        anchor: { given: givenJa, family: familyJa },
+      }
+    }
+
+    const name = familyEn || familyJa || givenEn || givenJa
+    return name === '' ? {} : { name }
+  } catch (err) {
+    if (signal?.aborted) throw err
+    return {}
+  }
 }
 
 /**
@@ -216,25 +336,6 @@ export async function fetchResearchmapName(
   permalink: string,
   signal?: AbortSignal,
 ): Promise<string | undefined> {
-  const id = normalizeResearchmapId(permalink)
-  if (id === '') return undefined
-
-  try {
-    const data = await getJson<ResearchmapProfileResponse>(
-      `${RESEARCHMAP_BASE}/${encodeURIComponent(id)}?format=json`,
-      { signal },
-    )
-    const familyEn = clean(data.family_name?.en)
-    const givenEn = clean(data.given_name?.en)
-    if (familyEn !== '' && givenEn !== '') return `${givenEn} ${familyEn}`
-
-    const familyJa = clean(data.family_name?.ja)
-    const givenJa = clean(data.given_name?.ja)
-    if (familyJa !== '' && givenJa !== '') return `${familyJa} ${givenJa}`
-
-    return familyEn || familyJa || givenEn || givenJa || undefined
-  } catch (err) {
-    if (signal?.aborted) throw err
-    return undefined
-  }
+  const { name } = await fetchResearchmapProfile(permalink, signal)
+  return name
 }

@@ -1,0 +1,147 @@
+{
+  "total_items": 3,
+  "items": [
+    {
+      "@id": "https://api.researchmap.jp/7000024045/published_papers/43333721",
+      "rm:id": "43333721",
+      "paper_title": {
+        "en": "Separate estimation of N export into baseline N leakage without disturbance and N loss due to insect defoliation in a pine forest watershed in central Japan."
+      },
+      "authors": {
+        "en": [
+          {
+            "name": "Tokuchi Naoko"
+          },
+          {
+            "name": "Ohte Nobuhito"
+          },
+          {
+            "name": "Osaka Ken'ichi"
+          },
+          {
+            "name": "Katsuyama Masanori"
+          }
+        ]
+      },
+      "publication_date": "2013-01",
+      "publication_name": {
+        "en": "Environmental monitoring and assessment"
+      },
+      "languages": [
+        "eng"
+      ],
+      "published_paper_type": "scientific_journal",
+      "identifiers": {
+        "doi": [
+          "10.1007/s10661-012-2596-y"
+        ],
+        "issn": [
+          "0167-6369"
+        ],
+        "e_issn": [
+          "1573-2959"
+        ],
+        "pm_id": [
+          "22454049"
+        ],
+        "scopus_id": [
+          "84871972758"
+        ]
+      },
+      "volume": "185",
+      "number": "1",
+      "starting_page": "855",
+      "ending_page": "63"
+    },
+    {
+      "@id": "https://api.researchmap.jp/7000024045/published_papers/49291609",
+      "rm:id": "49291609",
+      "paper_title": {
+        "en": "Water-temperature equation based on oxygen isotope records of cultured freshwater bivalve Corbicula sandai shells from Lake Biwa, Japan"
+      },
+      "authors": {
+        "en": [
+          {
+            "name": "Setogawa, M."
+          },
+          {
+            "name": "Domitsu, H."
+          },
+          {
+            "name": "Sakai, S."
+          },
+          {
+            "name": "Osaka, K."
+          },
+          {
+            "name": "Katsuyama, M."
+          }
+        ]
+      },
+      "publication_date": "2025-01-29",
+      "publication_name": {
+        "en": "Journal of Paleolimnology"
+      },
+      "published_paper_type": "scientific_journal",
+      "identifiers": {
+        "doi": [
+          "10.1007/s10933-024-00351-x"
+        ],
+        "issn": [
+          "0921-2728"
+        ],
+        "e_issn": [
+          "1573-0417"
+        ]
+      },
+      "referee": true
+    },
+    {
+      "@id": "https://api.researchmap.jp/7000024045/published_papers/47601571",
+      "rm:id": "47601571",
+      "paper_title": {
+        "en": "The sources of nitrate exported from a watershed containing mixed forest, paddy fields, and urban areas in Japan: differences between baseflow conditions and rainfall events"
+      },
+      "authors": {
+        "en": [
+          {
+            "name": "Osaka, K."
+          },
+          {
+            "name": "Takatsu, M."
+          },
+          {
+            "name": "Ishibashi, T."
+          },
+          {
+            "name": "Chishiro, S."
+          },
+          {
+            "name": "Nakamura, T."
+          }
+        ]
+      },
+      "publication_date": "2024-09-01",
+      "publication_name": {
+        "en": "Limnology"
+      },
+      "published_paper_type": "scientific_journal",
+      "identifiers": {
+        "doi": [
+          "10.1007/s10201-024-00762-9"
+        ],
+        "issn": [
+          "1439-8621"
+        ],
+        "e_issn": [
+          "1439-863X"
+        ]
+      },
+      "volume": "26",
+      "number": "1",
+      "starting_page": "75",
+      "ending_page": "89",
+      "referee": true
+    }
+  ]
+}

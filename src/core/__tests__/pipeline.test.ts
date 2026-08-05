@@ -162,6 +162,133 @@ describe('buildList — trust assignment', () => {
   )
 })
 
+describe('buildList — seed profiles and author-name order', () => {
+  it(
+    'uses the ORCID name split to read a researchmap author list',
+    async () => {
+      // yk_frkw writes authors.en given-first; the family-first formatter used
+      // to turn "Yuki Furukawa" into "Yuki F" on 25 of its 34 records.
+      useRoutes({
+        // orcid-person.json IS 0000-0003-1317-0220, captured from /person.
+        orcidWorks: { group: [] },
+        researchmapPapers: loadFixture('researchmap-papers-given-first.json'),
+      })
+
+      const model = await buildList(
+        normalizeConfig({
+          seeds: { orcid: [ORCID], researchmap: ['yk_frkw'] },
+        }),
+      )
+
+      const mdma = model.publications.find((p) =>
+        p.doi === '10.1016/j.euroneuro.2026.112802',
+      )
+      expect(mdma?.authors.slice(0, 2)).toEqual(['Fares-Otero NE', 'Furukawa Y'])
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'skips the researchmap profile once ORCID has supplied the name and the split',
+    async () => {
+      useRoutes({
+        // orcid-person.json IS 0000-0003-1317-0220, captured from /person.
+        orcidWorks: { group: [] },
+        researchmapPapers: loadFixture('researchmap-papers-given-first.json'),
+      })
+
+      const model = await buildList(
+        normalizeConfig({
+          seeds: { orcid: [ORCID], researchmap: ['yk_frkw'] },
+        }),
+      )
+
+      // ~2 s and ~60 KB for two fields ORCID already gave us.
+      const profileCalls = stub!.calls.filter(
+        (url) => url.includes('api.researchmap.jp') && !url.includes('published_papers'),
+      )
+      expect(profileCalls).toEqual([])
+      // The saving must not cost the member merge: still one person, not two.
+      expect(model.members).toEqual([
+        {
+          id: ORCID,
+          name: 'Yuki Furukawa',
+          orcid: ORCID,
+          researchmap: 'yk_frkw',
+        },
+      ])
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'still fetches the researchmap profile when it is the only anchor available',
+    async () => {
+      useRoutes()
+
+      const model = await buildList(
+        normalizeConfig({ seeds: { researchmap: [RESEARCHMAP] } }),
+      )
+
+      const profileCalls = stub!.calls.filter(
+        (url) => url.includes('api.researchmap.jp') && !url.includes('published_papers'),
+      )
+      expect(profileCalls).toHaveLength(1)
+      // And the anchor it carries is what makes the names readable.
+      expect(model.publications.some((p) => p.authors.includes('Otsuki R'))).toBe(true)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'does not skip the profile for boldNames alone — that leaves no anchor',
+    async () => {
+      useRoutes()
+
+      await buildList(
+        normalizeConfig({
+          seeds: { researchmap: [RESEARCHMAP] },
+          boldNames: ['Yoshiyuki Kaneko'],
+        }),
+      )
+
+      const profileCalls = stub!.calls.filter(
+        (url) => url.includes('api.researchmap.jp') && !url.includes('published_papers'),
+      )
+      expect(profileCalls).toHaveLength(1)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'lets OpenAlex supply the full names researchmap only had short forms for',
+    async () => {
+      useRoutes({
+        // orcid-person.json IS 0000-0003-1317-0220, captured from /person.
+        orcidWorks: { group: [] },
+        researchmapPapers: loadFixture('researchmap-papers-given-first.json'),
+        openalex: loadFixture('openalex-works-short-form.json'),
+      })
+
+      const model = await buildList(
+        normalizeConfig({
+          seeds: { orcid: [ORCID], researchmap: ['yk_frkw'] },
+          boldNames: ['Yuki Furukawa'],
+        }),
+      )
+
+      const cbti = model.publications.find((p) =>
+        p.doi === '10.1093/sleepadvances/zpaf070',
+      )
+      // researchmap only had "Furukawa Y" here, which cannot tell Yuki from
+      // Yuri — so the bold decision had nothing to work with.
+      expect(cbti?.authorsFull[2]).toBe('Yuki Furukawa')
+      expect(cbti?.authors[3]).toBe('van Dalfsen JH')
+    },
+    TIMEOUT,
+  )
+})
+
 describe('buildList — include / exclude', () => {
   it(
     'builds a list from pinned references alone, with no seeds at all',
@@ -210,6 +337,13 @@ describe('buildList — include / exclude', () => {
       expect(model.publications[0].title).toBe('The PRISMA 2020 statement')
       expect(model.publications[0].journal).toBe('BMJ')
       expect(model.publications[0].trust).toBe('confirmed')
+
+      // …and does not then ask OpenAlex for the same DOI a second time. The pin
+      // lookup already copied every field the enrichment stage would copy.
+      const doiRequests = stub!.calls.filter((url) =>
+        url.includes('api.openalex.org') && url.includes('filter=doi:'),
+      )
+      expect(doiRequests).toHaveLength(1)
     },
     TIMEOUT,
   )

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   commentOutLine,
+  detectPmidQueries,
+  detectPmidQuery,
   formatMemberWindow,
   parseIdList,
   parseMemberLines,
@@ -265,5 +267,65 @@ describe('commentOutLine', () => {
   it('does not comment a line twice', () => {
     const text = '# already\t0000-0002-1825-0097'
     expect(commentOutLine(text, 0, 'again')).toBe(text)
+  })
+})
+
+/**
+ * PMIDs typed into the PubMed-query box.
+ *
+ * The query this fires on is the one the SLEEPI list was built with, verbatim.
+ * It returned exactly the five wanted papers and still produced an empty list,
+ * because a query that is not an `[auid]` search yields candidates and a
+ * candidate is not published — whereas the same five identifiers in the pinned
+ * box are confirmed outright. Detecting the shape is what lets the wizard say
+ * so before ten minutes are spent on a snippet that renders nothing.
+ */
+describe('detectPmidQuery', () => {
+  /** The owner's actual configuration, character for character. */
+  const OWNER =
+    '("SLEEPI"[author]) OR (38231522 [pmid] OR 39242039 [pmid] OR 39188094 [pmid] OR 41061442 [pmid] OR 40703853 [pmid])'
+
+  it('fires on the owner’s query and recovers all five identifiers', () => {
+    const hint = detectPmidQuery(OWNER)
+    expect(hint).not.toBeNull()
+    expect(hint?.refs).toEqual([
+      'pmid:38231522',
+      'pmid:39242039',
+      'pmid:39188094',
+      'pmid:41061442',
+      'pmid:40703853',
+    ])
+    // Five of the six field-tagged terms; `[author]` is the sixth.
+    expect(hint?.pmidTerms).toBe(5)
+    expect(hint?.terms).toBe(6)
+  })
+
+  it('fires on a query that is nothing but PMIDs', () => {
+    expect(detectPmidQuery('38231522[pmid] OR 39242039[pmid]')?.refs).toHaveLength(2)
+    expect(detectPmidQuery('38231522[uid]')?.refs).toEqual(['pmid:38231522'])
+  })
+
+  it('does not fire on an ordinary author query', () => {
+    expect(detectPmidQuery('Furukawa Y[au] AND (Tokyo[ad])')).toBeNull()
+    expect(detectPmidQuery('Tanaka H[au] AND ("Univ Tokyo"[ad]) AND 2019:2026[dp]')).toBeNull()
+  })
+
+  it('does not mistake an [auid] search for a [uid] one', () => {
+    expect(detectPmidQuery('0000-0003-1317-0220[auid]')).toBeNull()
+  })
+
+  it('leaves a real search alone when one PMID is OR-ed onto it', () => {
+    // Two field-tagged terms, one of them a PMID: a pin bolted onto a search,
+    // not a list of pins. "Mostly" means a strict majority.
+    expect(detectPmidQuery('Furukawa Y[au] OR 38231522[pmid]')).toBeNull()
+  })
+
+  it('reads the whole textarea, one hint per offending line', () => {
+    const hints = detectPmidQueries(
+      `Furukawa Y[au] AND (Tokyo[ad])\n# a comment\n${OWNER}\n38231522[pmid]`,
+    )
+    expect(hints).toHaveLength(2)
+    expect(hints[0].refs).toHaveLength(5)
+    expect(hints[1].refs).toEqual(['pmid:38231522'])
   })
 })

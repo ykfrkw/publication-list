@@ -25,7 +25,14 @@
  *   9. split               confirmed → publications, candidate → candidates
  */
 
-import type { ListConfig, ListModel, Member, Publication, Trust } from './types'
+import type {
+  DroppedCounts,
+  ListConfig,
+  ListModel,
+  Member,
+  Publication,
+  Trust,
+} from './types'
 import type { IdRef } from './ids'
 import {
   matchesIdRef,
@@ -512,6 +519,20 @@ export async function buildList(
   const signal = opts.signal
   const report = (pct: number, message: string) => opts.onProgress?.(pct, message)
   const warnings: string[] = []
+  /**
+   * Filled in as each filtering stage runs. Every increment below sits next to
+   * the `warnings.push` that already describes the same drop in prose — the
+   * counts exist so the wizard can say *which* filter emptied a list, which the
+   * prose cannot do once there are several of them.
+   */
+  const dropped: DroppedCounts = {
+    excluded: 0,
+    window: 0,
+    erratum: 0,
+    preprint: 0,
+    dateRange: 0,
+    limit: 0,
+  }
 
   // ── 1. seeds → members ────────────────────────────────────────────────
   // Only the ORCID `/person` calls are awaited here. Anything that needs a
@@ -703,6 +724,7 @@ export async function buildList(
         }
       }
     }
+    dropped.excluded += working.length - kept.length
     working = kept
   }
 
@@ -793,6 +815,7 @@ export async function buildList(
   // departed student and a current member survives on the current member's
   // seed. Pinned records are exempt outright.
   const windowed = applySeedWindows(pubs, config)
+  dropped.window += pubs.length - windowed.publications.length
   pubs = windowed.publications
   warnings.push(...windowed.warnings)
 
@@ -800,6 +823,7 @@ export async function buildList(
   report(88, 'Categorizing')
   const categorized = categorizeAll(pubs)
   pubs = categorized.publications
+  dropped.erratum += categorized.excluded.length
   if (categorized.excluded.length > 0) {
     warnings.push(
       `Excluded ${categorized.excluded.length} record(s) categorized as erratum or ` +
@@ -821,6 +845,7 @@ export async function buildList(
     const held = pubs.filter((p) => p.category === 'preprint')
     if (held.length > 0) {
       pubs = pubs.filter((p) => p.category !== 'preprint')
+      dropped.preprint += held.length
       // Only mention the open-review rule when it actually applies, so nobody
       // reads it as "one of your journal articles was dropped".
       const openReview = held.filter((p) => isOpenReviewJournal(p.journal))
@@ -842,12 +867,14 @@ export async function buildList(
   const from = config.from ? yearMonthBound(config.from, 1) : null
   const to = config.to ? yearMonthBound(config.to, 12) : null
   if (from != null || to != null) {
+    const before = pubs.length
     pubs = pubs.filter((pub) => {
       const value = publicationYearMonth(pub)
       if (from != null && value < from) return false
       if (to != null && value > to) return false
       return true
     })
+    dropped.dateRange += before - pubs.length
   }
 
   // ── 8. sort ───────────────────────────────────────────────────────────
@@ -855,6 +882,7 @@ export async function buildList(
   // whichever records the network happened to return first.
   pubs = [...pubs].sort(comparePublications)
   if (typeof config.limit === 'number' && config.limit > 0) {
+    dropped.limit += Math.max(0, pubs.length - config.limit)
     pubs = pubs.slice(0, config.limit)
   }
 
@@ -871,6 +899,7 @@ export async function buildList(
     publications,
     candidates,
     warnings,
+    dropped,
     generatedAt: new Date().toISOString(),
   }
   const suggested = triageCandidates(confirmed, candidates, boldNames)

@@ -16,11 +16,27 @@
  * `disclaimer` field of the config, so `data-disclaimer="hide"` on the script
  * snippet and `?disclaimer=hide` on the iframe both fall out of the normal
  * projection with nothing special here.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
+ * AN EMPTY LIST PRODUCES NO SNIPPET AT ALL
+ *
+ * When `model.publications` is empty this panel emits an explanation in place
+ * of the snippets, and there is nothing on it to copy. Not a warning above a
+ * copyable snippet, and not a confirmation dialog: the markup for an empty list
+ * is *permanently* empty on the page it is pasted into — candidates are
+ * confirmed in the wizard and nowhere else, so no number of page loads can
+ * resolve one — and handing that over is handing over a page that will never
+ * work. It fails invisibly at the far end too, because `embed.js` deliberately
+ * never blanks a list and so leaves the empty snapshot exactly where it is.
+ *
+ * The general form of the same problem is warned about rather than blocked: a
+ * non-empty list with outstanding candidates embeds fewer records than the
+ * preview shows, and the count says so beside the snippet.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
 import { useMemo } from 'react'
-import { InfoIcon } from 'lucide-react'
+import { InfoIcon, TriangleAlertIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import {
@@ -42,6 +58,7 @@ import {
   hasCommaHostileValues,
   inlineAttributeLength,
 } from '../lib/snippet'
+import { candidatesMissingFromEmbed, diagnoseEmptyList } from '../lib/diagnose'
 
 /**
  * The hosted-`pubs.json` route, explained where it is used.
@@ -103,15 +120,7 @@ function SnippetBlock({ value }: { value: string }) {
   )
 }
 
-export function SnippetPanel({
-  model,
-  credit,
-  disclaimer,
-  configUrl,
-  onCreditChange,
-  onDisclaimerChange,
-  onConfigUrlChange,
-}: {
+export interface SnippetPanelProps {
   /** Already carries the disclaimer choice in `model.config`; see `App.tsx`. */
   model: ListModel
   credit: boolean
@@ -120,7 +129,88 @@ export function SnippetPanel({
   onCreditChange: (credit: boolean) => void
   onDisclaimerChange: (disclaimer: boolean) => void
   onConfigUrlChange: (url: string) => void
-}) {
+}
+
+/**
+ * The panel, or — for a list with nothing on it — the reason there is no
+ * snippet. The split is a whole component rather than a branch inside one so
+ * that the empty case has no snippet in scope at all: there is no `<pre>` to
+ * copy out of, no copy button to disable, and nothing for a later edit to
+ * accidentally re-expose.
+ */
+export function SnippetPanel(props: SnippetPanelProps) {
+  if (props.model.publications.length === 0) {
+    return <NoSnippet model={props.model} />
+  }
+  return <SnippetPanelForList {...props} />
+}
+
+/**
+ * What the panel says instead of a snippet.
+ *
+ * It names the same cause the results panel names — one diagnosis, two places
+ * it is needed — and then adds the part that is specific to embedding: that an
+ * embed cannot recover from this on its own.
+ */
+function NoSnippet({ model }: { model: ListModel }) {
+  const empty = diagnoseEmptyList(model)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Embed on a website</CardTitle>
+        <CardDescription>
+          There is no snippet yet, because this list has no publications on it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Alert variant="destructive" aria-live="polite">
+          <TriangleAlertIcon />
+          <AlertTitle>
+            A snippet for an empty list would stay empty for ever
+          </AlertTitle>
+          <AlertDescription>
+            <p>
+              The snippet carries the list as it stands, and the script that
+              refreshes it publishes only records you have confirmed. Reviewing
+              happens here in the wizard and nowhere else — an embedded page has
+              no review queue — so a snippet generated now would render nothing
+              on your site, and no number of page loads would ever change that.
+              It is withheld rather than handed over with a warning on it.
+            </p>
+            {empty ? (
+              <p>
+                <strong className="font-medium">{empty.title}.</strong>{' '}
+                {empty.body}
+              </p>
+            ) : null}
+            {empty && empty.filters.length > 0 ? (
+              <ul className="flex list-disc flex-col gap-1 ps-4">
+                {empty.filters.map((filter) => (
+                  <li key={filter} className="break-words">
+                    {filter}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p>
+              Fix that, press Generate list again, and the snippet appears here.
+            </p>
+          </AlertDescription>
+        </Alert>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SnippetPanelForList({
+  model,
+  credit,
+  disclaimer,
+  configUrl,
+  onCreditChange,
+  onDisclaimerChange,
+  onConfigUrlChange,
+}: SnippetPanelProps) {
   const hosted = configUrl.trim() !== ''
 
   const snippet = useMemo(
@@ -152,6 +242,18 @@ export function SnippetPanel({
    */
   const needsHosted = bulky || commaHostile || hosted
 
+  /**
+   * How much smaller the embedded list will be than the one on screen.
+   *
+   * The preview above shows the confirmed list *and* a review queue; the embed
+   * shows the confirmed list. Someone who has just read a queue of their own
+   * papers has every reason to assume the snippet below carries them, and it
+   * does not — so the difference is stated as a number, next to the thing it is
+   * a difference from.
+   */
+  const unconfirmed = candidatesMissingFromEmbed(model)
+  const published = model.publications.length
+
   return (
     <Card>
       <CardHeader>
@@ -182,6 +284,28 @@ export function SnippetPanel({
           label="Say where the list came from"
           hint="Adds one line under the list noting that it is compiled automatically from ORCID, PubMed and researchmap, and inherits anything those records get wrong. Worth keeping on a page other people read: it tells them a missing paper is a gap in a database rather than a claim about you."
         />
+
+        {unconfirmed > 0 ? (
+          <Alert>
+            <TriangleAlertIcon />
+            <AlertTitle>
+              {unconfirmed} {unconfirmed === 1 ? 'record' : 'records'} in the
+              review queue {unconfirmed === 1 ? 'is' : 'are'} not in this
+              snippet
+            </AlertTitle>
+            <AlertDescription>
+              <p>
+                It carries the {published}{' '}
+                {published === 1 ? 'publication' : 'publications'} on your list.
+                A candidate is never in an embed, however often the page is
+                reloaded: confirming it in the review queue above is the only
+                thing that adds it, and that can only be done here. Decide on
+                them before you paste this, or paste it now and regenerate
+                afterwards.
+              </p>
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">

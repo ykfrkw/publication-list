@@ -54,6 +54,10 @@ A rejection is the stronger of the two. If a paper somehow ends up in both lists
 
 Records that come from ORCID, from researchmap, from a pinned PMID/DOI, or from a PubMed `[auid]` (ORCID-identifier) search never enter the queue. They are trusted outright.
 
+**Do this before you copy the snippet, because the embedded page cannot do it.** The review queue exists only in the wizard — there is nobody at the far end of a page load to tick anything — so a candidate you leave undecided is missing from your site permanently, not until the next refresh. The wizard tells you the count next to the snippet, and if *every* record is an undecided candidate it declines to generate a snippet at all, because that snippet would render an empty list on your page and go on doing so for ever.
+
+**If you already know which papers you want, pin them instead of searching for them.** Identifiers typed into the **Pinned papers** box are confirmed outright: they go straight onto the list and into the embed, with no queue in between. A PubMed query is a *search*, and unless it is an `[auid]` one everything it finds is a candidate. Papers with a known PMID or DOI belong in the pinned box; queries are for finding work you have not enumerated. If you paste `[pmid]` terms into the query box, the wizard notices and says so — it will not move them for you.
+
 ## Step 4 — Paste it into your site
 
 In the **Embed on a website** panel, copy the script snippet and paste it into a Custom HTML block on your publications page.
@@ -150,6 +154,17 @@ Note that a comma inside a query cannot travel in an inline `data-pubmed` attrib
 
 You can also just pin their papers by PMID or DOI. For a member with a handful of relevant publications this is faster and completely reliable.
 
+### Our group has a name, but a PubMed search for it finds nothing
+
+Expect this. PubMed records a *collective* author — a study group, a consortium — only when the journal supplied one in the `CollectiveName` or investigator fields, and most journals do not. If your group is not in those fields, no author query can reach it: `YOURGROUP[au]`, `[cn]` and `[ir]` will all return zero, and a free-text search for the name returns whatever unrelated papers happen to contain the word.
+
+There is no query that fixes this, so do not go looking for one. Two things work:
+
+- **Pin the papers.** Put their PMIDs or DOIs in the **Pinned papers** box. Pinned records are confirmed outright, so they are on the list and in the embed immediately, with no review queue in between. For a group with a defined output this is the complete answer and takes a minute.
+- **Seed the members' ORCID iDs.** That gets you the auto-updating behaviour the pins do not have, at the cost of also collecting work the members did elsewhere — which is what the [Joined / Left dates and the Freeze button](#when-someone-joins-or-leaves) are for.
+
+The two combine: seed the members, pin anything credited to the group rather than to an individual.
+
 ### A member has a very common surname
 
 You will see it as a long review queue. Three things help, in order of effectiveness:
@@ -210,7 +225,7 @@ Almost always this is a gap in the source, not in the tool. In order of likeliho
 2. **You set a date filter.** Check the `from` / `to` fields, and the `limit`.
 2b. **A member's Joined / Left dates ruled it out.** Every record a member window removes is named in the warnings panel with the window responsible. Widen the grace period, clear the dates, or pin the paper — a pinned paper is never removed by a window. See [When someone joins or leaves](#when-someone-joins-or-leaves).
 2c. **It is in the exclude list.** Pressing **Remove** on it puts it there, and so does rejecting it in the review queue; an exclude outranks a pin, so a paper can be missing even though it is also pinned. Everything excluded is listed under **N removed** above the list — open it and press **Undo** to bring one back. The warnings panel names any pin cancelled this way.
-3. **It was found only by a name search and is sitting unreviewed in the queue.** Under the default policy it is deliberately not on the page. Approve it.
+3. **It was found only by a name search and is sitting unreviewed in the queue.** Under the default policy it is deliberately not on the page, and it will stay off it however many times the page reloads — the queue is in the wizard, not on your site. Approve it there, then re-copy the snippet. Or pin it by PMID or DOI, which skips the queue entirely.
 4. **It was categorised as an erratum or as paratext and dropped.** The warnings panel names every record dropped this way.
 5. **It is a preprint, and preprints are off by default.** The warnings panel names every one that was held back. Tick **Include preprints** if you want them on the page. Note that this also covers an F1000-family article whose referees have not approved it yet — see [that entry below](#an-f1000research-paper-shows-as-a-preprint).
 6. **It is a Japanese-language paper and you set `japanese: hide`.** Or it is in the trailing "Japanese-language publications" section and you scrolled past it.

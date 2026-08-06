@@ -75,6 +75,70 @@ export function parsePubmedQueries(text: string): PubmedSeed[] {
   return seeds
 }
 
+// ─────────────────────────────────────────── PMIDs typed into a query box ──
+
+/**
+ * One `12345678[pmid]` term. `[uid]` is PubMed's own synonym for the field.
+ *
+ * Anchored on the digits so `0000-0003-1317-0220[auid]` cannot match: `auid`
+ * is not `uid` once the `[` has been consumed.
+ */
+const PMID_TERM = /(\d{1,9})\s*\[\s*(?:pmid|uid)\s*\]/gi
+
+/** Any `[field]` tag, which is what makes a chunk of a PubMed query a term. */
+const FIELD_TAG = /\[\s*[a-z][a-z0-9 /_-]*\s*\]/gi
+
+export interface PmidQueryHint {
+  /** the query verbatim, so the UI can point at the line it means */
+  query: string
+  /** canonical `"pmid:…"` refs found in it, de-duplicated, in order */
+  refs: string[]
+  /** how many of its field-tagged terms were `[pmid]` / `[uid]` */
+  pmidTerms: number
+  /** how many field-tagged terms it has in total */
+  terms: number
+}
+
+/**
+ * Is this "query" really a list of pins?
+ *
+ * A PubMed query made mostly of bare `[pmid]` terms is somebody asking for
+ * specific papers, and the query box is the wrong box for that: a query is a
+ * *search*, so unless it is an `[auid]` one its hits are candidates and stay
+ * off the published list until someone confirms them — which cannot happen on
+ * an embedded page. The same identifiers in the pinned-papers box are confirmed
+ * outright. Same five papers, opposite outcome.
+ *
+ * "Mostly" is a strict majority of the field-tagged terms, so the owner's
+ * `("SLEEPI"[author]) OR (… 5 × [pmid])` fires while an ordinary author search
+ * with one pinned PMID OR'd onto it does not. Returns `null` rather than a
+ * flag, because the UI needs the identifiers to be able to name them.
+ */
+export function detectPmidQuery(query: string): PmidQueryHint | null {
+  const refs: string[] = []
+  let pmidTerms = 0
+  for (const match of query.matchAll(PMID_TERM)) {
+    pmidTerms++
+    const ref = `pmid:${match[1]}`
+    if (!refs.includes(ref)) refs.push(ref)
+  }
+  if (pmidTerms === 0) return null
+
+  const terms = (query.match(FIELD_TAG) ?? []).length
+  if (pmidTerms * 2 <= terms) return null
+  return { query, refs, pmidTerms, terms }
+}
+
+/** `detectPmidQuery` over the whole PubMed textarea, one entry per query. */
+export function detectPmidQueries(text: string): PmidQueryHint[] {
+  const hints: PmidQueryHint[] = []
+  for (const seed of parsePubmedQueries(text)) {
+    const hint = detectPmidQuery(seed.query)
+    if (hint) hints.push(hint)
+  }
+  return hints
+}
+
 export interface ParsedMember {
   /** the input line, verbatim — shown back to the user */
   raw: string

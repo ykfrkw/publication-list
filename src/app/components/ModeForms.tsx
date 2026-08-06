@@ -13,13 +13,64 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Field } from './Field'
 import { MemberRows } from './MemberRows'
-import { parseIdList, parseMemberLines, parsePubmedQueries } from '../lib/parse'
+import {
+  detectPmidQueries,
+  parseIdList,
+  parseMemberLines,
+  parsePubmedQueries,
+} from '../lib/parse'
+import type { PmidQueryHint as PmidQuery } from '../lib/parse'
 import type { WizardDraft } from '../lib/wizard'
 import type { ListModel } from '@/core/types'
 
 type Update = (patch: Partial<WizardDraft>) => void
 
 const textareaClass = 'min-h-28 font-mono text-xs'
+
+/**
+ * "You have typed pins into the search box."
+ *
+ * A hint beside the field, never a rewrite of it. The input is the user's, and
+ * a tool that silently reshuffles a query someone spent ten minutes on is worse
+ * than one that says nothing — so this states what it sees, says why the other
+ * box is the right one, and leaves the moving to them.
+ *
+ * The reason is the whole point and is spelled out rather than implied: the two
+ * boxes differ in *trust*, and trust is what decides whether a record ever
+ * reaches an embedded page.
+ */
+function PmidQueryNote({ hints }: { hints: PmidQuery[] }) {
+  if (hints.length === 0) return null
+
+  const refs: string[] = []
+  let pmidTerms = 0
+  for (const hint of hints) {
+    pmidTerms += hint.pmidTerms
+    for (const ref of hint.refs) if (!refs.includes(ref)) refs.push(ref)
+  }
+  const ids = refs.map((ref) => ref.replace(/^pmid:/, ''))
+  const shown = ids.slice(0, 6).join(', ')
+  const rest = ids.length > 6 ? ` and ${ids.length - 6} more` : ''
+
+  return (
+    <span className="text-amber-700 dark:text-amber-500">
+      {' '}
+      <strong className="font-medium">
+        {pmidTerms === 1
+          ? 'That looks like a pin rather than a search.'
+          : 'Those look like pins rather than a search.'}
+      </strong>{' '}
+      {pmidTerms} of the terms {pmidTerms === 1 ? 'is' : 'are'} a bare{' '}
+      <code>[pmid]</code> lookup ({shown}
+      {rest}). Identifiers belong in the pinned-papers box below: a pinned
+      record is confirmed outright and appears on the embedded page, whereas
+      anything a PubMed query finds is a candidate that stays off the page until
+      you confirm it here in the wizard — and an embedded page has no review
+      queue, so a candidate never reaches it. Moving them is left to you; this
+      box is not edited for you.
+    </span>
+  )
+}
 
 function Counts({
   ok,
@@ -86,6 +137,7 @@ export function PersonModeForm({
   update: Update
 }) {
   const queries = useMemo(() => parsePubmedQueries(draft.pubmed), [draft.pubmed])
+  const pmidQueries = useMemo(() => detectPmidQueries(draft.pubmed), [draft.pubmed])
   const pins = useMemo(() => parseIdList(draft.pins), [draft.pins])
 
   return (
@@ -130,6 +182,7 @@ export function PersonModeForm({
             <code>[auid]</code> search on your ORCID iD is trusted; an{' '}
             <code>[au]</code> name search is not, and its hits go to the review
             queue below.
+            <PmidQueryNote hints={pmidQueries} />
           </>
         }
       >
@@ -179,6 +232,7 @@ export function LabModeForm({
 }) {
   const members = useMemo(() => parseMemberLines(draft.members), [draft.members])
   const queries = useMemo(() => parsePubmedQueries(draft.pubmed), [draft.pubmed])
+  const pmidQueries = useMemo(() => detectPmidQueries(draft.pubmed), [draft.pubmed])
   const pins = useMemo(() => parseIdList(draft.pins), [draft.pins])
 
   const withOrcid = members.members.filter((m) => m.orcid).length
@@ -233,8 +287,12 @@ export function LabModeForm({
         hint={
           <>
             {queries.length} quer{queries.length === 1 ? 'y' : 'ies'}. Useful for
-            a group tag such as <code>SLEEPI[au]</code>. Name searches feed the
-            review queue rather than the published list.
+            a member with no ORCID iD, narrowed by affiliation — e.g.{' '}
+            <code>Tanaka H[au] AND (&quot;Univ Tokyo&quot;[ad])</code>. Name
+            searches feed the review queue rather than the published list. Most
+            groups are not registered in PubMed as an author at all, so a bare
+            group tag usually returns nothing; pin those papers instead.
+            <PmidQueryNote hints={pmidQueries} />
           </>
         }
       >
@@ -245,7 +303,7 @@ export function LabModeForm({
             spellCheck={false}
             value={draft.pubmed}
             onChange={(e) => update({ pubmed: e.currentTarget.value })}
-            placeholder={'SLEEPI[au]\nFurukawa Y[au] AND (Tokyo[ad])'}
+            placeholder={'Tanaka H[au] AND ("Univ Tokyo"[ad])\nFurukawa Y[au] AND (Tokyo[ad])'}
           />
         )}
       </Field>

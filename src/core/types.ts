@@ -201,6 +201,35 @@ export interface ListConfig {
   limit?: number
 }
 
+/**
+ * How many records each filtering stage took off the list.
+ *
+ * Every one of these stages already explains itself in `warnings` when it drops
+ * something, in prose aimed at a reader who is looking at a list. This is the
+ * same information as a count, for the one question the prose cannot answer on
+ * its own: *why is the list empty?* Naming the responsible filter is the
+ * difference between "nothing came back" and "your `from` year is 2030", and
+ * the two need opposite fixes.
+ *
+ * Written by `pipeline.ts` and read by the wizard. The embed ignores it.
+ * Optional because a `ListModel` restored from a cache written before it
+ * existed will not have one; treat an absent value as "unknown", not as zero.
+ */
+export interface DroppedCounts {
+  /** named in `exclude` (stage 3) — includes records an exclude un-pinned */
+  excluded: number
+  /** ruled out by a seed's time window (stage 5c) */
+  window: number
+  /** categorized as an erratum or as paratext (stage 6) */
+  erratum: number
+  /** held back because `preprints` is `'exclude'` (stage 6b) */
+  preprint: number
+  /** outside `from` / `to` (stage 7) */
+  dateRange: number
+  /** beyond `limit` (stage 8) */
+  limit: number
+}
+
 export interface ListModel {
   config: ListConfig
   members: Member[]
@@ -216,6 +245,8 @@ export interface ListModel {
    */
   suggested?: string[]
   warnings: string[]
+  /** What each filtering stage removed. See `DroppedCounts`. */
+  dropped?: DroppedCounts
   /** ISO date */
   generatedAt: string
 }

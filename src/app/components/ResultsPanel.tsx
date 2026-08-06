@@ -37,7 +37,7 @@
  */
 
 import { useMemo } from 'react'
-import { Undo2Icon } from 'lucide-react'
+import { TriangleAlertIcon, Undo2Icon } from 'lucide-react'
 import {
   Card,
   CardContent,
@@ -45,6 +45,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -61,6 +62,7 @@ import type { ListModel, Publication } from '@/core/types'
 import { CopyButton, DownloadButton } from './CopyButton'
 import { PreviewList } from './PreviewList'
 import { copyRich } from '../lib/clipboard'
+import { diagnoseEmptyList } from '../lib/diagnose'
 import { CONFIG_FILENAME } from '../lib/snippet'
 import type { RemovedEntry } from '../lib/wizard'
 
@@ -83,6 +85,7 @@ export function ResultsPanel({
 }) {
   const staticHtml = useMemo(() => renderHtml(model, { credit }), [model, credit])
   const count = model.publications.length
+  const empty = useMemo(() => diagnoseEmptyList(model), [model])
 
   return (
     <Card>
@@ -102,6 +105,32 @@ export function ResultsPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        {/*
+          First thing in the panel, above the copy buttons, because an empty
+          list is the one result where every control below it is a trap: each
+          one copies an empty list, and the snippet copies one that would stay
+          empty on the page for ever. What is wrong and what fixes it are in
+          `../lib/diagnose.ts` — three causes, three different remedies.
+        */}
+        {empty ? (
+          <Alert variant="destructive" aria-live="polite">
+            <TriangleAlertIcon />
+            <AlertTitle>{empty.title}</AlertTitle>
+            <AlertDescription>
+              <p>{empty.body}</p>
+              {empty.filters.length > 0 ? (
+                <ul className="flex list-disc flex-col gap-1 ps-4">
+                  {empty.filters.map((filter) => (
+                    <li key={filter} className="break-words">
+                      {filter}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           <CopyButton
             label="Copy All (for Word)"
@@ -149,10 +178,11 @@ export function ResultsPanel({
         <RemovedList entries={removed} onRestore={onRestore} />
 
         {count === 0 ? (
+          // The alert at the top of this panel has already said what is wrong
+          // and what to do about it; a second, vaguer paragraph down here would
+          // only compete with it.
           <p className="text-sm text-muted-foreground">
-            Nothing came back. Check the warnings above — with the default review
-            policy, records that only a name search found are held back until you
-            confirm them in the review queue.
+            There is nothing to preview.
           </p>
         ) : (
           // The disclaimer gets spacing here and nothing else: its size and its

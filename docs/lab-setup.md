@@ -33,7 +33,11 @@ Put it in a spreadsheet, one member per row, name in one column and identifier i
 Open the wizard: <https://ykfrkw.github.io/publication-list/>
 
 1. Choose the **Lab or group** mode.
-2. Paste your member list into the members box. One member per line. It accepts a bare ORCID iD, an `https://orcid.org/…` URL, a researchmap permalink, or a row copied out of Excel in either column order — identifiers are found by shape, so `Name<TAB>ORCID` and `ORCID<TAB>Name` both work. Lines starting with `#` are ignored, and a header row is discarded. Each member then gets a row underneath with optional **Joined** / **Left** dates and a **Freeze** button; ignore both for now and read [When someone joins or leaves](#when-someone-joins-or-leaves) when your first member moves on.
+2. Fill in the member rows: a **Name**, an **ORCID iD** and a **researchmap** permalink per member, with **Add member** for the next one. Each row also has optional **Joined** / **Left** dates and a **Freeze** button; ignore both for now and read [When someone joins or leaves](#when-someone-joins-or-leaves) when your first member moves on.
+
+   If your list is already in a spreadsheet, open **Paste a list from a spreadsheet** below the rows, paste the column and press **Import** — it *adds* to the rows rather than replacing them, so you can import once and keep editing. One member per line; it accepts a bare ORCID iD, an `https://orcid.org/…` URL, a researchmap permalink, or a row copied out of Excel in either column order, because identifiers are found by shape rather than by column. Lines starting with `#` are ignored and a header row is discarded.
+
+   **Edit the member list as text** below that opens the box the rows are stored in — one line per member, which is where a line starting with `#` and a non-default grace period live.
 3. Optionally add **pinned papers**: PMIDs and DOIs, pasted in any mixture of lines, commas and spaces. Use this for anything that predates a member's ORCID record, or for a paper credited to the group rather than to an individual.
 4. Optionally add a **PubMed query** for a member who has no ORCID iD. See [that troubleshooting entry](#a-member-has-no-orcid-id) for how to write one that does not drown you in strangers.
 5. Set the options you care about: citation style, grouping (a section per publication type with a year divider inside each to start with, or one of those two levels on its own, or one flat list), a `from` year if you only want recent work, whether Japanese-language records get their own section, and whether to **include preprints** — that box is unticked, so preprints stay off the page unless you ask for them.
@@ -106,7 +110,7 @@ Deleting the member's line the day they leave is the obvious fix and it is wrong
 
 ### The answer: freeze them
 
-In the **Lab or group** mode, each member has a row under the members box with a **Freeze** button. Generate the list first, then press it. The row tells you what it will do before you confirm:
+In the **Lab or group** mode, each member has a row with a **Freeze** button. Generate the list first, then press it. The row tells you what it will do before you confirm:
 
 > Pins the 11 papers of theirs that are on the list right now and removes their seed, so those stay and nothing they publish afterwards can be added.
 
@@ -116,7 +120,7 @@ Three things to know:
 
 - **A pin can be taken back.** Freezing pins whatever is on the list at that moment, and some of it may not belong to your group — a paper from their new institution that was already showing, or a plain misattribution. Press **Remove** on the paper's own line in the list below, and it comes off. `exclude` outranks `include`, so this works whether the pin was typed by you or written by freezing, and you never have to go looking through a twenty-entry `include` list for it. Nothing about it is silent: what you removed is listed under **N removed** above the list with an **Undo** beside it, and the warnings panel names any pin an exclude cancelled.
 - **A paper with neither a DOI nor a PMID cannot be pinned.** There is nothing to pin it *by*. The confirmation tells you the count and names them before you commit, because those are the entries that will disappear from the list — usually conference abstracts and Japanese-language records from researchmap. If you need one of them, keep it another way (the **Static HTML** output, or a hand-written line in your page) before freezing.
-- **It is recoverable.** Freezing comments the member's line out rather than deleting it — the line stays in the box, marked with the date and the number of papers pinned. Delete the `#` and the seed is back. Regenerate afterwards, and save the new snippet.
+- **It is recoverable.** Freezing comments the member's line out rather than deleting it — the row goes, but the line stays under **Edit the member list as text**, marked with the date and the number of papers pinned. Delete the `#` and the seed is back. Regenerate afterwards, and save the new snippet.
 
 If a delayed paper of theirs comes out six months later, add it by DOI in the **Pinned papers** box. You would want to look at it before publishing it under your group's name anyway, which is precisely why that step is not automated.
 
@@ -124,7 +128,7 @@ If a delayed paper of theirs comes out six months later, add it by DOI in the **
 
 Labs forget. So each member row also has optional **Joined** and **Left** fields, and a member with a `Left` date stops contributing new work — after a grace period.
 
-The grace period is the point. It defaults to **24 months**, and it exists so that the paper published eighteen months after your postdoc left still counts as your group's. That number is an estimate of ordinary publication lag — submission, review, revision, production — and not a rule from anywhere; if your field is faster or slower, write `2019-04..2023-03+36` straight into the members box to say 36 months instead.
+The grace period is the point. It defaults to **24 months**, and it exists so that the paper published eighteen months after your postdoc left still counts as your group's. That number is an estimate of ordinary publication lag — submission, review, revision, production — and not a rule from anywhere; if your field is faster or slower, open **Edit the member list as text** and write `2019-04..2023-03+36` on that member's line to say 36 months instead.
 
 Leave **Left** blank for anyone still in the group. A member with no dates at all is included with no time limit, which is what every member has always been and what they stay if you never touch these fields.
 

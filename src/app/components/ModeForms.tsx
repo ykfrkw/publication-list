@@ -8,12 +8,14 @@
  * network round trip.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { CheckboxField, Field } from './Field'
 import { MemberRows } from './MemberRows'
 import {
+  appendMemberLine,
   detectCollectiveAuthorQueries,
   detectPmidQueries,
   parseIdList,
@@ -226,6 +228,163 @@ function PubmedTrustRows({
   )
 }
 
+/**
+ * The two text affordances that used to be the whole member interface.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * Both are collapsed and both sit below the rows, because the rows are where a
+ * lab list is built now. What is left here is the two jobs a row cannot do:
+ *
+ *   - **Import.** A member list usually starts life in a spreadsheet, and
+ *     pasting a column is far quicker than typing twenty rows. This box is
+ *     deliberately *not* bound to `draft.members`: it is a staging area with an
+ *     explicit Import that appends, so a paste can never replace work already
+ *     in the rows, and two surfaces are never editing the same string at once.
+ *     That last part is what used to produce surprises.
+ *
+ *   - **Edit as text.** The box *is* the storage format, and two things are
+ *     only reachable in it: undoing a freeze (delete the `#` and the member is
+ *     back — see `commentOutLine`) and a non-default grace period. It is also
+ *     the honest answer to "what did that button just do to my list".
+ * ───────────────────────────────────────────────────────────────────────────
+ */
+function MemberTextTools({
+  draft,
+  update,
+  parsed,
+}: {
+  draft: WizardDraft
+  update: Update
+  parsed: ReturnType<typeof parseMemberLines>
+}) {
+  const [paste, setPaste] = useState('')
+  const [open, setOpen] = useState(false)
+  const staged = useMemo(() => parseMemberLines(paste), [paste])
+
+  // Anyone already on the list is skipped, so importing the same spreadsheet
+  // twice adds nothing the second time.
+  const known = new Set(
+    parsed.members.map((m) => `${m.orcid ?? ''}|${m.researchmap ?? ''}`),
+  )
+  const incoming = staged.members.filter(
+    (m) => !known.has(`${m.orcid ?? ''}|${m.researchmap ?? ''}`),
+  )
+
+  const runImport = () => {
+    let next = draft.members
+    for (const member of incoming) next = appendMemberLine(next, member)
+    update({ members: next })
+    setPaste('')
+    setOpen(false)
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <details
+        className="rounded-lg border border-border p-3"
+        open={open}
+        onToggle={(e) => setOpen(e.currentTarget.open)}
+      >
+        <summary className="cursor-pointer text-sm font-medium">
+          Paste a list from a spreadsheet
+        </summary>
+        <div className="flex flex-col gap-2 pt-3">
+          <Textarea
+            className={textareaClass}
+            spellCheck={false}
+            aria-label="Members to import"
+            value={paste}
+            onChange={(e) => setPaste(e.currentTarget.value)}
+            placeholder={
+              'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki\n0000-0002-1825-0097\t2019-04..2023-03\nhttps://researchmap.jp/someone'
+            }
+          />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            One member per line. Tabs, commas, ORCID URLs and researchmap
+            permalinks are all understood, in any column order, and a header row
+            is discarded. Importing <strong className="font-medium">adds</strong>{' '}
+            to the rows above; it never replaces them.
+            {staged.members.length > 0 ? (
+              <>
+                {' '}
+                {incoming.length} of {staged.members.length} member
+                {staged.members.length === 1 ? '' : 's'} would be added
+                {incoming.length < staged.members.length
+                  ? ' — the rest are already on the list'
+                  : ''}
+                .
+              </>
+            ) : null}
+            {staged.invalid.length > 0 ? (
+              <span className="text-destructive">
+                {' '}
+                No identifier found on {staged.invalid.length} line
+                {staged.invalid.length === 1 ? '' : 's'}, which will be skipped:{' '}
+                {staged.invalid.slice(0, 3).join(' / ')}
+                {staged.invalid.length > 3 ? ' …' : ''}
+              </span>
+            ) : null}
+          </p>
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={incoming.length === 0}
+              onClick={runImport}
+            >
+              Import {incoming.length > 0 ? incoming.length : ''} member
+              {incoming.length === 1 ? '' : 's'}
+            </Button>
+          </div>
+        </div>
+      </details>
+
+      <details className="rounded-lg border border-border p-3">
+        <summary className="cursor-pointer text-sm font-medium">
+          Edit the member list as text
+        </summary>
+        <div className="pt-3">
+          <Field
+            label="Members (one per line)"
+            hint={
+              <>
+                This is what the rows above are stored as, and editing it edits
+                them. A line can carry the member’s time in the group —{' '}
+                <code>2019-04..2023-03</code>, with <code>+36</code> for a longer
+                grace period. A line starting with <code>#</code> is ignored,
+                which is how <strong className="font-medium">Freeze</strong>{' '}
+                removes a seed: delete the <code>#</code> and the member is back.
+                {parsed.invalid.length > 0 ? (
+                  <span className="text-destructive">
+                    {' '}
+                    No identifier found on {parsed.invalid.length} line
+                    {parsed.invalid.length === 1 ? '' : 's'}:{' '}
+                    {parsed.invalid.slice(0, 3).join(' / ')}
+                    {parsed.invalid.length > 3 ? ' …' : ''}
+                  </span>
+                ) : null}
+              </>
+            }
+          >
+            {(id) => (
+              <Textarea
+                id={id}
+                className="min-h-36 font-mono text-xs"
+                spellCheck={false}
+                value={draft.members}
+                onChange={(e) => update({ members: e.currentTarget.value })}
+                placeholder={
+                  'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki\n0000-0002-1825-0097\t2019-04..2023-03'
+                }
+              />
+            )}
+          </Field>
+        </div>
+      </details>
+    </div>
+  )
+}
+
 function Counts({
   ok,
   okLabel,
@@ -414,54 +573,23 @@ export function LabModeForm({
   )
   const pins = useMemo(() => parseIdList(draft.pins), [draft.pins])
 
-  const withOrcid = members.members.filter((m) => m.orcid).length
-  const withRm = members.members.filter((m) => m.researchmap).length
-
   return (
     <div className="flex flex-col gap-4">
-      <Field
-        label="Members (one per line)"
-        hint={
-          <>
-            {members.members.length} member
-            {members.members.length === 1 ? '' : 's'} — {withOrcid} with an ORCID
-            iD, {withRm} with a researchmap permalink. Paste a column straight
-            out of a spreadsheet: tabs, commas and ORCID URLs are all understood,
-            in any column order. A line can also carry the member’s time in the
-            group — <code>2019-04..2023-03</code> — which you can type here or
-            fill in on the rows below.
-            {members.invalid.length > 0 ? (
-              <span className="text-destructive">
-                {' '}
-                No identifier found on {members.invalid.length} line
-                {members.invalid.length === 1 ? '' : 's'}:{' '}
-                {members.invalid.slice(0, 3).join(' / ')}
-                {members.invalid.length > 3 ? ' …' : ''}
-              </span>
-            ) : null}
-          </>
-        }
-      >
-        {(id) => (
-          <Textarea
-            id={id}
-            className="min-h-36 font-mono text-xs"
-            spellCheck={false}
-            value={draft.members}
-            onChange={(e) => update({ members: e.currentTarget.value })}
-            placeholder={
-              'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki\n0000-0002-1825-0097\t2019-04..2023-03\nhttps://researchmap.jp/someone'
-            }
-          />
-        )}
-      </Field>
-
+      {/*
+        The rows come first because building a lab list is naming members one
+        at a time and saying when each of them was here. The free-text box that
+        used to be the entry point is below, collapsed, doing the two things a
+        row cannot: importing a spreadsheet and editing the stored form.
+      */}
       <MemberRows
         draft={draft}
         update={update}
+        parsed={members}
         model={model}
         onFreeze={onFreeze}
       />
+
+      <MemberTextTools draft={draft} update={update} parsed={members} />
 
       {/* Pins above searches, for the reason spelled out in `PersonModeForm`. */}
       <Field

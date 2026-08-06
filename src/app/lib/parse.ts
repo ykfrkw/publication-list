@@ -330,7 +330,7 @@ export interface MemberWindowToken {
  * There are two, for reasons specific to each transport, and a user meets both:
  *
  *   - `2019-04..2023-03+36` — the members box (`MEMBER_WINDOW` above). Canonical:
- *     it is what the placeholder shows and what `setMemberWindow` writes back.
+ *     it is what the placeholder shows and what `formatMemberLine` writes back.
  *   - `id@2019-04:2023-03:36` — the `data-*` attributes and the URL parameters
  *     (`encodeSeed` / `decodeSeed` in `src/core/seeds.ts`), where `..` and a
  *     bare separator would collide with the comma-joined attribute syntax.
@@ -340,8 +340,8 @@ export interface MemberWindowToken {
  * to do nothing visible: the token failed `MEMBER_WINDOW`, was left in place,
  * and its `@…` tail fell through into the name and permalink cells. So both are
  * accepted here — read, never rewritten. A line is only ever normalised to the
- * `..` form when the user edits that member's dates, which goes through
- * `setMemberWindow`.
+ * `..` form when the user edits that member on a row, which goes through
+ * `setMemberField`.
  *
  * **An email address in a pasted spreadsheet column is not a window.** The `@`
  * branch defers to `decodeSeed`, whose tail pattern is anchored and holds only
@@ -382,7 +382,27 @@ export interface ParsedMembers {
   members: ParsedMember[]
   /** lines that carried neither an ORCID nor a researchmap id */
   invalid: string[]
+  /**
+   * Every line a member row can edit, in the order they appear — the members
+   * above **plus** the lines that carry no identifier yet, and including a
+   * duplicate of an earlier member rather than swallowing it.
+   *
+   * `members` is what the configuration is built from and is unchanged: a line
+   * with no ORCID and no permalink contributes no seed, here as before. `rows`
+   * exists because the *editing surface* has to survive states the seed list
+   * does not have a use for. Someone adding a member types their name before
+   * their iD, and someone correcting an iD passes through half of one; if the
+   * row list were derived from `members`, the row would vanish under the cursor
+   * at exactly that moment and take the focus with it.
+   */
+  rows: ParsedMember[]
 }
+
+/** What one line of the members box turned out to be. */
+type MemberLineRead =
+  | { kind: 'ignored' }
+  | { kind: 'member'; member: ParsedMember }
+  | { kind: 'incomplete'; member: ParsedMember }
 
 /** Header cells we drop rather than mistake for a member. */
 const HEADER_CELLS = new Set([
@@ -415,13 +435,13 @@ function looksLikeName(cell: string): boolean {
 }
 
 /**
- * Parse a pasted member list.
+ * Read one line of the members box.
  *
- * One member per line. A line may be a bare ORCID iD, a bare researchmap
- * permalink, an `https://orcid.org/…` URL, or a TSV/CSV row pasted out of
- * Excel in any column order — identifiers are located by shape, not by
- * position, so `Name<TAB>ORCID` and `ORCID<TAB>Name` both work, and so does a
- * plain `Yuki Furukawa 0000-0003-1317-0220`.
+ * A line may be a bare ORCID iD, a bare researchmap permalink, an
+ * `https://orcid.org/…` URL, or a TSV/CSV row pasted out of Excel in any
+ * column order — identifiers are located by shape, not by position, so
+ * `Name<TAB>ORCID` and `ORCID<TAB>Name` both work, and so does a plain
+ * `Yuki Furukawa 0000-0003-1317-0220`.
  *
  * The one ambiguity left is a name and a researchmap permalink separated by a
  * single space: a permalink is just a bare word, and there is no way to tell
@@ -432,91 +452,109 @@ function looksLikeName(cell: string): boolean {
  * spelling the snippet's `data-*` attributes use — see
  * `parseMemberWindowToken`. **A line without one is a seed with no window**,
  * which is what every pasted list has always been and what it stays.
+ *
+ * Split out of `parseMemberLines` so the line editors below can re-read one
+ * line without re-parsing the whole box.
+ */
+function readMemberLine(rawLine: string, lineIndex: number): MemberLineRead {
+  const line = rawLine.trim()
+  if (line === '' || line.startsWith('#')) return { kind: 'ignored' }
+
+  const member: ParsedMember = { raw: line, lineIndex }
+
+  // Identifiers first, so what is left over can be treated as free text.
+  let rest = line
+
+  // The window token, before anything else looks at the leftovers: it is a
+  // bare ASCII word with no whitespace, which is also the shape of a
+  // researchmap permalink, so whichever check runs first wins.
+  //
+  // Only the window itself is taken out. In the `id@from:to` spelling the
+  // identifier stays in `rest`, where the ORCID and researchmap checks below
+  // find it exactly as they would have found it on its own.
+  for (const token of rest.split(/[\s,\t]+/)) {
+    const parsed = parseMemberWindowToken(token)
+    if (!parsed) continue
+    const { window } = parsed
+    if (window.from) member.from = window.from
+    if (window.to) member.to = window.to
+    if (window.grace != null) member.grace = window.grace
+    rest = rest.replace(token, () => ` ${parsed.rest} `)
+    break
+  }
+
+  const orcidMatch = ORCID_ANYWHERE.exec(rest)
+  if (orcidMatch) {
+    member.orcid = normalizeOrcid(orcidMatch[0])
+    rest = rest.replace(orcidMatch[0], ' ')
+    // Strip a now-orphaned `https://orcid.org/` prefix.
+    rest = rest.replace(/(?:https?:\/\/)?orcid\.org\/?/gi, ' ')
+  }
+  const rmMatch = RESEARCHMAP_URL_ANYWHERE.exec(rest)
+  if (rmMatch) {
+    member.researchmap = normalizeResearchmapId(rmMatch[0])
+    rest = rest.replace(rmMatch[0], ' ')
+  }
+
+  const cells = rest
+    .split(/\t|,|\s{2,}/)
+    .map((c) => c.trim().replace(/^["']|["']$/g, ''))
+    .filter((c) => c !== '')
+  if (
+    cells.length > 0 &&
+    !member.orcid &&
+    !member.researchmap &&
+    cells.every((c) => HEADER_CELLS.has(c.toLowerCase()))
+  ) {
+    return { kind: 'ignored' }
+  }
+
+  const names: string[] = []
+  for (const cell of cells) {
+    if (looksLikeName(cell)) {
+      names.push(cell)
+      continue
+    }
+    // A bare ASCII token that is not an ORCID iD: a researchmap permalink.
+    if (member.researchmap == null) member.researchmap = normalizeResearchmapId(cell)
+    else names.push(cell)
+  }
+
+  if (names.length > 0) member.name = names.join(' ')
+  if (!member.orcid && !member.researchmap) return { kind: 'incomplete', member }
+
+  return { kind: 'member', member }
+}
+
+/**
+ * Parse a pasted member list — one member per line, in any of the shapes
+ * `readMemberLine` accepts.
  */
 export function parseMemberLines(text: string): ParsedMembers {
   const members: ParsedMember[] = []
   const invalid: string[] = []
+  const rows: ParsedMember[] = []
   const seen = new Set<string>()
 
   // Split so that the index of a line in this array is its index in the
   // textarea; the member rows edit lines by that index.
   text.split(/\r?\n/).forEach((rawLine, lineIndex) => {
-    const line = rawLine.trim()
-    if (line === '' || line.startsWith('#')) return
+    const read = readMemberLine(rawLine, lineIndex)
+    if (read.kind === 'ignored') return
 
-    const member: ParsedMember = { raw: line, lineIndex }
-
-    // Identifiers first, so what is left over can be treated as free text.
-    let rest = line
-
-    // The window token, before anything else looks at the leftovers: it is a
-    // bare ASCII word with no whitespace, which is also the shape of a
-    // researchmap permalink, so whichever check runs first wins.
-    //
-    // Only the window itself is taken out. In the `id@from:to` spelling the
-    // identifier stays in `rest`, where the ORCID and researchmap checks below
-    // find it exactly as they would have found it on its own.
-    for (const token of rest.split(/[\s,\t]+/)) {
-      const parsed = parseMemberWindowToken(token)
-      if (!parsed) continue
-      const { window } = parsed
-      if (window.from) member.from = window.from
-      if (window.to) member.to = window.to
-      if (window.grace != null) member.grace = window.grace
-      rest = rest.replace(token, () => ` ${parsed.rest} `)
-      break
-    }
-
-    const orcidMatch = ORCID_ANYWHERE.exec(rest)
-    if (orcidMatch) {
-      member.orcid = normalizeOrcid(orcidMatch[0])
-      rest = rest.replace(orcidMatch[0], ' ')
-      // Strip a now-orphaned `https://orcid.org/` prefix.
-      rest = rest.replace(/(?:https?:\/\/)?orcid\.org\/?/gi, ' ')
-    }
-    const rmMatch = RESEARCHMAP_URL_ANYWHERE.exec(rest)
-    if (rmMatch) {
-      member.researchmap = normalizeResearchmapId(rmMatch[0])
-      rest = rest.replace(rmMatch[0], ' ')
-    }
-
-    const cells = rest
-      .split(/\t|,|\s{2,}/)
-      .map((c) => c.trim().replace(/^["']|["']$/g, ''))
-      .filter((c) => c !== '')
-    if (
-      cells.length > 0 &&
-      !member.orcid &&
-      !member.researchmap &&
-      cells.every((c) => HEADER_CELLS.has(c.toLowerCase()))
-    ) {
+    rows.push(read.member)
+    if (read.kind === 'incomplete') {
+      invalid.push(read.member.raw)
       return
     }
 
-    const names: string[] = []
-    for (const cell of cells) {
-      if (looksLikeName(cell)) {
-        names.push(cell)
-        continue
-      }
-      // A bare ASCII token that is not an ORCID iD: a researchmap permalink.
-      if (member.researchmap == null) member.researchmap = normalizeResearchmapId(cell)
-      else names.push(cell)
-    }
-
-    if (names.length > 0) member.name = names.join(' ')
-    if (!member.orcid && !member.researchmap) {
-      invalid.push(line)
-      return
-    }
-
-    const key = `${member.orcid ?? ''}|${member.researchmap ?? ''}`
+    const key = `${read.member.orcid ?? ''}|${read.member.researchmap ?? ''}`
     if (seen.has(key)) return
     seen.add(key)
-    members.push(member)
+    members.push(read.member)
   })
 
-  return { members, invalid }
+  return { members, invalid, rows }
 }
 
 /** Comma- or newline-separated author names, for the bold-names field. */
@@ -530,36 +568,6 @@ export function parseNameList(text: string): string[] {
 }
 
 // ──────────────────────────────────────────── editing the members textarea ──
-
-/**
- * Set (or clear) the time window on one line of the members box.
- *
- * The textarea stays the single source of truth for the member list — there is
- * no parallel structure holding dates that could drift from the text the user
- * can see and edit. A row's date fields write back here.
- */
-export function setMemberWindow(
-  text: string,
-  lineIndex: number,
-  window: MemberWindow | null,
-): string {
-  const lines = text.split(/\r?\n/)
-  if (lineIndex < 0 || lineIndex >= lines.length) return text
-
-  // Strip whatever window the line already carries, wherever it sits, in
-  // whichever spelling it is written in — an `id@2019-04:2023-03` token keeps
-  // its identifier and loses only the dates, so editing a date here cannot cost
-  // the member their seed, and cannot leave two windows on one line.
-  const stripped = lines[lineIndex]
-    .split(/([\s,\t]+)/)
-    .map((part) => parseMemberWindowToken(part)?.rest ?? part)
-    .join('')
-    .replace(/[\s,\t]+$/, '')
-
-  const token = formatMemberWindow(window)
-  lines[lineIndex] = token === '' ? stripped : `${stripped}\t${token}`
-  return lines.join('\n')
-}
 
 /**
  * Comment one line out, keeping it visible.
@@ -580,6 +588,138 @@ export function commentOutLine(
   const line = lines[lineIndex]
   if (line.trim().startsWith('#')) return text
   lines[lineIndex] = `# ${note}\t${line.trim()}`
+  return lines.join('\n')
+}
+
+/**
+ * Everything one member line can say, as separate values.
+ *
+ * The unit the member rows edit in. `undefined` means "leave this alone" in a
+ * patch; `''` clears the cell.
+ */
+export interface MemberFields {
+  name?: string
+  orcid?: string
+  researchmap?: string
+  from?: string
+  to?: string
+  grace?: number
+}
+
+/**
+ * Write one member as a line, in the canonical column order:
+ * `name<TAB>ORCID<TAB>researchmap<TAB>from..to+grace`.
+ *
+ * Blank cells are dropped rather than written as empty columns, so a member
+ * with only an iD is still the bare `0000-…` line a pasted list has always
+ * been, and `draftToConfig` still projects it onto the bare-string seed.
+ *
+ * Reading a line back is by shape, not by column (see `readMemberLine`), so
+ * this order is a convention for what the tool writes and not a format the
+ * parser depends on. The one place the two disagree is a name that is a single
+ * bare ASCII word: written here as the first cell, it reads back as a
+ * researchmap permalink, because those two are genuinely indistinguishable —
+ * the same ambiguity a hand-typed line has always had. It costs nothing while a
+ * name is being typed (the row shows what you typed until you leave the field)
+ * and resolves itself the moment the name has a second word in it.
+ */
+export function formatMemberLine(fields: MemberFields): string {
+  const cells: string[] = []
+  for (const value of [fields.name, fields.orcid, fields.researchmap]) {
+    const cell = (value ?? '').trim()
+    if (cell !== '') cells.push(cell)
+  }
+  const token = formatMemberWindow({
+    from: fields.from,
+    to: fields.to,
+    grace: fields.grace,
+  })
+  if (token !== '') cells.push(token)
+  return cells.join('\t')
+}
+
+/**
+ * Set one or more fields on one line, leaving every other line byte-identical.
+ *
+ * The line is re-read and re-written whole, in `formatMemberLine`'s column
+ * order, so a field the patch does not mention keeps its value — editing a name
+ * cannot lose the member's iD or their time window.
+ *
+ * **A commented-out line is never touched.** That is how freezing removes a
+ * seed (see `commentOutLine`), and the promise that deleting the `#` brings the
+ * member back only holds if nothing else rewrites the line in the meantime. A
+ * frozen member has no row, so the UI cannot ask for this; the guard makes that
+ * a property of the function rather than of its caller.
+ */
+export function setMemberField(
+  text: string,
+  lineIndex: number,
+  patch: MemberFields,
+): string {
+  const lines = text.split(/\r?\n/)
+  if (lineIndex < 0 || lineIndex >= lines.length) return text
+  if (lines[lineIndex].trim().startsWith('#')) return text
+
+  const read = readMemberLine(lines[lineIndex], lineIndex)
+  // A header row is the only other thing `readMemberLine` ignores, and a header
+  // has no row to edit from.
+  const current: MemberFields = read.kind === 'ignored' ? {} : read.member
+
+  const pick = <K extends keyof MemberFields>(key: K): MemberFields[K] =>
+    patch[key] !== undefined ? patch[key] : current[key]
+
+  lines[lineIndex] = formatMemberLine({
+    name: pick('name'),
+    orcid: pick('orcid'),
+    researchmap: pick('researchmap'),
+    from: pick('from'),
+    to: pick('to'),
+    grace: pick('grace'),
+  })
+  return lines.join('\n')
+}
+
+/**
+ * The index `appendMemberLine` would write to.
+ *
+ * The member rows need it before the line exists: a row that is being filled in
+ * for the first time is keyed by the line it is about to become, so that
+ * creating the line does not change the row's React key and remount the input
+ * being typed into.
+ */
+export function nextMemberLineIndex(text: string): number {
+  const lines = text.split(/\r?\n/)
+  const last = lines.length - 1
+  return lines[last].trim() === '' ? last : lines.length
+}
+
+/**
+ * Add one member at the end, as exactly one new line.
+ *
+ * A trailing blank line is filled rather than pushed past, so adding a member
+ * to a list that ends in a newline does not leave a gap in the middle of it.
+ * A patch with nothing in it adds nothing.
+ */
+export function appendMemberLine(text: string, fields: MemberFields): string {
+  const line = formatMemberLine(fields)
+  if (line === '') return text
+  const lines = text.split(/\r?\n/)
+  lines[nextMemberLineIndex(text)] = line
+  return lines.join('\n')
+}
+
+/**
+ * Delete one line, leaving every other line byte-identical.
+ *
+ * Refuses a commented-out line, for the reason spelled out on `setMemberField`:
+ * a frozen member's line is the record of the freeze and the means of undoing
+ * it, so it is removed by hand or not at all.
+ */
+export function removeMemberLine(text: string, lineIndex: number): string {
+  const lines = text.split(/\r?\n/)
+  if (lineIndex < 0 || lineIndex >= lines.length) return text
+  if (lines[lineIndex].trim().startsWith('#')) return text
+  lines.splice(lineIndex, 1)
   return lines.join('\n')
 }
 

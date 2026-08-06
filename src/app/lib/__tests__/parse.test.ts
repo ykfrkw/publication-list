@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
+  appendMemberLine,
   commentOutLine,
   detectCollectiveAuthorQueries,
   detectCollectiveAuthorQuery,
   detectPmidQueries,
   detectPmidQuery,
+  formatMemberLine,
   formatMemberWindow,
+  nextMemberLineIndex,
   parseIdList,
   parseMemberLines,
   parseMemberWindow,
@@ -13,7 +16,8 @@ import {
   parseNameList,
   parsePubmedQueries,
   parseYearMonth,
-  setMemberWindow,
+  removeMemberLine,
+  setMemberField,
 } from '../parse'
 
 describe('parseIdList', () => {
@@ -286,36 +290,52 @@ describe('member time windows in the pasted list', () => {
   })
 })
 
-describe('setMemberWindow', () => {
+/**
+ * The window half of `setMemberField`, which is where the member rows' Joined
+ * and Left fields land. These were `setMemberWindow`'s tests; that function was
+ * a second, narrower editor of the same line and has been folded in, so a row
+ * writes every field through one path and cannot produce a line that no single
+ * editor would have written.
+ */
+describe('setMemberField — the time window', () => {
   const text = '0000-0003-1317-0220\n0000-0002-1825-0097'
 
   it('appends a window to the right line and leaves the others alone', () => {
-    expect(setMemberWindow(text, 1, { to: '2023-03' })).toBe(
+    expect(setMemberField(text, 1, { to: '2023-03' })).toBe(
       '0000-0003-1317-0220\n0000-0002-1825-0097\t..2023-03',
     )
   })
 
   it('replaces a window rather than stacking a second one', () => {
-    const once = setMemberWindow(text, 0, { from: '2019-04' })
-    const twice = setMemberWindow(once, 0, { from: '2019-04', to: '2023-03' })
+    const once = setMemberField(text, 0, { from: '2019-04' })
+    const twice = setMemberField(once, 0, { from: '2019-04', to: '2023-03' })
     expect(twice.split('\n')[0]).toBe('0000-0003-1317-0220\t2019-04..2023-03')
   })
 
   it('replaces an @ window with the canonical form, keeping the identifier', () => {
     const text = '0000-0003-1317-0220@2019-04:2023-03'
-    expect(setMemberWindow(text, 0, { from: '2019-04', to: '2024-03' })).toBe(
+    expect(setMemberField(text, 0, { from: '2019-04', to: '2024-03' })).toBe(
       '0000-0003-1317-0220\t2019-04..2024-03',
     )
-    expect(setMemberWindow(text, 0, null)).toBe('0000-0003-1317-0220')
+    expect(setMemberField(text, 0, { from: '', to: '' })).toBe(
+      '0000-0003-1317-0220',
+    )
   })
 
-  it('clears the window when given null', () => {
-    const once = setMemberWindow(text, 0, { from: '2019-04', to: '2023-03' })
-    expect(setMemberWindow(once, 0, null)).toBe(text)
+  it('clears the window when both dates are emptied', () => {
+    const once = setMemberField(text, 0, { from: '2019-04', to: '2023-03' })
+    expect(setMemberField(once, 0, { from: '', to: '' })).toBe(text)
+  })
+
+  it('keeps a non-default grace period through a date edit', () => {
+    const text = '0000-0003-1317-0220\t2019-04..2023-03+36'
+    expect(setMemberField(text, 0, { to: '2024-03' })).toBe(
+      '0000-0003-1317-0220\t2019-04..2024-03+36',
+    )
   })
 
   it('ignores an out-of-range line', () => {
-    expect(setMemberWindow(text, 9, { to: '2023-03' })).toBe(text)
+    expect(setMemberField(text, 9, { to: '2023-03' })).toBe(text)
   })
 })
 
@@ -332,6 +352,205 @@ describe('commentOutLine', () => {
   it('does not comment a line twice', () => {
     const text = '# already\t0000-0002-1825-0097'
     expect(commentOutLine(text, 0, 'again')).toBe(text)
+  })
+})
+
+/**
+ * The line editors the member rows are built on.
+ *
+ * Every field of every row writes through one of these, so the invariant they
+ * all have to hold is the same one: **one line changes and the rest of the box
+ * comes out byte-identical**. A lab list is somebody's hand-written file, and a
+ * tool that reflows it while a date is being typed is a tool they stop trusting.
+ */
+describe('the member-line editors', () => {
+  const A = '0000-0003-1317-0220'
+  const B = '0000-0002-1825-0097'
+
+  describe('formatMemberLine', () => {
+    it('writes the canonical column order', () => {
+      expect(
+        formatMemberLine({
+          name: 'Yuki Furukawa',
+          orcid: A,
+          researchmap: 'furukawayuki',
+          from: '2019-04',
+          to: '2023-03',
+          grace: 36,
+        }),
+      ).toBe(`Yuki Furukawa\t${A}\tfurukawayuki\t2019-04..2023-03+36`)
+    })
+
+    it('drops the cells there is nothing to put in', () => {
+      // A member with only an iD stays the bare line a pasted list has always
+      // been, so `draftToConfig` still projects it onto a bare-string seed.
+      expect(formatMemberLine({ orcid: A })).toBe(A)
+      expect(formatMemberLine({})).toBe('')
+      expect(formatMemberLine({ name: '  ', orcid: '' })).toBe('')
+    })
+
+    it('round-trips through the parser', () => {
+      const line = formatMemberLine({
+        name: 'Yuki Furukawa',
+        orcid: A,
+        researchmap: 'furukawayuki',
+        from: '2019-04',
+        to: '2023-03',
+      })
+      const { members } = parseMemberLines(line)
+      expect(members[0]).toMatchObject({
+        name: 'Yuki Furukawa',
+        orcid: A,
+        researchmap: 'furukawayuki',
+        from: '2019-04',
+        to: '2023-03',
+      })
+    })
+  })
+
+  describe('setMemberField', () => {
+    it('sets a name without disturbing the member’s window token', () => {
+      const text = `${B}\t2019-04..2023-03+36`
+      expect(setMemberField(text, 0, { name: 'Yuki Furukawa' })).toBe(
+        `Yuki Furukawa\t${B}\t2019-04..2023-03+36`,
+      )
+    })
+
+    it('leaves every other line byte-identical', () => {
+      const text = `${A}\n${B}\t2019-04..\nhttps://researchmap.jp/someone`
+      const next = setMemberField(text, 1, { orcid: '0000-0002-9999-0000' })
+      const before = text.split('\n')
+      const after = next.split('\n')
+      expect(after[0]).toBe(before[0])
+      expect(after[2]).toBe(before[2])
+      expect(after[1]).toBe('0000-0002-9999-0000\t2019-04..')
+    })
+
+    it('clears a field when given an empty string', () => {
+      const text = `Yuki Furukawa\t${A}`
+      expect(setMemberField(text, 0, { name: '' })).toBe(A)
+    })
+
+    it('keeps the fields the patch does not mention', () => {
+      const text = `Yuki Furukawa\t${A}\tfurukawayuki`
+      expect(setMemberField(text, 0, { researchmap: 'someone' })).toBe(
+        `Yuki Furukawa\t${A}\tsomeone`,
+      )
+    })
+
+    it('ignores an out-of-range line', () => {
+      expect(setMemberField(A, 9, { name: 'x' })).toBe(A)
+    })
+  })
+
+  describe('appendMemberLine', () => {
+    it('adds exactly one line at the end', () => {
+      const text = `${A}\n${B}`
+      const next = appendMemberLine(text, { name: 'New Person', orcid: A })
+      expect(next.split('\n')).toEqual([A, B, `New Person\t${A}`])
+      expect(next.startsWith(`${text}\n`)).toBe(true)
+    })
+
+    it('fills a trailing blank line rather than leaving a gap', () => {
+      expect(appendMemberLine(`${A}\n`, { orcid: B })).toBe(`${A}\n${B}`)
+      expect(appendMemberLine('', { orcid: B })).toBe(B)
+    })
+
+    it('adds nothing when there is nothing to add', () => {
+      expect(appendMemberLine(A, {})).toBe(A)
+      expect(appendMemberLine(A, { name: '   ' })).toBe(A)
+    })
+
+    /**
+     * The rows key the not-yet-created row by the line it is about to become,
+     * so that typing the first character does not change the React key and
+     * remount the input. That only holds while these two agree.
+     */
+    it('lands on the index nextMemberLineIndex promised', () => {
+      for (const text of ['', A, `${A}\n`, `${A}\n${B}`, '# frozen\n']) {
+        const index = nextMemberLineIndex(text)
+        const next = appendMemberLine(text, { orcid: B })
+        expect(next.split('\n')[index]).toBe(B)
+      }
+    })
+  })
+
+  describe('removeMemberLine', () => {
+    it('takes one line out and leaves the others byte-identical', () => {
+      const text = `Yuki Furukawa\t${A}\n${B}\t2019-04..2023-03\nsomeone`
+      expect(removeMemberLine(text, 1)).toBe(
+        `Yuki Furukawa\t${A}\nsomeone`,
+      )
+    })
+
+    it('empties the box when the last member goes', () => {
+      expect(removeMemberLine(A, 0)).toBe('')
+    })
+
+    it('ignores an out-of-range line', () => {
+      expect(removeMemberLine(A, 9)).toBe(A)
+    })
+  })
+
+  /**
+   * A frozen member's line is the record of the freeze *and* the means of
+   * undoing it — "delete the `#` and the seed is back", which `docs/lab-setup.md`
+   * promises. None of the editors may rewrite one, and editing anybody else must
+   * leave it byte-identical.
+   */
+  describe('a frozen line', () => {
+    const frozen = `# frozen 2026-08-06 — 11 paper(s) pinned\t${B}`
+    const text = `${frozen}\n${A}`
+
+    it('is not rewritten by setMemberField', () => {
+      expect(setMemberField(text, 0, { name: 'Yuki Furukawa' })).toBe(text)
+    })
+
+    it('is not deleted by removeMemberLine', () => {
+      expect(removeMemberLine(text, 0)).toBe(text)
+    })
+
+    it('survives byte-identical when another member is edited', () => {
+      expect(setMemberField(text, 1, { name: 'Yuki Furukawa' })).toBe(
+        `${frozen}\nYuki Furukawa\t${A}`,
+      )
+      expect(removeMemberLine(text, 1)).toBe(frozen)
+      expect(appendMemberLine(text, { orcid: '0000-0002-9999-0000' })).toBe(
+        `${text}\n0000-0002-9999-0000`,
+      )
+    })
+  })
+})
+
+/**
+ * `rows` is the editing surface; `members` is the seed list. They differ on the
+ * states a list passes *through* — a member named before their iD is typed, an
+ * iD halfway through being corrected — which is exactly when a row must not
+ * disappear out from under the cursor.
+ */
+describe('parseMemberLines rows', () => {
+  it('keeps a line that carries no identifier yet', () => {
+    const { members, invalid, rows } = parseMemberLines(
+      '0000-0003-1317-0220\nYuki Furukawa',
+    )
+    expect(members).toHaveLength(1)
+    expect(invalid).toEqual(['Yuki Furukawa'])
+    expect(rows.map((r) => r.lineIndex)).toEqual([0, 1])
+    expect(rows[1].orcid).toBeUndefined()
+  })
+
+  it('has no row for a blank, a comment or a header', () => {
+    const { rows } = parseMemberLines(
+      'Name\tORCID\n\n# frozen 2026-08-06\t0000-0002-1825-0097\n0000-0003-1317-0220',
+    )
+    expect(rows.map((r) => r.lineIndex)).toEqual([3])
+  })
+
+  it('shows a repeated member as its own row, though it seeds once', () => {
+    const text = '0000-0003-1317-0220\n0000-0003-1317-0220'
+    const { members, rows } = parseMemberLines(text)
+    expect(members).toHaveLength(1)
+    expect(rows).toHaveLength(2)
   })
 })
 

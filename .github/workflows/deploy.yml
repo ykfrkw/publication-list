@@ -10,9 +10,15 @@ permissions:
   pages: write
   id-token: write
 
+# Do NOT cancel an in-progress run. A deployment cancelled mid-flight leaves the
+# Pages deployment for that commit stuck server-side, and every later attempt at
+# the same SHA is then refused with "Deployment cancelled" — including a manual
+# re-run, because the deployment id is derived from the commit. Recovering means
+# cancelling it through the API and pushing a new commit. Queueing instead costs
+# a few idle minutes; cancelling cost an afternoon on 2026-08-06.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:

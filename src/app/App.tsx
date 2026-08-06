@@ -36,6 +36,7 @@ import { configHash } from '@/core/config'
 import { parseNameList } from './lib/parse'
 import {
   EXAMPLE_ORCID,
+  GROUP_BY_DEFAULT,
   MODES,
   type WizardDraft,
   type WizardMode,
@@ -100,8 +101,9 @@ export default function App() {
         : {
             ...prev,
             mode,
-            // A reference list is a flat numbered list; a CV is grouped.
-            groupBy: mode === 'article' ? 'none' : 'category',
+            // One rule for the mode → grouping default, shared with
+            // `emptyDraft` rather than restated here.
+            groupBy: GROUP_BY_DEFAULT[mode],
           },
     )
   }, [])
@@ -126,6 +128,31 @@ export default function App() {
   }, [draft.mode, reset])
 
   const model = state.model
+  /**
+   * The model every output panel renders from.
+   *
+   * `disclaimer` is a real `ListConfig` field, but its checkbox lives beside
+   * the credit one in `SnippetPanel`, where a tick has to change the snippet
+   * on the spot. So it is applied here, to the finished model, rather than in
+   * `draftToConfig`: it changes nothing about what gets fetched, and feeding
+   * it into `configHash` would throw away the cached build on every tick.
+   * Everything downstream — the preview, the static HTML, the `data-*`
+   * projection, the iframe URL, the `pubs.json` download — then reads it from
+   * `config` with no further plumbing.
+   */
+  const outputModel = useMemo(
+    () =>
+      model == null
+        ? null
+        : {
+            ...model,
+            config: {
+              ...model.config,
+              disclaimer: (draft.disclaimer ? 'show' : 'hide') as 'show' | 'hide',
+            },
+          },
+    [model, draft.disclaimer],
+  )
   const boldNames = useMemo(() => parseNameList(draft.boldNames), [draft.boldNames])
   const showQueue =
     model != null && (model.candidates.length > 0 || hasNameQuery(model.config))
@@ -212,7 +239,7 @@ export default function App() {
         <EmptyState onTryExample={startExample} />
       ) : null}
 
-      {model != null ? (
+      {model != null && outputModel != null ? (
         <>
           {state.fromCache ? (
             <Alert>
@@ -249,15 +276,19 @@ export default function App() {
           {/*
             `credit` is the checkbox in SnippetPanel below. The static HTML
             output honours the same one switch as the embed snippets — one
-            control, every route.
+            control, every route. The disclaimer's own checkbox reaches these
+            panels through `outputModel.config`, not as a prop, because it is a
+            config field; see the comment on `outputModel`.
           */}
-          <ResultsPanel model={model} credit={draft.credit} />
+          <ResultsPanel model={outputModel} credit={draft.credit} />
 
           <SnippetPanel
-            model={model}
+            model={outputModel}
             credit={draft.credit}
+            disclaimer={draft.disclaimer}
             configUrl={draft.configUrl}
             onCreditChange={(credit) => update({ credit })}
+            onDisclaimerChange={(disclaimer) => update({ disclaimer })}
             onConfigUrlChange={(configUrl) => update({ configUrl })}
           />
 

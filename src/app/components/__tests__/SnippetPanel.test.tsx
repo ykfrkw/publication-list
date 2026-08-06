@@ -87,8 +87,10 @@ function render(config: ListConfig, configUrl = '') {
       <SnippetPanel
         model={model(config)}
         credit
+        disclaimer
         configUrl={configUrl}
         onCreditChange={() => {}}
+        onDisclaimerChange={() => {}}
         onConfigUrlChange={() => {}}
       />,
     )

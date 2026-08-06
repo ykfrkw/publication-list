@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   CREDIT_HTML,
   CREDIT_SELECTOR,
+  DISCLAIMER_HTML,
+  DISCLAIMER_SELECTOR,
   buildGroups,
   renderBibtex,
   renderClipboard,
@@ -88,11 +90,46 @@ describe('buildGroups', () => {
     expect(buildGroups(m).map((g) => g.label)).toEqual(['2024', '2022', '2021'])
   })
 
+  it('groups by category, then by descending year, when the config says nothing', () => {
+    const m = model([pub({ year: 2021 }), pub({ year: 2024 }), pub({ year: 2022 })])
+    const groups = buildGroups(m)
+    expect(groups.map((g) => g.key)).toEqual(['category:original'])
+    expect(groups[0].sections?.map((s) => s.key)).toEqual([
+      'category:original:year:2024',
+      'category:original:year:2022',
+      'category:original:year:2021',
+    ])
+    expect(groups[0].sections?.map((s) => s.label)).toEqual(['2024', '2022', '2021'])
+  })
+
   it('puts undated records last under groupBy year', () => {
     const m = model([pub({ year: 0 }), pub({ year: 2024 })], {
       groupBy: 'year',
     })
     expect(buildGroups(m).map((g) => g.label)).toEqual(['2024', 'Undated'])
+  })
+
+  it('labels an unusable year "Undated" rather than undefined or NaN', () => {
+    // What a source that omits the date, or supplies an unparseable one,
+    // leaves behind. `year` is typed `number`, so both arrive by way of a cast.
+    const m = model(
+      [
+        pub({ year: undefined as unknown as number }),
+        pub({ year: Number.NaN }),
+        pub({ year: 2024 }),
+      ],
+      { groupBy: 'year' },
+    )
+    const groups = buildGroups(m)
+    expect(groups.map((g) => g.label)).toEqual(['2024', 'Undated'])
+    expect(groups.map((g) => g.key)).toEqual(['year:2024', 'year:undated'])
+    // Both unusable records land in the one bucket, not in two of their own.
+    expect(groups[1].items).toHaveLength(2)
+
+    const html = renderHtml(m, { credit: false })
+    expect(html).toContain('<h3 class="publist-heading">Undated</h3>')
+    expect(html).not.toContain('undefined')
+    expect(html).not.toContain('NaN')
   })
 
   it('emits a single unlabelled group under groupBy none', () => {
@@ -131,6 +168,45 @@ describe('buildGroups', () => {
     ])
   })
 
+  it('keeps Japanese records in one trailing section, undivided, under the default', () => {
+    // Under the default grouping, with Japanese records whose categories and
+    // years both interleave with the English ones. The failure mode this pins
+    // is the Japanese section being sliced up like everything else — a 2024
+    // Japanese letter filed under "Letters → 2024" instead of its own section.
+    const m = model(
+      [
+        pub({ language: 'ja', year: 2024, category: 'letter' }),
+        pub({ language: 'ja', year: 2020 }),
+        pub({ year: 2024 }),
+        pub({ year: 2020, category: 'letter' }),
+      ],
+      { japanese: 'separate' },
+    )
+    const groups = buildGroups(m)
+    expect(groups.map((g) => g.label)).toEqual([
+      'Original Articles & Reviews',
+      'Letters',
+      'Japanese-language publications',
+    ])
+    expect(groups.map((g) => g.items.length)).toEqual([1, 1, 2])
+    // The trailing section is one flat block: no year dividers inside it.
+    expect(groups[2].sections).toBeUndefined()
+    // Newest first inside the trailing section as well.
+    expect(groups[2].items.map((p) => p.year)).toEqual([2024, 2020])
+  })
+
+  it('keeps the Japanese section last under every grouping, category-year included', () => {
+    for (const groupBy of ['category-year', 'category', 'year', 'none'] as const) {
+      const m = model(
+        [pub({ language: 'ja', year: 2019 }), pub({ year: 2024 }), pub({ year: 2020 })],
+        { groupBy, japanese: 'separate' },
+      )
+      const groups = buildGroups(m)
+      expect(groups[groups.length - 1].key).toBe('japanese')
+      expect(groups[groups.length - 1].sections).toBeUndefined()
+    }
+  })
+
   it('inlines Japanese records under japanese: merge', () => {
     const m = model([pub({ language: 'ja' }), pub()], {
       groupBy: 'category',
@@ -155,6 +231,60 @@ describe('buildGroups', () => {
       { groupBy: 'none', japanese: 'hide', limit: 2 },
     )
     expect(buildGroups(m)[0].items).toHaveLength(2)
+  })
+
+  it('divides each category into its own descending years', () => {
+    const m = model(
+      [
+        pub({ category: 'original', year: 2024 }),
+        pub({ category: 'original', year: 2021 }),
+        pub({ category: 'original', year: 2024 }),
+        pub({ category: 'letter', year: 2023 }),
+      ],
+      { groupBy: 'category-year' },
+    )
+    const groups = buildGroups(m)
+    expect(groups.map((g) => g.label)).toEqual([
+      'Original Articles & Reviews',
+      'Letters',
+    ])
+    expect(groups[0].sections?.map((s) => s.label)).toEqual(['2024', '2021'])
+    expect(groups[0].sections?.map((s) => s.items.length)).toEqual([2, 1])
+    // A single-year category still gets its divider, so the page's shape does
+    // not change with the data.
+    expect(groups[1].sections?.map((s) => s.label)).toEqual(['2023'])
+  })
+
+  it('keeps group.items equal to the sections concatenated, in order', () => {
+    // BibTeX, RIS and the Word clipboard read `items` and ignore `sections`.
+    // If the two ever disagreed those outputs would drop or duplicate records.
+    const m = model(
+      [pub({ year: 2020 }), pub({ year: 2024 }), pub({ year: 2022 })],
+      { groupBy: 'category-year' },
+    )
+    const group = buildGroups(m)[0]
+    expect(group.items).toEqual(group.sections?.flatMap((s) => s.items))
+    expect(group.items.map((p) => p.year)).toEqual([2024, 2022, 2020])
+  })
+
+  it('puts Undated last within its own category, not last overall', () => {
+    const m = model(
+      [
+        pub({ category: 'original', year: 0 }),
+        pub({ category: 'original', year: 2024 }),
+        pub({ category: 'letter', year: 2019 }),
+      ],
+      { groupBy: 'category-year' },
+    )
+    const groups = buildGroups(m)
+    expect(groups[0].sections?.map((s) => s.label)).toEqual(['2024', 'Undated'])
+    expect(groups[0].sections?.map((s) => s.key)).toEqual([
+      'category:original:year:2024',
+      'category:original:year:undated',
+    ])
+    // The undated original article stays inside Original Articles, above the
+    // Letters heading — it does not sink to the bottom of the whole list.
+    expect(groups[1].label).toBe('Letters')
   })
 
   it('applies limit before splitting the Japanese section out', () => {
@@ -193,6 +323,69 @@ describe('renderHtml', () => {
       credit: false,
     })
     expect(html).not.toContain('<h3')
+    expect(html).not.toContain('<h4')
+  })
+
+  it('nests descending year subheadings inside each category heading', () => {
+    const html = renderHtml(
+      model(
+        [
+          pub({ category: 'original', year: 2026 }),
+          pub({ category: 'original', year: 2024 }),
+          pub({ category: 'letter', year: 2025 }),
+        ],
+        { groupBy: 'category-year' },
+      ),
+      { credit: false, disclaimer: false },
+    )
+
+    // The exact two-level shape, in order: h3, then its years, then the next h3.
+    expect(html.match(/<h[34][^>]*>[^<]*<\/h[34]>/g)).toEqual([
+      '<h3 class="publist-heading">Original Articles &amp; Reviews</h3>',
+      '<h4 class="publist-subheading">2026</h4>',
+      '<h4 class="publist-subheading">2024</h4>',
+      '<h3 class="publist-heading">Letters</h3>',
+      '<h4 class="publist-subheading">2025</h4>',
+    ])
+    // One <ol> per year, not one per category.
+    expect(occurrences(html, '<ol class="publist-list">')).toBe(3)
+    // The year level sits below the category level in the document outline.
+    expect(html.indexOf('<h3')).toBeLessThan(html.indexOf('<h4'))
+  })
+
+  it('restarts numbering in each year, because each year is its own <ol>', () => {
+    // The numbers are ordinals inside a visible section, not citation numbers.
+    // A list continued across years would open "3." under a heading showing no
+    // 1 or 2. `groupBy: 'none'` — where the numbers *are* cited — stays one
+    // unbroken <ol>, which the assertion at the bottom pins.
+    const html = renderHtml(
+      model([pub({ year: 2026 }), pub({ year: 2024 }), pub({ year: 2024 })]),
+      { credit: false, disclaimer: false },
+    )
+    expect(html).not.toContain('start=')
+    expect(occurrences(html, '<ol class="publist-list">')).toBe(2)
+
+    const flat = renderHtml(
+      model([pub({ year: 2026 }), pub({ year: 2024 }), pub({ year: 2024 })], {
+        groupBy: 'none',
+      }),
+      { credit: false, disclaimer: false },
+    )
+    expect(occurrences(flat, '<ol class="publist-list">')).toBe(1)
+    expect(occurrences(flat, '<li class="publist-item">')).toBe(3)
+  })
+
+  it('renders the other three groupings flat, with no subheadings', () => {
+    for (const groupBy of ['category', 'year', 'none'] as const) {
+      const html = renderHtml(
+        model([pub({ year: 2026 }), pub({ year: 2024 })], { groupBy }),
+        { credit: false, disclaimer: false },
+      )
+      expect(html).not.toContain('publist-subheading')
+      expect(occurrences(html, '<ol class="publist-list">')).toBe(
+        groupBy === 'year' ? 2 : 1,
+      )
+    }
   })
 
   it('links the PubMed record when a pmid is present', () => {
@@ -275,6 +468,91 @@ describe('the credit link', () => {
   })
 })
 
+// ────────────────────────────────────────────────────── source disclaimer ──
+
+describe('the source disclaimer', () => {
+  const count = (html: string) => occurrences(html, 'class="publist-disclaimer"')
+
+  it('is one short line naming the sources, in a publist- class', () => {
+    expect(DISCLAIMER_SELECTOR).toBe('.publist-disclaimer')
+    expect(DISCLAIMER_HTML).toBe(
+      '<p class="publist-disclaimer">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>',
+    )
+    // One sentence: this lands on every embedded page, and small print nobody
+    // reads is worse than none.
+    const text = DISCLAIMER_HTML.replace(/<[^>]+>/g, '')
+    expect(text.match(/\./g)).toHaveLength(1)
+    // Carries no link, so it can never be mistaken for a second credit.
+    expect(DISCLAIMER_HTML).not.toContain('<a ')
+  })
+
+  it('is on when nothing says otherwise, and appears exactly once', () => {
+    const m = model([pub({ category: 'original' }), pub({ category: 'letter' })])
+    const html = renderHtml(m, { credit: false })
+    expect(count(html)).toBe(1)
+    expect(html).toContain(DISCLAIMER_HTML)
+  })
+
+  it('is off when the config says hide', () => {
+    const html = renderHtml(model([pub()], { disclaimer: 'hide' }), {
+      credit: false,
+    })
+    expect(count(html)).toBe(0)
+  })
+
+  it('is suppressed by the render option regardless of the config', () => {
+    // How `src/embed/entry.ts` avoids injecting it into a host page.
+    const html = renderHtml(model([pub()], { disclaimer: 'show' }), {
+      credit: false,
+      disclaimer: false,
+    })
+    expect(count(html)).toBe(0)
+  })
+
+  it('survives the credit being turned off, and vice versa', () => {
+    const m = model([pub()])
+    const off = model([pub()], { disclaimer: 'hide' })
+
+    // Credit off, disclaimer on.
+    const noCredit = renderHtml(m, { credit: false })
+    expect(noCredit).not.toContain('publist-credit')
+    expect(count(noCredit)).toBe(1)
+
+    // Credit on, disclaimer off.
+    const noDisclaimer = renderHtml(off, { credit: true })
+    expect(noDisclaimer).toContain(CREDIT_HTML)
+    expect(count(noDisclaimer)).toBe(0)
+
+    // Both, and neither.
+    expect(count(renderHtml(m, { credit: true }))).toBe(1)
+    expect(renderHtml(m, { credit: true })).toContain(CREDIT_HTML)
+    const neither = renderHtml(off, { credit: false })
+    expect(count(neither)).toBe(0)
+    expect(neither).not.toContain('publist-credit')
+  })
+
+  it('sits with the credit at the end of the list, disclaimer first', () => {
+    const html = renderHtml(model([pub()]), { credit: true })
+    expect(html.endsWith(`${DISCLAIMER_HTML}\n${CREDIT_HTML}\n</section>`)).toBe(true)
+  })
+
+  it('is never emitted by any renderer other than renderHtml', () => {
+    // The Word clipboard carries its own, longer disclaimer; the rest carry
+    // none. None of them carries this markup.
+    const m = model([pub()])
+    for (const out of [
+      renderWordpressBlocks(m),
+      renderMarkdown(m),
+      renderBibtex(m),
+      renderRis(m),
+      renderClipboard(m).html,
+      renderClipboard(m).plain,
+    ]) {
+      expect(out).not.toContain('publist-disclaimer')
+    }
+  })
+})
+
 // ─────────────────────────────────────────────── WordPress block markup ──
 
 /**
@@ -328,6 +606,25 @@ describe('renderWordpressBlocks', () => {
     )
   })
 
+  it('nests level-4 year headings under the level-3 category headings', () => {
+    const markup = renderWordpressBlocks(
+      model([pub({ year: 2026 }), pub({ year: 2024 })], {
+        groupBy: 'category-year',
+      }),
+    )
+    expect(markup).toContain('<!-- wp:heading {"level":4} -->')
+    expect(markup).toContain('<h4 class="wp-block-heading">2026</h4>')
+    assertBalancedBlocks(markup)
+  })
+
+  it('stays balanced under the default grouping', () => {
+    assertBalancedBlocks(
+      renderWordpressBlocks(
+        model([pub({ year: 2026 }), pub({ year: 2024, category: 'letter' })]),
+      ),
+    )
+  })
+
   it('stays balanced with a Japanese-language section', () => {
     assertBalancedBlocks(
       renderWordpressBlocks(
@@ -372,9 +669,12 @@ describe('HTML escaping across renderers', () => {
   })
 
   it('escapes a category label containing an ampersand', () => {
-    const html = renderHtml(model([pub({ category: 'original' })]), {
-      credit: false,
-    })
+    // `groupBy` is explicit because the default is `year`, which emits no
+    // category label at all — this test is about the escaping, not the default.
+    const html = renderHtml(
+      model([pub({ category: 'original' })], { groupBy: 'category' }),
+      { credit: false },
+    )
     expect(html).toContain('Original Articles &amp; Reviews')
     expect(html).not.toContain('Original Articles & Reviews')
   })
@@ -510,11 +810,16 @@ describe('renderClipboard', () => {
     ).toBe(true)
   })
 
-  it('leads with the red disclaimer', () => {
+  it('leads with the red disclaimer, naming the sources a list is built from', () => {
+    // The R original said "ORCID, OpenAlex, and researchmap": it predates
+    // PubMed being a source, and OpenAlex is now enrichment only, never a seed.
     expect(html).toContain(
-      '<p style="color:red;font-weight:bold;">[Disclaimer] This list is generated from a combination of ORCID, OpenAlex, and researchmap.',
+      '<p style="color:red;font-weight:bold;">[Disclaimer] This list is generated from a combination of ORCID, PubMed, and researchmap.',
     )
+    expect(html).not.toContain('OpenAlex')
     expect(plain.startsWith('[Disclaimer] This list is generated')).toBe(true)
+    expect(plain).toContain('ORCID, PubMed, and researchmap')
+    expect(plain).not.toContain('OpenAlex')
   })
 
   it('keeps the explicit heading font size', () => {

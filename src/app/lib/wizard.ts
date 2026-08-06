@@ -6,7 +6,7 @@
  * functions. `App.tsx` holds a `WizardDraft` in state and calls into here.
  */
 
-import { normalizeConfig } from '@/core/config'
+import { DEFAULT_GROUP_BY, normalizeConfig } from '@/core/config'
 import { formatIdRef, parseIdRef, formatIdRefValue } from '@/core/ids'
 import { CACHE_PREFIX } from '@/core/cache'
 import type { CitationStyle, ListConfig, Publication } from '@/core/types'
@@ -71,18 +71,42 @@ export interface WizardDraft {
 
   /** snippet options */
   credit: boolean
+  /**
+   * "Say where the list came from" — the source disclaimer.
+   *
+   * Deliberately kept out of `draftToConfig`, even though `disclaimer` is a
+   * real `ListConfig` field: it changes nothing about what gets fetched, and
+   * putting it into the config would put it into `configHash`, evicting the
+   * cached build every time someone ticks a box. `App.tsx` applies it to the
+   * built model instead, which is also what makes the checkbox take effect
+   * without a rebuild — the same responsiveness `credit` has.
+   */
+  disclaimer: boolean
   /** optional URL of a hosted pubs.json, for the `data-config` snippet */
   configUrl: string
 }
 
 /**
- * A reference list is a flat numbered list; a CV is grouped by category. The
- * mode picks the grouping default, and the user can still override it.
+ * The grouping each mode starts on. The user can still override it in the
+ * shared options — this only picks where the select lands.
+ *
+ * `article` is the exception and keeps `none`: that mode produces the numbered
+ * reference list for a single article, where the numbers are the point — they
+ * are what the prose cites — so the list has to be one unbroken sequence.
+ * Headings of any kind would break it into several sequences each starting at
+ * 1, and no reference list works that way.
+ *
+ * The other two modes are publication pages, and take `DEFAULT_GROUP_BY` — the
+ * same category-then-year grouping an embed gets when nothing says otherwise,
+ * so what the wizard previews is what the page renders.
  */
-const GROUP_BY_DEFAULT: Record<WizardMode, NonNullable<ListConfig['groupBy']>> = {
+export const GROUP_BY_DEFAULT: Record<
+  WizardMode,
+  NonNullable<ListConfig['groupBy']>
+> = {
   article: 'none',
-  person: 'category',
-  lab: 'category',
+  person: DEFAULT_GROUP_BY,
+  lab: DEFAULT_GROUP_BY,
 }
 
 export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
@@ -105,6 +129,7 @@ export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
     include: [],
     exclude: [],
     credit: true,
+    disclaimer: true,
     configUrl: '',
   }
 }

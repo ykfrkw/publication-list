@@ -22,10 +22,12 @@ Generate a snippet in the [wizard](https://ykfrkw.github.io/publication-list/), 
   <!-- Snapshot generated 2026-08-05. embed.js replaces it with a live list on load. -->
   <section class="publist">
   <h3 class="publist-heading">Original Articles &amp; Reviews</h3>
+  <h4 class="publist-subheading">2026</h4>
   <ol class="publist-list">
   <li class="publist-item"><b>Furukawa Y</b>, Salahuddin NH, Wei Y, et al. Next-step treatment for schizophrenia non-responsive to antipsychotics: a systematic review and network meta-analysis. <em>eClinicalMedicine</em>. 2026.</li>
   <li class="publist-item">Fares-Otero NE, <b>Furukawa Y</b>, Sijbrandij M, et al. Efficacy of MDMA-assisted therapy for posttraumatic stress disorder: a systematic review and meta-analysis. <em>European Neuropsychopharmacology</em>. 2026.</li>
   </ol>
+  <p class="publist-disclaimer">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>
   <p class="publist-credit">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>
   </section>
 </div>
@@ -43,12 +45,14 @@ The container gets a `data-publist-state` attribute you can style against: `load
 
 While the refresh runs, the script adds one small "Updating…" line laid out at zero height, so nothing on your page moves and the list is neither covered nor dimmed. A container that starts genuinely empty — a hand-written snippet with no snapshot — gets a spinner instead, because there is nothing else in it to look at. Both are removed the moment the list lands, and both are `publist-` prefixed and styled from a stylesheet the script injects only if it needs one.
 
-Every class is namespaced `publist-`, and the markup is unstyled `<section>` / `<h3>` / `<ol>` / `<li>` so it inherits your site's typography. Style it from your own stylesheet:
+Every class is namespaced `publist-`, and the markup is unstyled `<section>` / `<h3>` / `<h4>` / `<ol>` / `<li>` so it inherits your site's typography. Style it from your own stylesheet:
 
 ```css
-.publist-heading { font-size: 1.1rem; margin-top: 1.5em; }
-.publist-item    { margin-bottom: 0.6em; }
-.publist-pmid    { color: #666; font-size: 0.9em; }
+.publist-heading    { font-size: 1.1rem; margin-top: 1.5em; }
+.publist-subheading { font-size: 0.9rem; margin-top: 1em; opacity: 0.75; }
+.publist-item       { margin-bottom: 0.6em; }
+.publist-pmid       { color: #666; font-size: 0.9em; }
+.publist-disclaimer { color: #666; font-size: 0.85em; }
 [data-publist-state="loading"] .publist { opacity: 0.7; }
 ```
 
@@ -70,7 +74,7 @@ Best for one person or a handful of seeds. Everything is visible in your own HTM
 <div class="publist-embed"
   data-orcid="0000-0003-1317-0220,0000-0002-1825-0097"
   data-style="apa"
-  data-group-by="year"
+  data-group-by="category"
   data-from="2020">
 </div>
 <script src="https://ykfrkw.github.io/publication-list/embed.js" defer></script>
@@ -89,10 +93,11 @@ Read off `src/core/config.ts`. Values are trimmed; an empty attribute is treated
 | `data-exclude` | `exclude` | Same format. Excluded records are dropped before anything else runs. | none |
 | `data-bold-names` | `boldNames` | Comma-separated author names to bold. Spell them out in full (`Yuki Furukawa`, not `Furukawa Y`). | every seeded member's own name |
 | `data-style` | `style` | `vancouver`, `apa`, `harvard`, `chicago`, `nature` | `vancouver` |
-| `data-group-by` | `groupBy` | `category`, `year`, `none` | `category` |
+| `data-group-by` | `groupBy` | `category-year`, `category`, `year`, `none` | `category-year` |
 | `data-preprints` | `preprints` | `include`, `exclude` | `exclude` — preprints are left off unless you ask for them |
 | `data-japanese` | `japanese` | `separate`, `merge`, `hide` | `separate` |
 | `data-review-policy` | `reviewPolicy` | `strict`, `auto` | `strict` |
+| `data-disclaimer` | `disclaimer` | `show`, `hide` | `show` — the list says it was compiled automatically |
 | `data-from` | `from` | `YYYY` or `YYYY-MM`. A bare year means January of that year. | no lower bound |
 | `data-to` | `to` | `YYYY` or `YYYY-MM`. A bare year means December of that year. | no upper bound |
 | `data-limit` | `limit` | Positive integer. Applied after sorting, so you keep the newest N. | no limit |
@@ -102,10 +107,11 @@ Read off `src/core/config.ts`. Values are trimmed; an empty attribute is treated
 What the values mean:
 
 - **`style`** — the citation format. All five are ported from the R original; `vancouver` is the default.
-- **`groupBy`** — `category` splits the list into Original Articles & Reviews / Letters / Editorials / Other Publication Types, plus a Preprints section if `preprints` is `include`. `year` gives one heading per year, newest first, with an `Undated` bucket last. `none` gives one flat numbered list (what you want for an article's reference list).
+- **`groupBy`** — **the default is `category-year`**, which is two levels: an `<h3>` per publication type — Original Articles & Reviews / Letters / Editorials / Other Publication Types, plus Preprints if `preprints` is `include` — and inside each of those an `<h4>` per publication year, newest first, with an `Undated` bucket last *within its own type*. It answers both of the questions a publication page gets asked, what kind of work this is and how recent it is, without the reader scanning dates down the citations. The other three give you one level or none: `category` is the type headings alone, `year` the year headings alone, and `none` one flat numbered list — which is what you want for an article's reference list, where the numbers are what the prose cites. Each heading starts its own `<ol>`, so the numbering restarts under it; only `none` produces a single unbroken sequence. Under `japanese: separate` the Japanese-language section stays last, undivided, whichever of the four you pick.
 - **`preprints`** — whether preprints appear at all. **The default is `exclude`**: a publication list normally means published work, and an unlabelled manuscript sitting among journal articles overstates it. Nothing disappears quietly — every excluded preprint is named in the model's warnings, with the count and how to turn them on. `include` puts them back, in their own "Preprints" section under `groupBy: category`. Note what counts as a preprint: anything on a preprint server (medRxiv, bioRxiv, arXiv and the rest of the list in [Limitations](#limitations)), anything the source typed as a preprint, **and an F1000-family article that Crossref does not yet report as approved by referees** — see [Limitations](#limitations).
 - **`japanese`** — what to do with Japanese-language records, which in practice come from researchmap. `separate` puts them in a trailing "Japanese-language publications" section. `merge` interleaves them with everything else. `hide` drops them (before `limit` is applied, so a limit of 10 still yields 10 visible entries).
 - **`reviewPolicy`** — `strict` publishes only records the tool is confident about; anything a PubMed *name* search turned up stays off the page until you confirm it. `auto` publishes name-search hits immediately. Read [Limitations](#limitations) before choosing `auto`.
+- **`disclaimer`** — the one-line note under the list saying it was compiled automatically from ORCID, PubMed and researchmap and inherits their errors. **On by default**, and worth leaving on: it is what tells a reader that a missing paper is a gap in a database rather than a claim about the group. `hide` removes it. It is a separate switch from [the credit link](#the-credit-link) in both directions — turning either off leaves the other alone.
 
 ### 2. `data-config` — a hosted JSON file
 
@@ -154,6 +160,8 @@ The widget reads its configuration from the **query string** rather than from `d
 
 One parameter has no `data-*` counterpart: **`?credit=0`** turns the credit line off inside the frame. It is how the wizard's "Include a credit link" checkbox reaches this route — see [The credit link](#the-credit-link). `credit=false`, `credit=off` and `credit=no` mean the same thing; anything else, including no parameter at all, leaves the credit on.
 
+The source disclaimer needs no such special case: `disclaimer` is an ordinary configuration field, so **`?disclaimer=hide`** works here exactly as `data-disclaimer="hide"` does on the script snippet. The two switches do not touch each other — `?credit=0` leaves the disclaimer, `?disclaimer=hide` leaves the credit.
+
 The trade-off against the script snippet follows from the content living in a separate document: **there is no snapshot.** The list is not in your page's HTML — see [Limitations](#limitations).
 
 ---
@@ -165,9 +173,11 @@ Some pages should not run anything at all: a personal CV page you maintain by ha
 ```html
 <section class="publist">
 <h3 class="publist-heading">Original Articles &amp; Reviews</h3>
+<h4 class="publist-subheading">2026</h4>
 <ol class="publist-list">
 <li class="publist-item"><b>Furukawa Y</b>, Salahuddin NH, Wei Y, et al. Next-step treatment for schizophrenia non-responsive to antipsychotics: a systematic review and network meta-analysis. <em>eClinicalMedicine</em>. 2026.</li>
 </ol>
+<p class="publist-disclaimer">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>
 <p class="publist-credit">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>
 </section>
 ```
@@ -206,10 +216,11 @@ The `pubs.json` schema, defined in `src/core/types.ts`. Every field except `v` a
   style?: 'vancouver' | 'apa' | 'harvard' | 'chicago' | 'nature'
   from?: string                         // "YYYY" | "YYYY-MM"
   to?: string                           // "YYYY" | "YYYY-MM"
-  groupBy?: 'category' | 'year' | 'none'
-  preprints?: 'include' | 'exclude'      // default 'exclude'
+  groupBy?: 'category-year' | 'category' | 'year' | 'none'  // default 'category-year'
+  preprints?: 'include' | 'exclude'     // default 'exclude'
   japanese?: 'separate' | 'merge' | 'hide'
   reviewPolicy?: 'strict' | 'auto'
+  disclaimer?: 'show' | 'hide'          // default 'show'
   limit?: number                        // positive integer
 }
 ```
@@ -217,6 +228,8 @@ The `pubs.json` schema, defined in `src/core/types.ts`. Every field except `v` a
 Notes that are easy to get wrong:
 
 - **`seeds.pubmed[].query` is a raw PubMed query string.** A query ending in `[auid]` is an ORCID identifier search and its hits are trusted outright. Any other query — including `Furukawa Y[au]` — is a name search, and its hits become *candidates*: they do not appear on the page under the default `strict` policy until you confirm them in the wizard's review queue. `label` is cosmetic; it is what the record's provenance is attributed to.
+- **`groupBy` defaults to `'category-year'`, and omitting the field means type headings with year dividers inside them.** The default has changed before, so a `pubs.json` that leaves the field out regroups itself when it changes again. Write the value out if you want it pinned — the wizard's downloaded file always does.
+- **`disclaimer` defaults to `'show'`, and omitting the field means shown.** A `pubs.json` written before this field existed therefore gains the source note on the next page load. That is the intended direction: the note is only ever absent because someone decided it should be.
 - **`preprints` defaults to `'exclude'`, and omitting the field means excluded.** A `pubs.json` written before this field existed therefore loses its preprints on the next page load. The wizard's downloaded file always writes the value out explicitly, so what you host says what you meant.
 - **`include` is not just "extra papers".** It also force-confirms a record another seed already found. That is the mechanism the review queue uses: a confirmed candidate goes into `include`, a rejected one into `exclude`, and neither is ever asked about again.
 - **A pinned base DOI also matches the versioned records of the same work.** `doi:10.12688/f1000research.12345` catches `.1` through `.4`.
@@ -254,10 +267,11 @@ A three-person lab. Two members have ORCID iDs, the third does not and is covere
     "Hiroshi Tanaka"
   ],
   "style": "vancouver",
-  "groupBy": "category",
+  "groupBy": "category-year",
   "japanese": "separate",
   "preprints": "exclude",
   "reviewPolicy": "strict",
+  "disclaimer": "show",
   "from": "2015"
 }
 ```
@@ -352,8 +366,24 @@ The snippet the wizard generates ends with one line:
 
 Two design decisions worth stating, because they are the difference between attribution and link spam:
 
-- **`embed.js` never creates, modifies or removes the credit link.** The link exists only in the static HTML you copied, in your own markup, where you can see it and delete it. The runtime script cannot emit one even by accident — the code path that runs on your page is called with credit rendering switched off — and when it refreshes the list it works around any `.publist-credit` node rather than replacing the container wholesale. This is enforced by unit tests: the link is never created, never changed, and never restored after you delete it.
+- **`embed.js` never creates, modifies or removes the credit link.** The link exists only in the static HTML you copied, in your own markup, where you can see it and delete it. The runtime script cannot emit one even by accident — the code path that runs on your page is called with credit rendering switched off — and when it refreshes the list it works around any `.publist-credit` node rather than replacing the container wholesale. This is enforced by unit tests: the link is never created, never changed, and never restored after you delete it. The same is true of the `.publist-disclaimer` node beside it, for a plainer reason: what you pasted is yours, and a script of ours putting back a line you deleted would be overruling you on your own page.
 - **The anchor text is a constant, and it is the tool's name.** It cannot be customised from the UI, because a caller-supplied anchor is keyword-stuffing waiting to happen. We are not asking you for a keyword-rich link, and there is exactly one per list.
+
+---
+
+## The source disclaimer
+
+The list also ends with one line saying where it came from:
+
+> Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.
+
+It is on by default. It is there because the person reading your lab page has no way of knowing that a missing paper is a gap in ORCID rather than a statement about your group, and because a list nobody typed out should say so.
+
+**It is a separate switch from the credit link, in both directions.** The wizard has its own checkbox for it ("Say where the list came from"), and turning the credit off leaves the disclaimer in place, exactly as turning the disclaimer off leaves the credit. They say different things: one is attribution for a tool, the other is a statement about the list's provenance. Set `disclaimer: 'hide'` — or `data-disclaimer="hide"`, or `?disclaimer=hide` — if you would rather carry the caveat somewhere else on the page in your own words.
+
+It carries no link, so it can never function as a second credit. Like the credit, it lives in the static markup you paste and `embed.js` neither creates it nor removes it.
+
+The Word output has its own, longer version of the same note, in red at the top of what you paste — that one is addressed to you rather than to your readers, and it ends by asking you to check the list over.
 
 ---
 

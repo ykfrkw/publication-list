@@ -6,11 +6,12 @@
  * this module, which is why it cannot depend on either.
  *
  * All renderers honour `model.config`:
- *   - `groupBy`  — 'category' (default) | 'year' | 'none'
+ *   - `groupBy`  — 'category-year' (default) | 'category' | 'year' | 'none'
  *   - `japanese` — 'separate' (default, a trailing Japanese-language section)
  *                | 'merge' (inline with everything else) | 'hide' (dropped)
  *   - `limit`    — cap on the number of publications, applied after sorting
  *                  and before grouping
+ *   - `disclaimer` — 'show' (default) | 'hide', honoured by `renderHtml`
  *
  * Upstream metadata is untrusted; every renderer that emits markup routes it
  * through `escapeHtml` / `escapeUrl` from `./format`.
@@ -18,6 +19,11 @@
 
 import type { ListModel, Publication } from './types'
 import { CATEGORY_LABELS, CATEGORY_ORDER } from './types'
+import {
+  DEFAULT_DISCLAIMER,
+  DEFAULT_GROUP_BY,
+  DEFAULT_JAPANESE,
+} from './config'
 import {
   escapeHtml,
   escapeUrl,
@@ -64,6 +70,43 @@ export const CREDIT_HTML =
 /** Selector the embed bundle must treat as untouchable. */
 export const CREDIT_SELECTOR = '.publist-credit'
 
+// ────────────────────────────────────────────────────────── disclaimer ──
+
+/*
+ * THE SOURCE DISCLAIMER
+ *
+ * One line, on by default, saying where the list came from and that it is only
+ * as good as those records. It exists because the reader of an embedded lab
+ * page has no other way to tell a gap in ORCID from a claim about the group.
+ *
+ * Three things about it, none of them accidental:
+ *
+ *   - **It is a constant, like `CREDIT_HTML`.** It would be possible to name
+ *     only the sources a particular run actually drew on, but the line is
+ *     baked into the static snippet the site owner pastes and then preserved
+ *     *by identity* by `src/embed/entry.ts` — a per-run wording would drift
+ *     out of step with the live list the moment the configuration changed.
+ *     The three named sources are also exhaustive: they are the only ones this
+ *     tool can ever seed a list from.
+ *   - **It is one sentence.** This appears on every page the widget is
+ *     embedded in. A paragraph of small print there is worse than nothing,
+ *     because nobody reads it.
+ *   - **It is independent of the credit.** Turning the credit off is the site
+ *     owner declining to advertise the tool; it says nothing about whether the
+ *     list should describe its own provenance. Neither switch reaches the
+ *     other, and they do not share a checkbox.
+ *
+ * Like the credit, `entry.ts` neither creates nor removes this node — see the
+ * header of that file.
+ */
+
+/** The exact disclaimer markup. Never build this string anywhere else. */
+export const DISCLAIMER_HTML =
+  '<p class="publist-disclaimer">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>'
+
+/** Selector the embed bundle must treat as untouchable. */
+export const DISCLAIMER_SELECTOR = '.publist-disclaimer'
+
 // ───────────────────────────────────────────────────────────── grouping ──
 
 /** Heading for the trailing section produced by `japanese: 'separate'`. */
@@ -74,22 +117,58 @@ const UNDATED_LABEL = 'Undated'
 
 const PUBMED_BASE = 'https://pubmed.ncbi.nlm.nih.gov/'
 
+/** A year divider inside a category group under `groupBy: 'category-year'`. */
+export interface RenderSection {
+  /** e.g. "category:original:year:2024" */
+  key: string
+  /** subheading text, e.g. "2024" or "Undated" */
+  label: string
+  items: Publication[]
+}
+
 export interface RenderGroup {
   /** stable identifier, e.g. "category:original", "year:2024", "japanese" */
   key: string
   /** heading text; empty string means "render no heading" */
   label: string
+  /**
+   * Every publication in the group, in render order.
+   *
+   * When `sections` is present this is exactly the sections concatenated, so a
+   * renderer that has no use for the second level — BibTeX, RIS, the Word
+   * clipboard payload — still sees each record once and in the right order by
+   * reading `items` alone.
+   */
   items: Publication[]
+  /**
+   * The year dividers inside this group, present only under
+   * `groupBy: 'category-year'` and never on the trailing Japanese-language
+   * section, which stays one undivided block.
+   */
+  sections?: RenderSection[]
 }
 
 function isJapanese(pub: Publication): boolean {
   return pub.language === 'ja'
 }
 
+/**
+ * The year to sort and group a record by, or `0` for "no usable year".
+ *
+ * Upstream metadata is not guaranteed to carry one: a researchmap entry can
+ * omit the publication date, and a malformed date parses to `NaN`. Everything
+ * that is not a finite positive number collapses to the same bucket here, so
+ * `groupByYear` can never label a section "undefined" or "NaN".
+ */
+function usableYear(pub: Publication): number {
+  const year = pub.year
+  return typeof year === 'number' && Number.isFinite(year) && year > 0 ? year : 0
+}
+
 /** Newest first; ties broken by month, then title, so output is stable. */
 function comparePublications(a: Publication, b: Publication): number {
-  const ay = typeof a.year === 'number' ? a.year : 0
-  const by = typeof b.year === 'number' ? b.year : 0
+  const ay = usableYear(a)
+  const by = usableYear(b)
   if (ay !== by) return by - ay
   const am = a.month ?? 0
   const bm = b.month ?? 0
@@ -111,10 +190,35 @@ function groupByCategory(pubs: Publication[]): RenderGroup[] {
   return groups
 }
 
+/**
+ * The default: category groups, each divided into years.
+ *
+ * The year split runs *inside* a category rather than across the whole list,
+ * so the `Undated` bucket lands last within its own category instead of once
+ * at the very bottom, and a category with a single year still gets its
+ * divider — the shape of the page does not change with the data.
+ */
+function groupByCategoryYear(pubs: Publication[]): RenderGroup[] {
+  return groupByCategory(pubs).map((group) => {
+    const sections: RenderSection[] = groupByYear(group.items).map((year) => ({
+      key: `${group.key}:${year.key}`,
+      label: year.label,
+      items: year.items,
+    }))
+    return {
+      ...group,
+      // Rebuilt from the sections rather than reused, so `items` is guaranteed
+      // to be in the same order the sections render in.
+      items: sections.flatMap((section) => section.items),
+      sections,
+    }
+  })
+}
+
 function groupByYear(pubs: Publication[]): RenderGroup[] {
   const years: number[] = []
   for (const pub of pubs) {
-    const year = typeof pub.year === 'number' && pub.year > 0 ? pub.year : 0
+    const year = usableYear(pub)
     if (!years.includes(year)) years.push(year)
   }
   // Descending, with the undated bucket (0) last.
@@ -126,9 +230,7 @@ function groupByYear(pubs: Publication[]): RenderGroup[] {
   return years.map((year) => ({
     key: `year:${year === 0 ? 'undated' : year}`,
     label: year === 0 ? UNDATED_LABEL : String(year),
-    items: pubs.filter(
-      (p) => (typeof p.year === 'number' && p.year > 0 ? p.year : 0) === year,
-    ),
+    items: pubs.filter((p) => usableYear(p) === year),
   }))
 }
 
@@ -142,8 +244,11 @@ function groupByYear(pubs: Publication[]): RenderGroup[] {
  * limit and always land in a single trailing section.
  */
 export function buildGroups(model: ListModel): RenderGroup[] {
-  const japanese = model.config.japanese ?? 'separate'
-  const groupBy = model.config.groupBy ?? 'category'
+  // A model normally arrives with a normalized config, so these fall back only
+  // for a hand-built one. They read the same constants `normalizeConfig` does,
+  // so the two can never disagree about what "unset" means.
+  const japanese = model.config.japanese ?? DEFAULT_JAPANESE
+  const groupBy = model.config.groupBy ?? DEFAULT_GROUP_BY
 
   let pubs = [...(model.publications ?? [])]
   if (japanese === 'hide') pubs = pubs.filter((p) => !isJapanese(p))
@@ -157,18 +262,26 @@ export function buildGroups(model: ListModel): RenderGroup[] {
 
   let groups: RenderGroup[]
   switch (groupBy) {
+    case 'category':
+      groups = groupByCategory(main)
+      break
     case 'year':
       groups = groupByYear(main)
       break
     case 'none':
       groups = main.length > 0 ? [{ key: 'all', label: '', items: main }] : []
       break
-    case 'category':
+    // `category-year` and anything unrecognized: the default grouping, so a
+    // config that slipped past validation lands where an absent `groupBy` would.
+    case 'category-year':
     default:
-      groups = groupByCategory(main)
+      groups = groupByCategoryYear(main)
       break
   }
 
+  // The Japanese-language section is appended whole, after the grouping has
+  // run and from records the grouping never saw, so it cannot be divided into
+  // categories or years by any value of `groupBy`.
   if (jp.length > 0) {
     groups.push({ key: 'japanese', label: JAPANESE_GROUP_LABEL, items: jp })
   }
@@ -197,6 +310,22 @@ export interface RenderHtmlOptions {
    * only the static snippet the user copies should ever be rendered with it.
    */
   credit: boolean
+  /**
+   * Override `model.config.disclaimer`.
+   *
+   * Left unset the config decides, which is what every static output wants.
+   * `false` is for `src/embed/entry.ts`: that script runs inside someone else's
+   * document and must not inject the disclaimer any more than it may inject the
+   * credit, so it suppresses the line regardless of what the config says and
+   * leaves the one in the pasted snippet standing.
+   */
+  disclaimer?: boolean
+}
+
+/** Does this render carry the source note? Explicit option first, else config. */
+function wantsDisclaimer(model: ListModel, opts: RenderHtmlOptions): boolean {
+  if (opts.disclaimer != null) return opts.disclaimer
+  return (model.config.disclaimer ?? DEFAULT_DISCLAIMER) === 'show'
 }
 
 function pmidHtml(pub: Publication): string {
@@ -208,22 +337,38 @@ function pmidHtml(pub: Publication): string {
 /**
  * Semantic HTML for injection into a host page.
  *
- * Deliberately unstyled: `<section>` / `<h3>` / `<ol>` / `<li>` inherit the
- * host's typography, and every class is namespaced `publist-` so a host
+ * Deliberately unstyled: `<section>` / `<h3>` / `<h4>` / `<ol>` / `<li>` inherit
+ * the host's typography, and every class is namespaced `publist-` so a host
  * stylesheet can target the list without colliding with anything.
+ *
+ * Under the default `groupBy: 'category-year'` the shape is two levels deep —
+ * an `<h3 class="publist-heading">` per publication type, and inside it an
+ * `<h4 class="publist-subheading">` per year followed by that year's `<ol>`:
+ *
+ *     <h3 class="publist-heading">Original Articles &amp; Reviews</h3>
+ *     <h4 class="publist-subheading">2026</h4>
+ *     <ol class="publist-list">…</ol>
+ *     <h4 class="publist-subheading">2025</h4>
+ *     <ol class="publist-list">…</ol>
+ *     <h3 class="publist-heading">Letters</h3>
+ *     …
+ *
+ * **One `<ol>` per heading, numbering restarting in each.** That is already the
+ * rule under every other grouping — a `category` list restarts at each type, a
+ * `year` list at each year — and it is the only one that stays honest here: a
+ * list continued across years would open with "7." under a heading that shows
+ * no 1 to 6. These numbers are ordinals within a visible section, not citation
+ * numbers; the output where the numbers are cited is `groupBy: 'none'`, which
+ * is one flat `<ol>` and unaffected.
  */
 export function renderHtml(model: ListModel, opts: RenderHtmlOptions): string {
   const style = styleOf(model)
   const bold = boldNamesOf(model)
   const out: string[] = ['<section class="publist">']
 
-  for (const group of buildGroups(model)) {
-    if (group.items.length === 0) continue
-    if (group.label !== '') {
-      out.push(`<h3 class="publist-heading">${escapeHtml(group.label)}</h3>`)
-    }
+  const pushList = (items: Publication[]) => {
     out.push('<ol class="publist-list">')
-    for (const pub of group.items) {
+    for (const pub of items) {
       out.push(
         `<li class="publist-item">${formatCitation(pub, style, bold)}${pmidHtml(pub)}</li>`,
       )
@@ -231,6 +376,27 @@ export function renderHtml(model: ListModel, opts: RenderHtmlOptions): string {
     out.push('</ol>')
   }
 
+  for (const group of buildGroups(model)) {
+    if (group.items.length === 0) continue
+    if (group.label !== '') {
+      out.push(`<h3 class="publist-heading">${escapeHtml(group.label)}</h3>`)
+    }
+    if (group.sections) {
+      for (const section of group.sections) {
+        if (section.items.length === 0) continue
+        out.push(
+          `<h4 class="publist-subheading">${escapeHtml(section.label)}</h4>`,
+        )
+        pushList(section.items)
+      }
+    } else {
+      pushList(group.items)
+    }
+  }
+
+  // The two trailer lines, in this order and at most one of each. They are
+  // independent switches: either, both or neither can appear.
+  if (wantsDisclaimer(model, opts)) out.push(DISCLAIMER_HTML)
   // One credit block per rendered list, last child of the section, never more.
   if (opts.credit) out.push(CREDIT_HTML)
 
@@ -255,35 +421,47 @@ export function renderWordpressBlocks(model: ListModel): string {
   const bold = boldNamesOf(model)
   const blocks: string[] = []
 
-  for (const group of buildGroups(model)) {
-    if (group.items.length === 0) continue
+  const pushHeading = (level: 3 | 4, text: string) => {
+    blocks.push(
+      [
+        `<!-- wp:heading {"level":${level}} -->`,
+        `<h${level} class="wp-block-heading">${escapeHtml(text)}</h${level}>`,
+        '<!-- /wp:heading -->',
+      ].join('\n'),
+    )
+  }
 
-    if (group.label !== '') {
-      blocks.push(
-        [
-          '<!-- wp:heading {"level":3} -->',
-          `<h3 class="wp-block-heading">${escapeHtml(group.label)}</h3>`,
-          '<!-- /wp:heading -->',
-        ].join('\n'),
-      )
-    }
-
-    const items = group.items
-      .map(
-        (pub) =>
-          `<!-- wp:list-item -->\n<li>${formatCitation(pub, style, bold)}${pmidHtml(pub)}</li>\n<!-- /wp:list-item -->`,
-      )
-      .join('\n')
-
+  const pushList = (items: Publication[]) => {
     blocks.push(
       [
         '<!-- wp:list {"ordered":true} -->',
         '<ol class="wp-block-list">',
-        items,
+        items
+          .map(
+            (pub) =>
+              `<!-- wp:list-item -->\n<li>${formatCitation(pub, style, bold)}${pmidHtml(pub)}</li>\n<!-- /wp:list-item -->`,
+          )
+          .join('\n'),
         '</ol>',
         '<!-- /wp:list -->',
       ].join('\n'),
     )
+  }
+
+  for (const group of buildGroups(model)) {
+    if (group.items.length === 0) continue
+
+    if (group.label !== '') pushHeading(3, group.label)
+
+    if (group.sections) {
+      for (const section of group.sections) {
+        if (section.items.length === 0) continue
+        pushHeading(4, section.label)
+        pushList(section.items)
+      }
+    } else {
+      pushList(group.items)
+    }
   }
 
   return blocks.join('\n\n')
@@ -297,15 +475,29 @@ export function renderMarkdown(model: ListModel): string {
   const bold = boldNamesOf(model)
   const chunks: string[] = []
 
+  const itemLines = (items: Publication[]) =>
+    items.map((pub, i) => {
+      const pmid = pmidOf(pub)
+      const suffix = pmid == null ? '' : ` PMID: [${pmid}](${PUBMED_BASE}${pmid})`
+      return `${i + 1}. ${formatCitationPlain(pub, style, bold)}${suffix}`
+    })
+
   for (const group of buildGroups(model)) {
     if (group.items.length === 0) continue
     const lines: string[] = []
     if (group.label !== '') lines.push(`### ${group.label}`, '')
-    group.items.forEach((pub, i) => {
-      const pmid = pmidOf(pub)
-      const suffix = pmid == null ? '' : ` PMID: [${pmid}](${PUBMED_BASE}${pmid})`
-      lines.push(`${i + 1}. ${formatCitationPlain(pub, style, bold)}${suffix}`)
-    })
+    if (group.sections) {
+      // Same rule as the HTML: a heading per year, numbering restarting under
+      // each, so what a reader sees matches what the embedded page shows.
+      group.sections.forEach((section, i) => {
+        if (section.items.length === 0) return
+        if (i > 0) lines.push('')
+        lines.push(`#### ${section.label}`, '')
+        lines.push(...itemLines(section.items))
+      })
+    } else {
+      lines.push(...itemLines(group.items))
+    }
     chunks.push(lines.join('\n'))
   }
 
@@ -453,11 +645,18 @@ export function renderRis(model: ListModel): string {
 // ───────────────────────────────────────────────────────── clipboard ──
 
 /**
- * Verbatim from `app.R:379`. Kept word-for-word so the Word output of this
- * version is diffable against the R Shiny version during the parity check.
+ * Ported from `app.R:379`, with one correction: the R version named "ORCID,
+ * OpenAlex, and researchmap" because it predates PubMed being a source, and
+ * because OpenAlex has since been demoted from a seed to enrichment only. What
+ * a list is actually assembled from is ORCID, PubMed and researchmap, so that
+ * is what it says now. The rest is the R wording.
+ *
+ * Longer than `DISCLAIMER_HTML` on purpose: this one is pasted into a Word
+ * document the author is about to check over, not onto a public page, and it
+ * ends by asking them to do exactly that.
  */
 const CLIPBOARD_DISCLAIMER =
-  '[Disclaimer] This list is generated from a combination of ORCID, OpenAlex, and researchmap. If any of these sources contain errors, relevant publications may be missing or unrelated publications may be included. Please verify the final list.'
+  '[Disclaimer] This list is generated from a combination of ORCID, PubMed, and researchmap. If any of these sources contain errors, relevant publications may be missing or unrelated publications may be included. Please verify the final list.'
 
 const CLIPBOARD_TRAILER_PLAIN =
   'Generated with Publication List Generator (https://yukifurukawa.jp/publication-list-generator/)'

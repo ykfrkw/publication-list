@@ -117,7 +117,27 @@ export interface ListConfig {
   from?: string
   /** "YYYY-MM" */
   to?: string
-  groupBy?: 'category' | 'year' | 'none'
+  /**
+   * How the list is divided into sections. Defaults to `'category-year'`: a
+   * heading per publication type, and inside each one a divider per publication
+   * year, newest first.
+   *
+   * `'category'` gives the publication-type headings alone, `'year'` the year
+   * headings alone, and `'none'` one flat numbered list — which is what an
+   * article's reference list wants, since there the numbers are what the prose
+   * cites.
+   */
+  groupBy?: 'category-year' | 'category' | 'year' | 'none'
+  /**
+   * Whether the rendered list carries the one-line note saying it was assembled
+   * automatically and inherits whatever its sources got wrong. Defaults to
+   * `'show'`.
+   *
+   * Independent of the credit link in every direction: the credit is a courtesy
+   * the site owner may drop, this is a statement about how the list was built,
+   * and neither switch touches the other.
+   */
+  disclaimer?: 'show' | 'hide'
   /**
    * Whether records categorized `preprint` reach the list. Defaults to
    * `'exclude'`: a publication list is normally a list of published work, and a

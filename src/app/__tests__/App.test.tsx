@@ -128,6 +128,10 @@ function creditCount(text: string): number {
   return text.split('class="publist-credit"').length - 1
 }
 
+function disclaimerCount(text: string): number {
+  return text.split('class="publist-disclaimer"').length - 1
+}
+
 describe('the wizard shell', () => {
   it('renders all three modes and an empty state', () => {
     render()
@@ -245,6 +249,65 @@ describe('the credit checkbox on the generated snippet', () => {
     // Nothing else is withheld: the snapshot and the script tag are still there.
     expect(text).toContain('The PRISMA 2020 statement')
     expect(text).toContain('embed.js')
+  })
+})
+
+describe('the source-disclaimer checkbox on the generated snippet', () => {
+  async function renderWithResult() {
+    render()
+    click(byText('button', 'Try it with ORCID'))
+    await flush()
+  }
+
+  function disclaimerBox(): HTMLInputElement {
+    const box = byText('div', 'Say where the list came from').querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    )
+    if (!box) throw new Error('no disclaimer checkbox')
+    return box
+  }
+
+  function creditBox(): HTMLInputElement {
+    const box = byText('div', 'Include a credit link').querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    )
+    if (!box) throw new Error('no credit checkbox')
+    return box
+  }
+
+  it('is its own control, not the credit one', async () => {
+    await renderWithResult()
+    expect(disclaimerBox()).not.toBe(creditBox())
+    expect(disclaimerBox().checked).toBe(true)
+  })
+
+  it('is on by default and produces exactly one disclaimer line', async () => {
+    await renderWithResult()
+    expect(disclaimerCount(snippetText())).toBe(1)
+  })
+
+  it('removes only the disclaimer when it is turned off', async () => {
+    await renderWithResult()
+    click(disclaimerBox())
+    expect(disclaimerBox().checked).toBe(false)
+
+    const text = snippetText()
+    expect(disclaimerCount(text)).toBe(0)
+    // The credit is untouched, and so is everything else.
+    expect(creditCount(text)).toBe(1)
+    expect(text).toContain('data-disclaimer="hide"')
+    expect(text).toContain('disclaimer=hide')
+    expect(text).toContain('The PRISMA 2020 statement')
+  })
+
+  it('survives the credit being turned off', async () => {
+    await renderWithResult()
+    click(creditBox())
+
+    const text = snippetText()
+    expect(creditCount(text)).toBe(0)
+    expect(disclaimerCount(text)).toBe(1)
+    expect(disclaimerBox().checked).toBe(true)
   })
 })
 

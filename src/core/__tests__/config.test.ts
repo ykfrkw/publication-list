@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_DISCLAIMER,
   DEFAULT_GROUP_BY,
   DEFAULT_JAPANESE,
   DEFAULT_PREPRINTS,
@@ -24,6 +25,9 @@ import {
   serializeConfig,
   type DatasetConfig,
 } from '../config'
+import type { ListConfig } from '../types'
+
+const ORCID = '0000-0003-1317-0220'
 
 function fromQuery(query: string): DatasetConfig {
   return parseConfigFromSearchParams(new URLSearchParams(query))
@@ -181,9 +185,88 @@ describe('parseConfigFromSearchParams — unusable values', () => {
     expect(config.groupBy).toBe(DEFAULT_GROUP_BY)
     expect(config.japanese).toBe(DEFAULT_JAPANESE)
     expect(config.reviewPolicy).toBe(DEFAULT_REVIEW_POLICY)
+    expect(config.disclaimer).toBe(DEFAULT_DISCLAIMER)
     // Preprints are opt-in: absent means excluded, on every transport.
     expect(config.preprints).toBe('exclude')
     expect(config.seeds).toEqual({})
+  })
+})
+
+/** A `pubs.json` reaches `normalizeConfig` as a plain object, unparsed. */
+const fromJson = (json: Partial<ListConfig>) => normalizeConfig(json)
+
+describe('groupBy defaults to category-year', () => {
+  it('is what the shared constant says', () => {
+    expect(DEFAULT_GROUP_BY).toBe('category-year')
+  })
+
+  it('applies on all three transports when none of them says otherwise', () => {
+    expect(
+      normalizeConfig(fromAttributes({ 'data-orcid': ORCID }).config).groupBy,
+    ).toBe('category-year')
+    expect(normalizeConfig(fromQuery(`orcid=${ORCID}`).config).groupBy).toBe(
+      'category-year',
+    )
+    expect(fromJson({ v: 1, seeds: { orcid: [ORCID] } }).groupBy).toBe('category-year')
+  })
+
+  it('still lets all three transports select any of the four groupings', () => {
+    for (const value of ['category-year', 'category', 'year', 'none'] as const) {
+      expect(
+        normalizeConfig(fromAttributes({ 'data-group-by': value }).config).groupBy,
+      ).toBe(value)
+      expect(normalizeConfig(fromQuery(`group-by=${value}`).config).groupBy).toBe(value)
+      // The camelCase spelling a hand-written iframe URL reaches for.
+      expect(normalizeConfig(fromQuery(`groupBy=${value}`).config).groupBy).toBe(value)
+      expect(fromJson({ v: 1, seeds: {}, groupBy: value }).groupBy).toBe(value)
+    }
+  })
+
+  it('falls back to the default when a transport carries an unrecognized value', () => {
+    expect(normalizeConfig(fromQuery('group-by=decade').config).groupBy).toBe(
+      'category-year',
+    )
+    expect(
+      normalizeConfig(fromAttributes({ 'data-group-by': 'decade' }).config).groupBy,
+    ).toBe('category-year')
+  })
+})
+
+describe('disclaimer defaults to show', () => {
+  it('is what the shared constant says', () => {
+    expect(DEFAULT_DISCLAIMER).toBe('show')
+  })
+
+  it('applies on all three transports when none of them says otherwise', () => {
+    expect(
+      normalizeConfig(fromAttributes({ 'data-orcid': ORCID }).config).disclaimer,
+    ).toBe('show')
+    expect(normalizeConfig(fromQuery(`orcid=${ORCID}`).config).disclaimer).toBe('show')
+    expect(fromJson({ v: 1, seeds: { orcid: [ORCID] } }).disclaimer).toBe('show')
+  })
+
+  it('is turned off by any of the three transports', () => {
+    expect(
+      normalizeConfig(fromAttributes({ 'data-disclaimer': 'hide' }).config).disclaimer,
+    ).toBe('hide')
+    expect(normalizeConfig(fromQuery('disclaimer=hide').config).disclaimer).toBe('hide')
+    expect(fromJson({ v: 1, seeds: {}, disclaimer: 'hide' }).disclaimer).toBe('hide')
+  })
+
+  it('falls back to show when a transport carries an unrecognized value', () => {
+    // Same rule as `review-policy`: a typo must not quietly remove something.
+    expect(normalizeConfig(fromQuery('disclaimer=maybe').config).disclaimer).toBe('show')
+    expect(
+      normalizeConfig(fromAttributes({ 'data-disclaimer': '' }).config).disclaimer,
+    ).toBe('show')
+  })
+
+  it('is independent of the credit, which is not a config field at all', () => {
+    // `?credit=0` is read by `src/widget/main.ts`, never by the config parser:
+    // it must not appear in a `ListConfig` and must not disturb the disclaimer.
+    const config = normalizeConfig(fromQuery(`orcid=${ORCID}&credit=0`).config)
+    expect(config.disclaimer).toBe('show')
+    expect(config).not.toHaveProperty('credit')
   })
 })
 
@@ -204,6 +287,7 @@ describe('parseConfigFromSearchParams agrees with parseConfigFromDataset', () =>
         'data-preprints': 'include',
         'data-japanese': 'merge',
         'data-review-policy': 'auto',
+        'data-disclaimer': 'hide',
         'data-from': '2015-04',
         'data-to': '2026-12',
         'data-limit': '50',
@@ -222,6 +306,7 @@ describe('parseConfigFromSearchParams agrees with parseConfigFromDataset', () =>
         'preprints=include',
         'japanese=merge',
         'review-policy=auto',
+        'disclaimer=hide',
         'from=2015-04',
         'to=2026-12',
         'limit=50',

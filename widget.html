@@ -74,6 +74,24 @@
         margin-top: 0;
       }
 
+      /*
+        The year divider inside a publication-type section. Deliberately
+        quieter than the heading above it — no rule, smaller, lighter — so the
+        two levels read as a hierarchy rather than as two competing headings.
+      */
+      .publist-subheading {
+        margin: 1.2em 0 0.4em;
+        color: #6e7781;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+
+      /* Straight after its category heading there is no gap to reopen. */
+      .publist-heading + .publist-subheading {
+        margin-top: 0.5em;
+      }
+
       .publist-list {
         margin: 0;
         padding-left: 1.6em;
@@ -99,10 +117,22 @@
         white-space: nowrap;
       }
 
+      /* The two trailer lines: same small, muted treatment for both. */
+      .publist-disclaimer {
+        margin: 1.8em 0 0;
+        color: #6e7781;
+        font-size: 0.8125rem;
+      }
+
       .publist-credit {
         margin: 1.8em 0 0;
         color: #6e7781;
         font-size: 0.8125rem;
+      }
+
+      /* Together they are one block, not two paragraphs with a gap between. */
+      .publist-disclaimer + .publist-credit {
+        margin-top: 0.4em;
       }
 
       .publist-credit a {

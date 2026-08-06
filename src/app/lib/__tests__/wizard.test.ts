@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_GROUP_BY, configHash } from '@/core/config'
 import type { Publication } from '@/core/types'
 import {
+  GROUP_BY_DEFAULT,
   applyReviewDecisions,
   candidateRef,
   draftToConfig,
@@ -59,7 +61,58 @@ describe('draftToConfig — mode 2, one person', () => {
     expect(config.seeds.researchmap).toEqual(['furukawayuki'])
     expect(config.seeds.pubmed).toEqual([{ query: '0000-0003-1317-0220[auid]' }])
     expect(config.boldNames).toEqual(['Yuki Furukawa'])
-    expect(config.groupBy).toBe('category')
+    expect(config.groupBy).toBe('category-year')
+  })
+})
+
+describe('draftToConfig — grouping default per mode', () => {
+  it('groups a publication page by type then year, matching the embed default', () => {
+    expect(DEFAULT_GROUP_BY).toBe('category-year')
+    for (const mode of ['person', 'lab'] as const) {
+      expect(emptyDraft(mode).groupBy).toBe('category-year')
+      expect(draftToConfig(emptyDraft(mode)).groupBy).toBe('category-year')
+    }
+  })
+
+  it('keeps the reference list flat, because its numbering is what gets cited', () => {
+    // The one mode that does not take the shared default: an article's
+    // reference list has to be a single unbroken numbered sequence.
+    expect(emptyDraft('article').groupBy).toBe('none')
+    expect(draftToConfig(emptyDraft('article')).groupBy).toBe('none')
+    expect(GROUP_BY_DEFAULT.article).toBe('none')
+  })
+
+  it('lets the user override the per-mode default in either direction', () => {
+    for (const groupBy of ['category', 'year', 'none'] as const) {
+      expect(draftToConfig({ ...emptyDraft('person'), groupBy }).groupBy).toBe(groupBy)
+    }
+    expect(
+      draftToConfig({ ...emptyDraft('article'), groupBy: 'category-year' }).groupBy,
+    ).toBe('category-year')
+  })
+})
+
+describe('draftToConfig — the source disclaimer', () => {
+  it('starts checked', () => {
+    for (const mode of ['article', 'person', 'lab'] as const) {
+      expect(emptyDraft(mode).disclaimer).toBe(true)
+    }
+  })
+
+  it('stays out of the config, and so out of the config hash', () => {
+    // It is applied to the built model in `App.tsx` instead. Putting a purely
+    // presentational toggle into `configHash` would evict the cached build
+    // every time someone ticked the box.
+    const on = { ...emptyDraft('person'), orcid: '0000-0003-1317-0220' }
+    const off = { ...on, disclaimer: false }
+    expect(configHash(draftToConfig(on))).toBe(configHash(draftToConfig(off)))
+    // The config still carries the field, defaulted by `normalizeConfig`.
+    expect(draftToConfig(off).disclaimer).toBe('show')
+  })
+
+  it('is a separate switch from the credit', () => {
+    const draft = { ...emptyDraft('person'), credit: false }
+    expect(draft.disclaimer).toBe(true)
   })
 })
 

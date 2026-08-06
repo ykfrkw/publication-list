@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeConfig } from '@/core/config'
 import { CREDIT_HTML } from '@/core/render'
-import type { ListModel, Publication } from '@/core/types'
+import type { ListConfig, ListModel, Publication } from '@/core/types'
 import {
   EMBED_SCRIPT_URL,
   buildEmbedSnippet,
@@ -135,9 +135,11 @@ describe('configToDataAttributes', () => {
       exclude: ['pmid:2'],
       boldNames: ['Yuki Furukawa'],
       style: 'apa',
-      groupBy: 'year',
+      // Not the default (`category-year`), so it has to be written out.
+      groupBy: 'category',
       japanese: 'hide',
       reviewPolicy: 'auto',
+      disclaimer: 'hide',
       from: '2020',
       to: '2026-12',
       limit: 20,
@@ -150,9 +152,10 @@ describe('configToDataAttributes', () => {
       'data-exclude': 'pmid:2',
       'data-bold-names': 'Yuki Furukawa',
       'data-style': 'apa',
-      'data-group-by': 'year',
+      'data-group-by': 'category',
       'data-japanese': 'hide',
       'data-review-policy': 'auto',
+      'data-disclaimer': 'hide',
       'data-from': '2020',
       'data-to': '2026-12',
       'data-limit': '20',
@@ -169,6 +172,35 @@ describe('configToDataAttributes', () => {
       'data-orcid': '0000-0003-1317-0220',
       'data-style': 'vancouver',
     })
+  })
+
+  it('writes data-group-by only when the grouping is not the default', () => {
+    // The trap this pins: the omission is compared against `DEFAULT_GROUP_BY`,
+    // so when the default changes a user who picked the *old* default must get
+    // it written out. Comparing against a hardcoded literal here would silently
+    // hand them a snippet that reverts to something else.
+    const attrs = (groupBy: NonNullable<ListConfig['groupBy']>) =>
+      Object.fromEntries(
+        configToDataAttributes(
+          normalizeConfig({ seeds: { orcid: ['0000-0003-1317-0220'] }, groupBy }),
+        ),
+      )
+    expect(attrs('category-year')['data-group-by']).toBeUndefined()
+    expect(attrs('category')['data-group-by']).toBe('category')
+    expect(attrs('year')['data-group-by']).toBe('year')
+    expect(attrs('none')['data-group-by']).toBe('none')
+  })
+
+  it('writes data-disclaimer only when the disclaimer is turned off', () => {
+    const attrs = (disclaimer: 'show' | 'hide') =>
+      Object.fromEntries(
+        configToDataAttributes(
+          normalizeConfig({ seeds: { orcid: ['0000-0003-1317-0220'] }, disclaimer }),
+        ),
+      )
+    // Shown is the default, so the attribute would say nothing.
+    expect(attrs('show')['data-disclaimer']).toBeUndefined()
+    expect(attrs('hide')['data-disclaimer']).toBe('hide')
   })
 
   it('writes data-preprints only when preprints are opted in', () => {

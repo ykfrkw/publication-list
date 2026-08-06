@@ -17,13 +17,36 @@ const CITATION_STYLE_VALUES: readonly CitationStyle[] = [
   'nature',
 ]
 
-const GROUP_BY_VALUES = ['category', 'year', 'none'] as const
+const GROUP_BY_VALUES = ['category-year', 'category', 'year', 'none'] as const
 const PREPRINTS_VALUES = ['include', 'exclude'] as const
 const JAPANESE_VALUES = ['separate', 'merge', 'hide'] as const
 const REVIEW_POLICY_VALUES = ['strict', 'auto'] as const
+const DISCLAIMER_VALUES = ['show', 'hide'] as const
 
 export const DEFAULT_STYLE: CitationStyle = 'vancouver'
-export const DEFAULT_GROUP_BY: NonNullable<ListConfig['groupBy']> = 'category'
+/**
+ * Publication-type sections, and inside each one a divider per year.
+ *
+ * Both questions a publication page gets asked at once: *what kind of work is
+ * this* and *how recent is it*. The type sections keep original articles from
+ * being read alongside editorials and letters, and the year dividers inside
+ * them answer "is this group still active?" without the reader scanning dates
+ * down the citations.
+ *
+ * `category`, `year` and `none` all remain one attribute away on every
+ * transport, and `none` is what a reference list wants.
+ */
+export const DEFAULT_GROUP_BY: NonNullable<ListConfig['groupBy']> =
+  'category-year'
+/**
+ * The source note is on unless it is switched off.
+ *
+ * A list assembled automatically from third-party records should say so where
+ * it is read, not only in this repository's documentation: the reader of an
+ * embedded lab page has no other way to know that a missing paper is a gap in
+ * ORCID rather than a claim about the group.
+ */
+export const DEFAULT_DISCLAIMER: NonNullable<ListConfig['disclaimer']> = 'show'
 /**
  * Preprints are off unless asked for. Same reasoning as `strict` review
  * policy: the default is the conservative reading of "my publication list".
@@ -104,6 +127,7 @@ export const CONFIG_PARAM_NAMES = [
   'preprints',
   'japanese',
   'review-policy',
+  'disclaimer',
   'from',
   'to',
   'limit',
@@ -167,6 +191,10 @@ function readConfig(read: ConfigReader): DatasetConfig {
   // `strict` default rather than silently publishing unreviewed candidates.
   const reviewPolicy = oneOf(read('review-policy', false), REVIEW_POLICY_VALUES)
   if (reviewPolicy) config.reviewPolicy = reviewPolicy
+  // Unrecognized again falls back to the default, which here means the note
+  // stays on: a typo must not quietly strip a statement about provenance.
+  const disclaimer = oneOf(read('disclaimer', false), DISCLAIMER_VALUES)
+  if (disclaimer) config.disclaimer = disclaimer
 
   const from = parseYearMonth(read('from', false))
   if (from) config.from = from
@@ -188,9 +216,9 @@ function readConfig(read: ConfigReader): DatasetConfig {
  *
  * Recognized: data-orcid, data-researchmap, data-pubmed, data-include,
  * data-exclude, data-style, data-from, data-to, data-group-by, data-preprints,
- * data-japanese, data-review-policy, data-limit, data-bold-names
- * (comma-separated where plural), plus the remote-config pointers data-config
- * and data-list.
+ * data-japanese, data-review-policy, data-disclaimer, data-limit,
+ * data-bold-names (comma-separated where plural), plus the remote-config
+ * pointers data-config and data-list.
  */
 export function parseConfigFromDataset(el: HTMLElement): DatasetConfig {
   return readConfig((name) => attr(el, `data-${name}`))
@@ -275,6 +303,7 @@ export function normalizeConfig(partial: Partial<ListConfig>): ListConfig {
     preprints: partial.preprints ?? DEFAULT_PREPRINTS,
     japanese: partial.japanese ?? DEFAULT_JAPANESE,
     reviewPolicy: partial.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
+    disclaimer: partial.disclaimer ?? DEFAULT_DISCLAIMER,
   }
 
   const include = normalizeRefs(partial.include)

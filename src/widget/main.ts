@@ -27,6 +27,12 @@
  * iframe route's equivalent of unticking the wizard's checkbox; the wizard
  * writes it into the `src` it emits. The default is on, so a hand-written
  * iframe URL — and every URL written before this parameter existed — keeps it.
+ *
+ * The source disclaimer is not in that argument at all. It is an ordinary
+ * `ListConfig` field, so `?disclaimer=hide` turns it off through the same
+ * parser as every other parameter, and it is on by default. The two are
+ * separate switches in both directions: `?credit=0` leaves the disclaimer,
+ * `?disclaimer=hide` leaves the credit.
  * ──────────────────────────────────────────────────────────────────────────
  *
  * Height reporting to the parent is handled by /embed-height.js, loaded
@@ -104,7 +110,8 @@ export function parseCreditParam(params: URLSearchParams): boolean {
 }
 
 /**
- * Render the list, credit block included unless `?credit=0` said otherwise.
+ * Render the list, credit block included unless `?credit=0` said otherwise and
+ * the source disclaimer included unless the config said `disclaimer: 'hide'`.
  *
  * `innerHTML` is safe and correct here in a way it is not in `entry.ts`: this
  * document is ours, so there is no host markup to preserve, and every value

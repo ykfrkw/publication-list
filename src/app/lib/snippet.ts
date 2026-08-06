@@ -17,10 +17,18 @@
  * frame's URL, which `src/widget/main.ts` reads and honours. Off means zero
  * credit blocks either way, and no other difference whatsoever — no nag, no
  * watermark, no reduced output.
+ *
+ * THE SOURCE DISCLAIMER is a separate switch and needs no special handling
+ * here at all: it is an ordinary `ListConfig` field, so it reaches the script
+ * snippet through `renderHtml` reading `model.config` and through the
+ * `data-disclaimer` attribute below, and the iframe snippet through the same
+ * attribute projected onto the query string. Turning one off never affects the
+ * other.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
 import { renderHtml } from '@/core/render'
+import { DEFAULT_DISCLAIMER, DEFAULT_GROUP_BY } from '@/core/config'
 import { escapeHtml } from '@/core/format'
 import type { ListConfig, ListModel } from '@/core/types'
 
@@ -72,7 +80,7 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
   push('data-bold-names', config.boldNames?.join(','))
 
   push('data-style', config.style ?? 'vancouver')
-  if (config.groupBy && config.groupBy !== 'category') {
+  if (config.groupBy && config.groupBy !== DEFAULT_GROUP_BY) {
     push('data-group-by', config.groupBy)
   }
   if (config.preprints && config.preprints !== 'exclude') {
@@ -83,6 +91,9 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
   }
   if (config.reviewPolicy && config.reviewPolicy !== 'strict') {
     push('data-review-policy', config.reviewPolicy)
+  }
+  if (config.disclaimer && config.disclaimer !== DEFAULT_DISCLAIMER) {
+    push('data-disclaimer', config.disclaimer)
   }
   push('data-from', config.from)
   push('data-to', config.to)

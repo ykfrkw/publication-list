@@ -6,7 +6,8 @@
   },
   "boldNames": ["Yuki Furukawa"],
   "style": "vancouver",
-  "groupBy": "category",
+  "groupBy": "category-year",
   "japanese": "separate",
-  "reviewPolicy": "strict"
+  "reviewPolicy": "strict",
+  "disclaimer": "show"
 }

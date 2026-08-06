@@ -6,10 +6,10 @@
  * framework-free and small (< 20KB gzip); import only from `src/core`.
  *
  * ──────────────────────────────────────────────────────────────────────────
- * HARD CONSTRAINT — CREDIT LINKS ARE OFF LIMITS
+ * HARD CONSTRAINT — THE TWO TRAILER LINES ARE OFF LIMITS
  *
  * This script MUST NOT create, modify or remove any element matching
- * `.publist-credit`, under any code path, ever.
+ * `.publist-credit` or `.publist-disclaimer`, under any code path, ever.
  *
  * The credit link exists only in the static HTML the wizard emits, so it
  * lives in the site owner's own markup where they can see and delete it. A
@@ -18,20 +18,27 @@
  * list, it must leave any `.publist-credit` node untouched — not preserve and
  * re-insert it, but simply never touch it.
  *
+ * The source disclaimer is a different kind of line — it makes no link and
+ * carries no ranking value — but it lives in the same place, in the pasted
+ * snippet, and so it gets the same treatment for a plainer reason: whatever
+ * the site owner pasted is theirs. If they deleted the line, a script of ours
+ * putting it back would be overruling them on their own page. So this file
+ * treats both nodes identically, and neither is ever injected or removed.
+ *
  * The two mechanisms that enforce this:
  *
- *   1. `renderHtml(model, { credit: false })` — the runtime path cannot emit a
- *      credit block even by accident.
+ *   1. `renderHtml(model, { credit: false, disclaimer: false })` — the runtime
+ *      path cannot emit either line even by accident.
  *   2. `replaceListContent()` never assigns `innerHTML` on the container and
- *      never removes the node chain that holds the credit. It removes the
- *      other children individually and inserts the new list before that chain,
- *      so the existing credit node survives *by identity*.
+ *      never removes the node chain that holds them. It removes the other
+ *      children individually and inserts the new list before that chain, so
+ *      the existing nodes survive *by identity*.
  *
- * Unit tests pin all three behaviours: the link is never created, never
- * changed, and never restored after the site owner deletes it.
+ * Unit tests pin all three behaviours for both: the line is never created,
+ * never changed, and never restored after the site owner deletes it.
  *
- * The loading indicator added below lives *outside* that node and is removed
- * by class name only, so it cannot reach the credit either.
+ * The loading indicator added below lives *outside* those nodes and is removed
+ * by class name only, so it cannot reach either of them.
  * ──────────────────────────────────────────────────────────────────────────
  *
  * ──────────────────────────────────────────────────────────────────────────
@@ -57,10 +64,22 @@
 import { configHash, normalizeConfig, parseConfigFromDataset } from '../core/config'
 import { readCache, writeCache } from '../core/cache'
 import { buildList } from '../core/pipeline'
-import { CREDIT_SELECTOR, renderHtml } from '../core/render'
+import { CREDIT_SELECTOR, DISCLAIMER_SELECTOR, renderHtml } from '../core/render'
 import type { ListConfig } from '../core/types'
 
 const CONTAINER_SELECTOR = '.publist-embed'
+
+/**
+ * Everything in the pasted snippet this script must never touch.
+ *
+ * One selector rather than two code paths: the credit and the disclaimer are
+ * preserved by the same mechanism, and a third trailer line added later should
+ * only have to be named here.
+ */
+const PRESERVED_SELECTOR = `${CREDIT_SELECTOR}, ${DISCLAIMER_SELECTOR}`
+
+/** Render options for every runtime render. Both trailer lines suppressed. */
+const RUNTIME_RENDER = { credit: false, disclaimer: false } as const
 const STATE_ATTRIBUTE = 'data-publist-state'
 const HYDRATED_FLAG = 'data-publist-hydrated'
 
@@ -141,29 +160,42 @@ function ensureStyles(): void {
   ;(document.head ?? document.documentElement).appendChild(style)
 }
 
+/** The preserved nodes currently present in a container, in document order. */
+function preservedNodes(el: HTMLElement): Element[] {
+  return Array.from(el.querySelectorAll(PRESERVED_SELECTOR))
+}
+
 /**
  * Is there already something in the container worth keeping on screen?
  *
  * "Something" means a snapshot: any element, or any text, that is not part of
- * the credit chain. A container holding nothing but a credit line counts as
- * empty — the visitor has no list to read either way.
+ * a preserved trailer line. A container holding nothing but a credit and a
+ * disclaimer counts as empty — the visitor has no list to read either way.
  *
  * This has to be asked *before* an indicator is inserted, or the indicator
  * would answer for itself.
  */
 function hasContent(el: HTMLElement): boolean {
-  const credit = el.querySelector(CREDIT_SELECTOR)
+  const preserved = preservedNodes(el)
   for (const node of Array.from(el.querySelectorAll('*'))) {
-    // Skip the credit, its descendants, and any wrapper holding it: a wrapper
-    // that also holds a list is caught by that list's own element.
-    if (credit && (node === credit || credit.contains(node) || node.contains(credit))) {
+    // Skip the preserved nodes, their descendants, and any wrapper holding
+    // one: a wrapper that also holds a list is caught by that list's own
+    // element.
+    if (
+      preserved.some(
+        (keep) => node === keep || keep.contains(node) || node.contains(keep),
+      )
+    ) {
       continue
     }
     return true
   }
-  const text = el.textContent ?? ''
-  const creditText = credit?.textContent ?? ''
-  return (creditText ? text.replace(creditText, '') : text).trim() !== ''
+  let text = el.textContent ?? ''
+  for (const keep of preserved) {
+    const keepText = keep.textContent ?? ''
+    if (keepText) text = text.replace(keepText, '')
+  }
+  return text.trim() !== ''
 }
 
 /**
@@ -230,47 +262,50 @@ function mergeConfigs(
 }
 
 /**
- * Replace the list content while leaving any `.publist-credit` node exactly
- * where it is — same node, same parent, same attributes.
+ * Replace the list content while leaving every `.publist-credit` and
+ * `.publist-disclaimer` node exactly where it is — same node, same parent, same
+ * attributes.
  *
  * `innerHTML` is never used on the container: assigning it would destroy and
- * recreate the credit node, which is the one thing this script must not do.
- * Children are removed individually, except the direct child that *is* or
- * *contains* the credit node; if the credit sits inside a wrapper (the wizard's
- * snapshot puts it inside `<section class="publist">`), that wrapper is pruned
- * the same way, recursively, so only the credit chain survives.
+ * recreate those nodes, which is the one thing this script must not do.
+ * Children are removed individually, except the direct children that *are* or
+ * *contain* a preserved node; if a preserved node sits inside a wrapper (the
+ * wizard's snapshot puts both inside `<section class="publist">`), that wrapper
+ * is pruned the same way, recursively, so only the preserved chains survive.
  */
 function replaceListContent(el: HTMLElement, html: string): void {
-  const credit = el.querySelector(CREDIT_SELECTOR)
+  const preserved = preservedNodes(el)
 
-  let anchor: ChildNode | null = null
-  if (credit) {
-    for (const child of Array.from(el.childNodes)) {
-      if (child === credit || child.contains(credit)) {
-        anchor = child
-        break
-      }
+  // The direct children that carry a preserved node, in document order. The
+  // new list is inserted before the first of them, so it lands above the
+  // trailer lines rather than after them.
+  const anchors: ChildNode[] = []
+  for (const child of Array.from(el.childNodes)) {
+    if (preserved.some((keep) => child === keep || child.contains(keep))) {
+      anchors.push(child)
     }
   }
 
   for (const child of Array.from(el.childNodes)) {
-    if (child === anchor) continue
+    if (anchors.includes(child)) continue
     el.removeChild(child)
   }
-  if (anchor && anchor !== credit) pruneKeepingCredit(anchor, credit as Node)
+  for (const anchor of anchors) {
+    if (!preserved.includes(anchor as Element)) pruneKeepingNodes(anchor, preserved)
+  }
 
   const template = document.createElement('template')
   template.innerHTML = html
-  if (anchor) el.insertBefore(template.content, anchor)
+  if (anchors.length > 0) el.insertBefore(template.content, anchors[0])
   else el.appendChild(template.content)
 }
 
-/** Strip everything under `node` except the chain leading to `credit`. */
-function pruneKeepingCredit(node: Node, credit: Node): void {
+/** Strip everything under `node` except the chains leading to `keep`. */
+function pruneKeepingNodes(node: Node, keep: readonly Element[]): void {
   for (const child of Array.from(node.childNodes)) {
-    if (child === credit) continue
-    if (child.contains(credit)) {
-      pruneKeepingCredit(child, credit)
+    if (keep.includes(child as Element)) continue
+    if (keep.some((target) => child.contains(target))) {
+      pruneKeepingNodes(child, keep)
       continue
     }
     node.removeChild(child)
@@ -305,7 +340,7 @@ async function hydrate(el: HTMLElement): Promise<void> {
   const cached = readCache(key)
   if (cached) {
     // Stale-while-revalidate: show last run's list immediately, then refresh.
-    replaceListContent(el, renderHtml(cached, { credit: false }))
+    replaceListContent(el, renderHtml(cached, RUNTIME_RENDER))
     setState(el, 'cached')
     // There is a list on screen now even if there was not a moment ago, and
     // the live fetch is still running — so downgrade to the quiet indicator.
@@ -314,7 +349,7 @@ async function hydrate(el: HTMLElement): Promise<void> {
 
   const model = await buildList(config)
   writeCache(key, model)
-  replaceListContent(el, renderHtml(model, { credit: false }))
+  replaceListContent(el, renderHtml(model, RUNTIME_RENDER))
   clearIndicator(el)
   setState(el, 'ready')
 }

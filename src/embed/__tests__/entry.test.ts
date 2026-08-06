@@ -9,12 +9,21 @@
  * replacement node would mean the script destroyed and recreated the link,
  * which is precisely the distributed-widget link pattern this project is built
  * to avoid.
+ *
+ * The `.publist-disclaimer` node gets the same treatment for a plainer reason:
+ * it too lives in the pasted snippet, and a script of ours restoring a line the
+ * site owner deleted would be overruling them on their own page.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { normalizeConfig } from '../../core/config'
-import { CREDIT_HTML, CREDIT_SELECTOR } from '../../core/render'
+import {
+  CREDIT_HTML,
+  CREDIT_SELECTOR,
+  DISCLAIMER_HTML,
+  DISCLAIMER_SELECTOR,
+} from '../../core/render'
 import type { ListModel, Publication } from '../../core/types'
 
 const mocks = vi.hoisted(() => ({
@@ -64,21 +73,22 @@ function model(title: string): ListModel {
 const SNAPSHOT_LIST =
   '<ol class="publist-list"><li>Snapshot citation, 2019.</li></ol>'
 
-/** The wizard's snippet: snapshot list, then the static credit paragraph. */
+/** The wizard's snippet: snapshot list, then the two static trailer lines. */
 function mountFlat(): HTMLElement {
   document.body.innerHTML =
     `<div class="publist-embed" data-orcid="${ORCID}" data-style="vancouver">` +
     SNAPSHOT_LIST +
+    DISCLAIMER_HTML +
     CREDIT_HTML +
     '</div>'
   return document.querySelector<HTMLElement>('.publist-embed')!
 }
 
-/** The other shape: the credit nested inside the rendered `<section>`. */
+/** The real shape: both trailer lines nested inside the rendered `<section>`. */
 function mountNested(): HTMLElement {
   document.body.innerHTML =
     `<div class="publist-embed" data-orcid="${ORCID}">` +
-    `<section class="publist">${SNAPSHOT_LIST}${CREDIT_HTML}</section>` +
+    `<section class="publist">${SNAPSHOT_LIST}${DISCLAIMER_HTML}${CREDIT_HTML}</section>` +
     '</div>'
   return document.querySelector<HTMLElement>('.publist-embed')!
 }
@@ -168,6 +178,109 @@ describe('the credit link is never touched', () => {
     expect(el.querySelector(CREDIT_SELECTOR)).toBe(credit)
     expect(el.querySelectorAll(CREDIT_SELECTOR).length).toBe(1)
     expect(el.textContent).toContain('Fresh citation')
+  })
+})
+
+describe('the source disclaimer is never touched either', () => {
+  it('keeps the same disclaimer node across a re-render', async () => {
+    const el = mountFlat()
+    const note = el.querySelector(DISCLAIMER_SELECTOR)!
+    const text = note.textContent
+
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+
+    expect(el.querySelector(DISCLAIMER_SELECTOR)).toBe(note)
+    expect(note.textContent).toBe(text)
+    expect(el.querySelectorAll(DISCLAIMER_SELECTOR).length).toBe(1)
+    expect(el.textContent).toContain('Fresh citation')
+  })
+
+  it('keeps both trailer nodes when they sit inside the rendered section', async () => {
+    const el = mountNested()
+    const note = el.querySelector(DISCLAIMER_SELECTOR)!
+    const credit = el.querySelector(CREDIT_SELECTOR)!
+
+    mocks.readCache.mockReturnValue(model('Cached citation'))
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+
+    // By identity, across both the cached render and the live one.
+    expect(el.querySelector(DISCLAIMER_SELECTOR)).toBe(note)
+    expect(el.querySelector(CREDIT_SELECTOR)).toBe(credit)
+    expect(el.querySelectorAll(DISCLAIMER_SELECTOR).length).toBe(1)
+    expect(el.querySelectorAll(CREDIT_SELECTOR).length).toBe(1)
+    expect(el.textContent).toContain('Fresh citation')
+    expect(el.textContent).not.toContain('Snapshot citation')
+  })
+
+  it('injects markup that contains no disclaimer, even with data-disclaimer="show"', async () => {
+    // The config says show, and the runtime path still must not create one:
+    // this script may not add nodes to someone else's markup.
+    document.body.innerHTML =
+      `<div class="publist-embed" data-orcid="${ORCID}" data-disclaimer="show">` +
+      `${SNAPSHOT_LIST}</div>`
+    const el = document.querySelector<HTMLElement>('.publist-embed')!
+
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+
+    expect(el.querySelector(DISCLAIMER_SELECTOR)).toBeNull()
+    expect(el.innerHTML).not.toContain('publist-disclaimer')
+    expect(el.textContent).toContain('Fresh citation')
+  })
+
+  it('does not restore a disclaimer the owner deleted, even across two renders', async () => {
+    // Credit kept, disclaimer removed by hand — neither is put back or taken.
+    document.body.innerHTML =
+      `<div class="publist-embed" data-orcid="${ORCID}">` +
+      `<section class="publist">${SNAPSHOT_LIST}${CREDIT_HTML}</section></div>`
+    const el = document.querySelector<HTMLElement>('.publist-embed')!
+    const credit = el.querySelector(CREDIT_SELECTOR)!
+
+    mocks.readCache.mockReturnValue(model('Cached citation'))
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+
+    expect(el.querySelector(DISCLAIMER_SELECTOR)).toBeNull()
+    expect(el.querySelector(CREDIT_SELECTOR)).toBe(credit)
+  })
+
+  it('keeps a disclaimer the owner kept after deleting the credit', async () => {
+    // The mirror case: the two are independent in both directions.
+    document.body.innerHTML =
+      `<div class="publist-embed" data-orcid="${ORCID}">` +
+      `<section class="publist">${SNAPSHOT_LIST}${DISCLAIMER_HTML}</section></div>`
+    const el = document.querySelector<HTMLElement>('.publist-embed')!
+    const note = el.querySelector(DISCLAIMER_SELECTOR)!
+
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+
+    expect(el.querySelector(DISCLAIMER_SELECTOR)).toBe(note)
+    expect(el.querySelector(CREDIT_SELECTOR)).toBeNull()
+    expect(el.textContent).toContain('Fresh citation')
+    expect(el.textContent).not.toContain('Snapshot citation')
+  })
+
+  it('treats a container holding only trailer lines as empty', async () => {
+    // Nothing for the visitor to read, so this is the case that earns a real
+    // spinner rather than the quiet "Updating…" line.
+    document.body.innerHTML =
+      `<div class="publist-embed" data-orcid="${ORCID}">` +
+      `${DISCLAIMER_HTML}${CREDIT_HTML}</div>`
+    const el = document.querySelector<HTMLElement>('.publist-embed')!
+    let spinnerSeen = false
+    mocks.buildList.mockImplementation(async () => {
+      spinnerSeen = el.querySelector('.publist-spinner') != null
+      return model('Fresh citation')
+    })
+
+    await init()
+
+    expect(spinnerSeen).toBe(true)
+    expect(el.querySelector(DISCLAIMER_SELECTOR)).not.toBeNull()
+    expect(el.querySelector(CREDIT_SELECTOR)).not.toBeNull()
   })
 })
 

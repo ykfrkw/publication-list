@@ -36,7 +36,7 @@ Open the wizard: <https://ykfrkw.github.io/publication-list/>
 2. Paste your member list into the members box. One member per line. It accepts a bare ORCID iD, an `https://orcid.org/…` URL, a researchmap permalink, or a row copied out of Excel in either column order — identifiers are found by shape, so `Name<TAB>ORCID` and `ORCID<TAB>Name` both work. Lines starting with `#` are ignored, and a header row is discarded.
 3. Optionally add **pinned papers**: PMIDs and DOIs, pasted in any mixture of lines, commas and spaces. Use this for anything that predates a member's ORCID record, or for a paper credited to the group rather than to an individual.
 4. Optionally add a **PubMed query** for a member who has no ORCID iD. See [that troubleshooting entry](#a-member-has-no-orcid-id) for how to write one that does not drown you in strangers.
-5. Set the options you care about: citation style, grouping (by category or by year), a `from` year if you only want recent work, whether Japanese-language records get their own section, and whether to **include preprints** — that box is unticked, so preprints stay off the page unless you ask for them.
+5. Set the options you care about: citation style, grouping (a section per publication type with a year divider inside each to start with, or one of those two levels on its own, or one flat list), a `from` year if you only want recent work, whether Japanese-language records get their own section, and whether to **include preprints** — that box is unticked, so preprints stay off the page unless you ask for them.
 6. Put the members' names in **bold names** so their own names are bolded in each citation. Spell them out in full — `Yuki Furukawa`, not `Furukawa Y`. Short forms cannot distinguish Yuki from Yuri, and the tool will warn you when a bold name lands on two different people.
 7. Press **Generate**.
 
@@ -63,16 +63,21 @@ A few things worth knowing about what you just pasted:
 - **The list is inside the snippet.** The `<section class="publist">` block is a snapshot of the list as it stands now. It is in your page's HTML, so search engines index it and visitors with JavaScript disabled still see it. The script replaces it with a freshly fetched list on load.
 - **It fails safe.** If the script cannot load, or an upstream API is down, the snapshot stays on the page. Your publication list never goes blank.
 - **The credit link is one line and it is optional.** Untick "Include a credit link" before copying, or delete the `<p class="publist-credit">…</p>` line afterwards. Nothing else changes either way, and the checkbox applies to the iframe snippet too — see [that section](#my-cms-strips-script-tags).
+- **The list ends with a second line saying where it came from**, and that has its own checkbox: "Say where the list came from". It is on by default because it tells your readers that a missing paper is a gap in ORCID rather than a claim about your group. Untick it, or delete the `<p class="publist-disclaimer">…</p>` line, if you would rather word the caveat yourself elsewhere on the page. Turning the credit off does not turn this off, and the other way round.
 - **If the page cannot run JavaScript at all** — or your CMS eats the `<script>` tag — copy **Static HTML (no auto-update)** from the results panel instead and paste that. You lose the automatic updating; see [that section](#my-cms-strips-script-tags).
 - **If the snippet is unwieldy**, use the hosted-configuration route instead. Open **Keep the settings in a file instead of in the snippet** (the wizard opens it for you when the attributes get too long for a CMS field, or when a PubMed query contains a comma), press **Download `pubs.json`**, put that file anywhere that serves it publicly — your own server, or a GitHub Gist raw URL, which needs no setup — and paste the URL into the field. The snippet collapses to a single `data-config` attribute, and editing that one file then changes the list on every page it is embedded in, with nothing to re-paste. This is the right choice for a lab that will keep adjusting the list.
 
 Style it from your own stylesheet. The markup is unstyled and every class is namespaced `publist-`:
 
 ```css
-.publist-heading { font-size: 1.1rem; margin-top: 1.5em; }
-.publist-item    { margin-bottom: 0.6em; }
-.publist-pmid    { color: #666; font-size: 0.9em; }
+.publist-heading    { font-size: 1.1rem; margin-top: 1.5em; }
+.publist-subheading { font-size: 0.9rem; margin-top: 1em; opacity: 0.75; }
+.publist-item       { margin-bottom: 0.6em; }
+.publist-pmid       { color: #666; font-size: 0.9em; }
+.publist-disclaimer { color: #666; font-size: 0.85em; }
 ```
+
+`.publist-heading` is the publication-type heading; `.publist-subheading` is the year divider inside it.
 
 ## Step 5 — Keep the configuration
 
@@ -128,6 +133,7 @@ The list is built the same way and updates the same way. Two differences worth k
 
 - **The list is not in your page's HTML**, because the frame is a separate document. Search engines will not index it as part of your publications page, and a visitor with JavaScript disabled sees an empty frame. If your reason for having this page is that people can find your group's work, that matters.
 - **The credit line obeys the same checkbox**, by a different route. It is rendered by our page rather than pasted into yours, so there is no line in your HTML to delete — instead, unticking "Include a credit link" adds `&credit=0` to the frame's `src`. You can add or remove that yourself later; without it, the credit is shown.
+- **The source line does too**, and it needs no special route: unticking "Say where the list came from" adds `&disclaimer=hide` to the frame's `src`, which is the ordinary configuration parameter. The two are independent — `credit=0` leaves the source line, `disclaimer=hide` leaves the credit.
 
 The snippet also carries a small inline `<script>` that resizes the frame to fit its content. If your CMS strips that too, the iframe still works — it just keeps the fixed 900px fallback height, which you can change in the `style` attribute.
 
@@ -137,7 +143,7 @@ The snippet also carries a small inline `<script>` that resizes the frame to fit
 
 What you give up is in the name: it is a snapshot of today and it will not refresh itself. Regenerate and re-paste when you have new papers. Once or twice a year is still far less work than maintaining the list by hand, and you keep the list in your own page's HTML where search engines and JavaScript-less visitors can read it. This is also the right answer for a page that should not run any JavaScript at all — an intranet with a strict content policy, or a CV page you would rather keep inert.
 
-The credit line follows the same checkbox here as everywhere else: untick it before copying, or delete the `<p class="publist-credit">…</p>` line afterwards.
+The credit line and the source line follow the same two checkboxes here as everywhere else: untick either before copying, or delete the `<p class="publist-credit">…</p>` or `<p class="publist-disclaimer">…</p>` line afterwards.
 
 ### Our web team asks what the page contacts
 
@@ -165,9 +171,9 @@ If a paper is in ORCID but still missing, check the warnings panel — an upstre
 
 ### The categories are wrong
 
-A paper filed under "Other Publication Types" or an article shown as a letter usually means OpenAlex has the work type wrong. Two workarounds:
+A paper filed under "Other Publication Types" or an article shown as a letter usually means OpenAlex has the work type wrong. The default grouping puts those types on the page as headings, so a mistake is visible rather than hidden. Two workarounds:
 
-- Set `groupBy` to `year` or `none`, which sidesteps categorisation entirely. For many lab pages a reverse-chronological list is what you wanted anyway.
+- Set the grouping to `year` or to `none`, either of which sidesteps categorisation entirely. A reverse-chronological list with no type headings is a perfectly good lab page, and it cannot be wrong about a work type it never mentions.
 - Report the metadata error to OpenAlex. It benefits everyone downstream, not just this page.
 
 ### An F1000Research paper is missing, or shows as a preprint

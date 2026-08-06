@@ -8,6 +8,14 @@
  * and href are constants in `src/core/render.ts` and are never editable from
  * the UI. Turning the checkbox off must not restrict anything: same formats,
  * same snippets, same live updating, no reminder to turn it back on.
+ *
+ * SOURCE DISCLAIMER — a second, entirely separate checkbox beside it, also on
+ * by default. It must never be folded into the credit box: they say different
+ * things, and a site owner who declines to advertise the tool has not thereby
+ * asked the list to stop describing how it was built. It travels as the
+ * `disclaimer` field of the config, so `data-disclaimer="hide"` on the script
+ * snippet and `?disclaimer=hide` on the iframe both fall out of the normal
+ * projection with nothing special here.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
@@ -98,14 +106,19 @@ function SnippetBlock({ value }: { value: string }) {
 export function SnippetPanel({
   model,
   credit,
+  disclaimer,
   configUrl,
   onCreditChange,
+  onDisclaimerChange,
   onConfigUrlChange,
 }: {
+  /** Already carries the disclaimer choice in `model.config`; see `App.tsx`. */
   model: ListModel
   credit: boolean
+  disclaimer: boolean
   configUrl: string
   onCreditChange: (credit: boolean) => void
+  onDisclaimerChange: (disclaimer: boolean) => void
   onConfigUrlChange: (url: string) => void
 }) {
   const hosted = configUrl.trim() !== ''
@@ -156,6 +169,18 @@ export function SnippetPanel({
           onChange={onCreditChange}
           label="Include a credit link"
           hint="Adds one line under the list: “Auto-updated with Publication List Generator”. It becomes part of your own HTML, so you can edit or delete it at any time. Everything works exactly the same with this turned off."
+        />
+
+        {/*
+          Its own box, next to the credit and never merged with it: the two
+          lines make different claims, and someone who drops the credit has not
+          asked the page to stop saying where its contents came from.
+        */}
+        <CheckboxField
+          checked={disclaimer}
+          onChange={onDisclaimerChange}
+          label="Say where the list came from"
+          hint="Adds one line under the list noting that it is compiled automatically from ORCID, PubMed and researchmap, and inherits anything those records get wrong. Worth keeping on a page other people read: it tells them a missing paper is a gap in a database rather than a claim about you."
         />
 
         <div className="flex flex-col gap-2">

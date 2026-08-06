@@ -9,6 +9,12 @@
  * tool, not a page anyone publishes. The credit block belongs to the copyable
  * output, and only there.
  *
+ * The source disclaimer is different and *does* appear in the preview: it is a
+ * `ListConfig` field rather than a snippet option, so it is part of the list
+ * being previewed. Its checkbox reaches here through `model.config` — see the
+ * `outputModel` comment in `App.tsx` — which is what makes ticking the box
+ * change the preview, the static HTML and the snippet at once.
+ *
  * ──────────────────────────────────────────────────────────────────────────
  * THE STATIC HTML OUTPUT
  *
@@ -130,9 +136,10 @@ export function ResultsPanel({
           </p>
         ) : (
           <div
-            className="publist-preview text-sm leading-relaxed [&_.publist-heading]:mt-4 [&_.publist-heading]:mb-1.5 [&_.publist-heading]:font-medium [&_.publist-heading:first-child]:mt-0 [&_a]:underline [&_li]:mb-2 [&_ol]:list-decimal [&_ol]:ps-5"
+            className="publist-preview text-sm leading-relaxed [&_.publist-disclaimer]:mt-4 [&_.publist-disclaimer]:text-xs [&_.publist-disclaimer]:text-muted-foreground [&_.publist-heading]:mt-4 [&_.publist-heading]:mb-1.5 [&_.publist-heading]:font-medium [&_.publist-heading:first-child]:mt-0 [&_.publist-subheading]:mt-3 [&_.publist-subheading]:mb-1 [&_.publist-subheading]:text-xs [&_.publist-subheading]:font-medium [&_.publist-subheading]:text-muted-foreground [&_a]:underline [&_li]:mb-2 [&_ol]:list-decimal [&_ol]:ps-5"
             // Escaped upstream by `format.ts`; the only markup in here is
-            // <section>/<h3>/<ol>/<li>, <b>, <em> and doi.org / PubMed links.
+            // <section>/<h3>/<h4>/<ol>/<li>/<p>, <b>, <em> and doi.org /
+            // PubMed links.
             dangerouslySetInnerHTML={{ __html: previewHtml }}
           />
         )}

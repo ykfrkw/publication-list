@@ -14,9 +14,15 @@ import { CITATION_STYLES } from '@/core/types'
 import { CheckboxField, Field, SelectField } from './Field'
 import type { WizardDraft } from '../lib/wizard'
 
+// The two-level grouping leads because it is the default everywhere except the
+// reference-list mode, which starts on "One flat list".
 const GROUP_BY = [
-  { value: 'category' as const, label: 'By publication type' },
-  { value: 'year' as const, label: 'By year' },
+  {
+    value: 'category-year' as const,
+    label: 'By publication type, then year within each',
+  },
+  { value: 'category' as const, label: 'By publication type only' },
+  { value: 'year' as const, label: 'By year only' },
   { value: 'none' as const, label: 'One flat list' },
 ]
 
@@ -49,6 +55,7 @@ export function SharedOptions({
         />
         <SelectField
           label="Group the list"
+          hint="The first option starts a section for each publication type — original articles, letters, editorials — and inside each one puts a small heading for every year, newest first. The others give you one of those two levels on its own, or no headings at all. Publication types come from what the sources report about a work, which is not always right."
           value={draft.groupBy}
           onChange={(groupBy) => update({ groupBy })}
           options={GROUP_BY}

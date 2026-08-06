@@ -7,6 +7,7 @@ import {
   TRAILER_STYLE,
   TRAILER_STYLE_PROPS,
   buildGroups,
+  headingLevelsOf,
   renderBibtex,
   renderClipboard,
   renderHtml,
@@ -680,6 +681,116 @@ describe('renderWordpressBlocks', () => {
         }),
       ),
     )
+  })
+})
+
+// ─────────────────────────────────────────────────────── heading level ──
+
+/**
+ * `headingLevel` moves both levels together, in every renderer.
+ *
+ * The tests above pin the h3/h4 default and are untouched by any of this: an
+ * unset `headingLevel` still renders exactly what it always did.
+ */
+describe('headingLevel', () => {
+  const twoLevels = (config: Partial<ListConfig>) =>
+    model(
+      [
+        pub({ category: 'original', year: 2026 }),
+        pub({ category: 'letter', year: 2025 }),
+      ],
+      { groupBy: 'category-year', ...config },
+    )
+
+  it('renders h2/h3 in HTML when it is set to 2', () => {
+    const html = renderHtml(twoLevels({ headingLevel: 2 }), {
+      credit: false,
+      disclaimer: false,
+    })
+    expect(html).toContain(
+      '<h2 class="publist-heading">Original Articles &amp; Reviews</h2>',
+    )
+    expect(html).toContain('<h3 class="publist-subheading">2026</h3>')
+    expect(html).not.toContain('<h4')
+  })
+
+  it('renders h2/h3 in WordPress blocks when it is set to 2', () => {
+    const markup = renderWordpressBlocks(twoLevels({ headingLevel: 2 }))
+    // The `{"level":N}` attribute and the tag have to agree, or the post looks
+    // right in a browser and wrong in the block editor.
+    expect(markup).toContain('<!-- wp:heading {"level":2} -->')
+    expect(markup).toContain(
+      '<h2 class="wp-block-heading">Original Articles &amp; Reviews</h2>',
+    )
+    expect(markup).toContain('<!-- wp:heading {"level":3} -->')
+    expect(markup).toContain('<h3 class="wp-block-heading">2026</h3>')
+    expect(markup).not.toContain('"level":4')
+  })
+
+  it('renders ##/### in Markdown when it is set to 2', () => {
+    const md = renderMarkdown(twoLevels({ headingLevel: 2 }))
+    expect(md).toContain('## Original Articles & Reviews')
+    expect(md).toContain('### 2026')
+    expect(md).not.toContain('#### ')
+  })
+
+  it('puts the year divider one level below, and stops at h6', () => {
+    for (const [heading, sub] of [
+      [2, 3],
+      [3, 4],
+      [4, 5],
+      [5, 6],
+    ] as const) {
+      const html = renderHtml(twoLevels({ headingLevel: heading }), {
+        credit: false,
+        disclaimer: false,
+      })
+      expect(html).toContain(`<h${heading} class="publist-heading"`)
+      expect(html).toContain(`<h${sub} class="publist-subheading"`)
+    }
+  })
+
+  it('falls back to h3/h4 for auto, which no string renderer can measure', () => {
+    const auto = renderHtml(twoLevels({ headingLevel: 'auto' }), {
+      credit: false,
+      disclaimer: false,
+    })
+    const unset = renderHtml(twoLevels({}), {
+      credit: false,
+      disclaimer: false,
+    })
+    // The headings only — the fixture gives each publication a fresh title.
+    const headings = (html: string) => html.match(/<h[1-6][^>]*>/g)
+    expect(headings(auto)).toEqual(headings(unset))
+    expect(auto).toContain('<h3 class="publist-heading"')
+    expect(auto).toContain('<h4 class="publist-subheading"')
+  })
+
+  it('takes the level the caller resolved, over the one in the model', () => {
+    // What `src/embed/entry.ts` passes: it has already read the container's own
+    // attributes and measured the page, and the model it renders may have come
+    // out of the cache — so its answer is the one for this container.
+    const measured = renderHtml(twoLevels({ headingLevel: 'auto' }), {
+      credit: false,
+      disclaimer: false,
+      headingLevel: 5,
+    })
+    expect(measured).toContain('<h5 class="publist-heading"')
+    expect(measured).toContain('<h6 class="publist-subheading"')
+
+    const overModelConfig = renderHtml(twoLevels({ headingLevel: 4 }), {
+      credit: false,
+      disclaimer: false,
+      headingLevel: 2,
+    })
+    expect(overModelConfig).toContain('<h2 class="publist-heading"')
+  })
+
+  it('clamps a level from outside the range at both ends', () => {
+    const low = headingLevelsOf(twoLevels({ headingLevel: 1 as never }))
+    expect(low).toEqual({ heading: 2, sub: 3 })
+    const high = headingLevelsOf(twoLevels({ headingLevel: 9 as never }))
+    expect(high).toEqual({ heading: 5, sub: 6 })
   })
 })
 

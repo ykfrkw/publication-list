@@ -62,7 +62,10 @@
  */
 
 import {
+  AUTO_HEADING_FALLBACK,
+  clampHeadingLevel,
   configHash,
+  headingLevelFor,
   isListId,
   normalizeConfig,
   parseConfigFromDataset,
@@ -70,7 +73,7 @@ import {
 import { readCache, writeCache } from '../core/cache'
 import { buildList } from '../core/pipeline'
 import { CREDIT_SELECTOR, DISCLAIMER_SELECTOR, renderHtml } from '../core/render'
-import type { ListConfig } from '../core/types'
+import type { HeadingLevel, ListConfig } from '../core/types'
 
 const CONTAINER_SELECTOR = '.publist-embed'
 
@@ -83,7 +86,15 @@ const CONTAINER_SELECTOR = '.publist-embed'
  */
 const PRESERVED_SELECTOR = `${CREDIT_SELECTOR}, ${DISCLAIMER_SELECTOR}`
 
-/** Render options for every runtime render. Both trailer lines suppressed. */
+/**
+ * Render options for every runtime render. Both trailer lines suppressed.
+ *
+ * Deliberately holds no heading level. This is a module-level constant and the
+ * level is a property of one container's surroundings — two embeds on one page
+ * can sit under different headings — so it is worked out inside `hydrate` and
+ * spread on top of this. Hoisting it here would render the second container at
+ * the first one's level.
+ */
 const RUNTIME_RENDER = { credit: false, disclaimer: false } as const
 const STATE_ATTRIBUTE = 'data-publist-state'
 const HYDRATED_FLAG = 'data-publist-hydrated'
@@ -317,6 +328,72 @@ function pruneKeepingNodes(node: Node, keep: readonly Element[]): void {
   }
 }
 
+// ───────────────────────────────────────────────── automatic heading level ──
+
+/**
+ * The level to render this container's headings at, read off the host page.
+ *
+ * This is the whole reason `headingLevel: 'auto'` exists and the only place it
+ * can be answered: the script runs *inside* the page the list was pasted into,
+ * so it can see the outline the list has to fit.
+ *
+ * The rule: take the last heading that comes before the container in document
+ * order, and go one level below it. A list dropped under an `<h2>` renders its
+ * sections as `<h3>`, which is what the person writing the page would have
+ * typed. Clamped to 2–5 at both ends — under an `<h1>` it stays `<h2>` rather
+ * than claiming the page title's level, and under an `<h5>` or `<h6>` it stops
+ * at `<h5>` so the year dividers still have an `<h6>` to sit on.
+ *
+ * Two details that are not incidental:
+ *
+ *   - `querySelectorAll` returns document order, so the *last* match that
+ *     precedes the container is the nearest one. No sorting, one pass.
+ *   - Headings inside the container are excluded. A snapshot brings its own
+ *     `<h3>`s, and measuring against those would feed the previous render back
+ *     into the next one. `compareDocumentPosition` already reports a descendant
+ *     as FOLLOWING rather than PRECEDING, and `contains` says so outright; both
+ *     are checked, because this getting it wrong is silent.
+ *
+ * No preceding heading at all — a list at the very top of a page, or in a bare
+ * document — falls back to `AUTO_HEADING_FALLBACK`, the same level every
+ * unmeasurable render uses.
+ */
+function detectHeadingLevel(el: HTMLElement): HeadingLevel {
+  let nearest: Element | null = null
+  for (const candidate of Array.from(
+    document.querySelectorAll('h1,h2,h3,h4,h5,h6'),
+  )) {
+    if (el.contains(candidate)) continue
+    const where = el.compareDocumentPosition(candidate)
+    if (where & Node.DOCUMENT_POSITION_PRECEDING) nearest = candidate
+  }
+  if (nearest == null) return AUTO_HEADING_FALLBACK
+
+  const level = Number.parseInt(nearest.tagName.charAt(1), 10)
+  if (!Number.isFinite(level)) return AUTO_HEADING_FALLBACK
+  return clampHeadingLevel(level + 1)
+}
+
+/**
+ * The render options for one container: the fixed runtime pair, plus the
+ * heading level this container is to be drawn at.
+ *
+ * The level is resolved here rather than left to the renderer because the
+ * authority for it is **the container's own attributes**, and the model handed
+ * to `renderHtml` may not carry them — it can come from `readCache`, or from a
+ * `lists/*.json` file that the inline attributes then overrode. Resolving once,
+ * here, means both renders in `hydrate` (cached and fresh) land at the same
+ * level, which is the whole point: the visitor must not watch the headings
+ * shift as the refresh completes.
+ */
+function renderOptionsFor(el: HTMLElement, config: ListConfig) {
+  const setting = headingLevelFor(config)
+  return {
+    ...RUNTIME_RENDER,
+    headingLevel: setting === 'auto' ? detectHeadingLevel(el) : setting,
+  }
+}
+
 async function loadConfig(el: HTMLElement): Promise<ListConfig> {
   const parsed = parseConfigFromDataset(el)
 
@@ -355,11 +432,18 @@ async function hydrate(el: HTMLElement): Promise<void> {
 
   const config = await loadConfig(el)
   const key = configHash(config)
+  // Measured here, per container, not at module scope: see `RUNTIME_RENDER`.
+  // Taken before anything is replaced, so the container's own snapshot is the
+  // one being measured around rather than a half-built render.
+  const render = renderOptionsFor(el, config)
 
   const cached = readCache(key)
   if (cached) {
     // Stale-while-revalidate: show last run's list immediately, then refresh.
-    replaceListContent(el, renderHtml(cached, RUNTIME_RENDER))
+    // Rendered with this container's options, not the cached model's — the
+    // cache holds a `ListModel`, and where on the page it is being drawn is not
+    // part of one.
+    replaceListContent(el, renderHtml(cached, render))
     setState(el, 'cached')
     // There is a list on screen now even if there was not a moment ago, and
     // the live fetch is still running — so downgrade to the quiet indicator.
@@ -368,7 +452,7 @@ async function hydrate(el: HTMLElement): Promise<void> {
 
   const model = await buildList(config)
   writeCache(key, model)
-  replaceListContent(el, renderHtml(model, RUNTIME_RENDER))
+  replaceListContent(el, renderHtml(model, render))
   clearIndicator(el)
   setState(el, 'ready')
 }

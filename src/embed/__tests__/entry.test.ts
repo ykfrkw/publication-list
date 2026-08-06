@@ -669,3 +669,112 @@ describe('the data-list registry route', () => {
     fetchStub.mockRestore()
   })
 })
+
+/**
+ * `headingLevel: 'auto'` — the one setting that can only be answered here.
+ *
+ * The script runs inside the page the list was pasted into, so it is the only
+ * renderer that can see the outline the list has to fit. Every assertion below
+ * is about the *rendered* markup rather than about the detection function,
+ * because what matters is the level the visitor's browser ends up with.
+ */
+describe('the automatic heading level', () => {
+  /** Mount a container after the given markup and hydrate it. */
+  async function renderAfter(
+    before: string,
+    attrs = '',
+    after = '',
+  ): Promise<HTMLElement> {
+    document.body.innerHTML =
+      before +
+      `<div class="publist-embed" data-orcid="${ORCID}"${attrs}>${SNAPSHOT_LIST}</div>` +
+      after
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+    return document.querySelector<HTMLElement>('.publist-embed')!
+  }
+
+  it('renders one level below the nearest heading above it', async () => {
+    const el = await renderAfter('<h2>Publications</h2>')
+    expect(el.querySelector('.publist-heading')?.tagName).toBe('H3')
+    expect(el.querySelector('.publist-subheading')?.tagName).toBe('H4')
+  })
+
+  it('follows a deeper heading just as readily', async () => {
+    const el = await renderAfter('<h1>Lab</h1><h2>About</h2><h4>Selected work</h4>')
+    expect(el.querySelector('.publist-heading')?.tagName).toBe('H5')
+    expect(el.querySelector('.publist-subheading')?.tagName).toBe('H6')
+  })
+
+  it('takes the nearest one, not the first or the deepest', async () => {
+    const el = await renderAfter('<h1>Lab</h1><h4>Team</h4><h2>Publications</h2>')
+    expect(el.querySelector('.publist-heading')?.tagName).toBe('H3')
+  })
+
+  it('ignores headings that come after the container', async () => {
+    const el = await renderAfter('<h2>Publications</h2>', '', '<h5>Contact</h5>')
+    expect(el.querySelector('.publist-heading')?.tagName).toBe('H3')
+  })
+
+  it('ignores the headings inside its own snapshot', async () => {
+    // Otherwise each render would measure against the previous one and the
+    // list would walk down the outline one level per page load.
+    document.body.innerHTML =
+      '<h2>Publications</h2>' +
+      `<div class="publist-embed" data-orcid="${ORCID}">` +
+      '<section class="publist"><h3 class="publist-heading">Original Articles</h3>' +
+      SNAPSHOT_LIST +
+      '</section></div>'
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+    const el = document.querySelector<HTMLElement>('.publist-embed')!
+    expect(el.querySelector('.publist-heading')?.tagName).toBe('H3')
+  })
+
+  it('falls back to h3 when nothing precedes it', async () => {
+    const el = await renderAfter('')
+    expect(el.querySelector('.publist-heading')?.tagName).toBe('H3')
+    expect(el.querySelector('.publist-subheading')?.tagName).toBe('H4')
+  })
+
+  it('clamps at both ends: h1 gives h2, h5 and h6 both give h5', async () => {
+    const top = await renderAfter('<h1>Lab</h1>')
+    expect(top.querySelector('.publist-heading')?.tagName).toBe('H2')
+
+    const deep = await renderAfter('<h5>Selected work</h5>')
+    expect(deep.querySelector('.publist-heading')?.tagName).toBe('H5')
+    expect(deep.querySelector('.publist-subheading')?.tagName).toBe('H6')
+
+    const deeper = await renderAfter('<h6>Selected work</h6>')
+    expect(deeper.querySelector('.publist-heading')?.tagName).toBe('H5')
+  })
+
+  it('does not measure when the snippet names a level', async () => {
+    const el = await renderAfter('<h4>Selected work</h4>', ' data-heading-level="2"')
+    expect(el.querySelector('.publist-heading')?.tagName).toBe('H2')
+    expect(el.querySelector('.publist-subheading')?.tagName).toBe('H3')
+  })
+
+  it('measures each container separately on one page', async () => {
+    // The reason the level is not a module-level constant beside the other
+    // render options: two embeds on one page can sit under different headings.
+    document.body.innerHTML =
+      `<h2>Publications</h2><div class="publist-embed" id="a" data-orcid="${ORCID}"></div>` +
+      `<h4>Preprints</h4><div class="publist-embed" id="b" data-orcid="${ORCID}"></div>`
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+
+    expect(
+      document.querySelector('#a .publist-heading')?.tagName,
+    ).toBe('H3')
+    expect(
+      document.querySelector('#b .publist-heading')?.tagName,
+    ).toBe('H5')
+  })
+
+  it('applies the measured level to the cached render too', async () => {
+    mocks.readCache.mockReturnValue(model('Cached citation'))
+    const el = await renderAfter('<h2>Publications</h2>')
+    expect(el.querySelector('.publist-heading')?.tagName).toBe('H3')
+  })
+})

@@ -13,6 +13,26 @@ export type CitationStyle =
   | 'chicago'
   | 'nature'
 
+/**
+ * A heading level the list may be rendered at.
+ *
+ * Bounded at both ends on purpose. `1` is out because a page has one `<h1>` and
+ * it is the page's own title — a list dropped into someone else's article must
+ * not claim it. `6` is out because the year dividers sit one level below the
+ * category headings, and a list starting at 6 would have nowhere to put them.
+ */
+export type HeadingLevel = 2 | 3 | 4 | 5
+
+/**
+ * What `ListConfig.headingLevel` may say: a fixed level, or `'auto'`.
+ *
+ * `'auto'` is a request to *measure* rather than a level, so it only means
+ * anything where there is a host page to measure — `src/embed/entry.ts`, which
+ * runs inside one. Everywhere else it resolves to `AUTO_HEADING_FALLBACK`.
+ * See `headingLevelFor` in `core/config.ts`.
+ */
+export type HeadingLevelSetting = 'auto' | HeadingLevel
+
 export type PublicationCategory =
   | 'original'
   | 'preprint'
@@ -199,6 +219,17 @@ export interface ListConfig {
    * cites.
    */
   groupBy?: 'category-year' | 'category' | 'year' | 'none'
+  /**
+   * The heading level the group headings are rendered at; the year dividers go
+   * one level below it. Defaults to `'auto'` — see `headingLevelFor` in
+   * `core/config.ts` for the one case where that default is not `'auto'`.
+   *
+   * It exists because the list is pasted into a document that already has an
+   * outline. A lab page whose section headings are `<h2>` gets a list of `<h3>`
+   * sections; one whose sidebar heading is `<h4>` gets `<h5>`. Nothing else
+   * about the markup changes.
+   */
+  headingLevel?: HeadingLevelSetting
   /**
    * Whether the rendered list carries the one-line note saying it was assembled
    * automatically and inherits whatever its sources got wrong. Defaults to

@@ -41,6 +41,7 @@ import {
   PUBMED_BASE,
   TRAILER_STYLE_PROPS,
   buildGroups,
+  headingLevelsOf,
   pmidOf,
 } from '@/core/render'
 import { DEFAULT_DISCLAIMER } from '@/core/config'
@@ -158,6 +159,19 @@ export function PreviewList({
   const style = model.config.style ?? 'vancouver'
   const boldNames = model.config.boldNames ?? []
   const groups = buildGroups(model)
+  /*
+   * The same two levels the string renderers use, from the same function.
+   *
+   * `'auto'` resolves to the fallback here, and that is the honest answer
+   * rather than a shortcoming: the preview sits inside this wizard, not inside
+   * the page the list will be pasted into, so there is nothing to measure and
+   * guessing would show a level the embed may not use. What the preview is
+   * showing is the shape — headings above their years — which does not change
+   * with the level.
+   */
+  const { heading, sub } = headingLevelsOf(model)
+  const Heading = `h${heading}` as 'h3'
+  const SubHeading = `h${sub}` as 'h4'
 
   const list = (items: Publication[], key: string) => (
     <ol key={key} className="publist-list">
@@ -184,14 +198,16 @@ export function PreviewList({
         return (
           <Fragment key={group.key}>
             {group.label === '' ? null : (
-              <h3 className="publist-heading">{group.label}</h3>
+              <Heading className="publist-heading">{group.label}</Heading>
             )}
             {group.sections
               ? group.sections
                   .filter((section) => section.items.length > 0)
                   .map((section) => (
                     <Fragment key={section.key}>
-                      <h4 className="publist-subheading">{section.label}</h4>
+                      <SubHeading className="publist-subheading">
+                        {section.label}
+                      </SubHeading>
                       {list(section.items, section.key)}
                     </Fragment>
                   ))

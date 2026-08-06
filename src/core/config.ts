@@ -6,7 +6,13 @@
  * DOM API is touched at module scope.
  */
 
-import type { CitationStyle, ListConfig, PubmedSeed } from './types'
+import type {
+  CitationStyle,
+  HeadingLevel,
+  HeadingLevelSetting,
+  ListConfig,
+  PubmedSeed,
+} from './types'
 import { normalizeDoi, normalizeOrcid, normalizeResearchmapId } from './ids'
 import { decodeSeed, normalizeSeedList } from './seeds'
 
@@ -23,6 +29,8 @@ const PREPRINTS_VALUES = ['include', 'exclude'] as const
 const JAPANESE_VALUES = ['separate', 'merge', 'hide'] as const
 const REVIEW_POLICY_VALUES = ['strict', 'auto'] as const
 const DISCLAIMER_VALUES = ['show', 'hide'] as const
+/** The spellings `data-heading-level` / `?headingLevel=` accept. */
+const HEADING_LEVEL_VALUES = ['auto', '2', '3', '4', '5'] as const
 
 export const DEFAULT_STYLE: CitationStyle = 'vancouver'
 /**
@@ -56,6 +64,90 @@ export const DEFAULT_PREPRINTS: NonNullable<ListConfig['preprints']> = 'exclude'
 export const DEFAULT_JAPANESE: NonNullable<ListConfig['japanese']> = 'separate'
 export const DEFAULT_REVIEW_POLICY: NonNullable<ListConfig['reviewPolicy']> =
   'strict'
+
+// ────────────────────────────────────────────────────────── heading level ──
+
+/**
+ * ──────────────────────────────────────────────────────────────────────────
+ * WHY THE HEADING-LEVEL DEFAULT DEPENDS ON THE SNAPSHOT
+ *
+ * The list is pasted into a document that already has an outline, so the level
+ * it renders at is a property of the *host page*, not of the list. `'auto'`
+ * says "work it out from the page", and `src/embed/entry.ts` — which runs
+ * inside that page — can: it finds the nearest heading before the container and
+ * renders one below it.
+ *
+ * Nothing else can. A snapshot is baked by the wizard, on this site, before
+ * anyone has said where it will be pasted. Baked under `'auto'` it would come
+ * out at the fallback level and then *change* on load, which is worse than
+ * being wrong in one direction:
+ *
+ *   - a crawler reads the snapshot and never runs the script, so it keeps the
+ *     wrong outline for good;
+ *   - a visitor with JavaScript off sees the same;
+ *   - a visitor with JavaScript on watches the headings move.
+ *
+ * The snapshot exists precisely for the first two readers, so leaving them with
+ * a permanently wrong outline defeats it. With a snapshot the default is
+ * therefore an explicit level, and the snippet writes that level out as
+ * `data-heading-level`, so the live list matches the baked one exactly.
+ *
+ * **This is the only place that rule is written down.** `normalizeConfig` below
+ * (the parser, which never sees a snapshot) and `buildEmbedSnippet` (the
+ * snippet builder, which does) both call `headingLevelFor`; neither decides
+ * anything itself. The wizard's select calls it too, so what it displays is
+ * what the snippet will contain.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+
+/** No snapshot: measure the host page. */
+export const DEFAULT_HEADING_LEVEL: HeadingLevelSetting = 'auto'
+
+/** With a snapshot: an explicit level, because nothing can measure. */
+export const SNAPSHOT_HEADING_LEVEL: HeadingLevel = 3
+
+/**
+ * What `'auto'` resolves to where there is no page to measure — a string
+ * renderer, the iframe widget, or a container with no heading before it.
+ *
+ * The same 3 as `SNAPSHOT_HEADING_LEVEL`, and deliberately a separate constant:
+ * they answer different questions ("what does an unmeasurable auto become" vs
+ * "what does the wizard bake"), and a change to one is not a change to the
+ * other.
+ */
+export const AUTO_HEADING_FALLBACK: HeadingLevel = 3
+
+const MIN_HEADING_LEVEL = 2
+const MAX_HEADING_LEVEL = 5
+
+/** Pull any number into the 2–5 range a heading level is allowed to take. */
+export function clampHeadingLevel(level: number): HeadingLevel {
+  if (!Number.isFinite(level)) return AUTO_HEADING_FALLBACK
+  const n = Math.round(level)
+  if (n < MIN_HEADING_LEVEL) return MIN_HEADING_LEVEL
+  if (n > MAX_HEADING_LEVEL) return MAX_HEADING_LEVEL
+  return n as HeadingLevel
+}
+
+/**
+ * The heading level a configuration asks for, given whether a snapshot is being
+ * baked alongside it. Read the note above before changing it.
+ *
+ * `hasSnapshot` collapses `'auto'` to `SNAPSHOT_HEADING_LEVEL`, and it does so
+ * whether the `'auto'` was chosen or merely left alone: with a snapshot in the
+ * snippet the two are the same request, and there is nothing to measure either
+ * way.
+ */
+export function headingLevelFor(
+  config: Pick<ListConfig, 'headingLevel'>,
+  hasSnapshot = false,
+): HeadingLevelSetting {
+  const setting = config.headingLevel ?? DEFAULT_HEADING_LEVEL
+  if (setting === 'auto') {
+    return hasSnapshot ? SNAPSHOT_HEADING_LEVEL : 'auto'
+  }
+  return clampHeadingLevel(setting)
+}
 
 /**
  * Result of reading an embed container's `data-*` attributes.
@@ -201,6 +293,7 @@ export const CONFIG_PARAM_NAMES = [
   'bold-names',
   'style',
   'group-by',
+  'heading-level',
   'preprints',
   'japanese',
   'review-policy',
@@ -292,6 +385,17 @@ function readConfig(read: ConfigReader): DatasetConfig {
   if (style) config.style = style
   const groupBy = oneOf(read('group-by', false), GROUP_BY_VALUES)
   if (groupBy) config.groupBy = groupBy
+  // Same rule as every other closed vocabulary here: an unrecognized value —
+  // `h3`, `1`, `six` — is dropped, so the field falls back to its default
+  // rather than to a level nobody asked for. The numeric spellings arrive as
+  // strings on both transports and are the only ones turned back into numbers.
+  const headingLevel = oneOf(read('heading-level', false), HEADING_LEVEL_VALUES)
+  if (headingLevel) {
+    config.headingLevel =
+      headingLevel === 'auto'
+        ? 'auto'
+        : (Number.parseInt(headingLevel, 10) as HeadingLevel)
+  }
   // Like `review-policy`, an unrecognized value falls back to the cautious
   // default rather than publishing something the author did not ask for.
   const preprints = oneOf(read('preprints', false), PREPRINTS_VALUES)
@@ -326,7 +430,8 @@ function readConfig(read: ConfigReader): DatasetConfig {
  *
  * Recognized: data-orcid, data-researchmap, data-pubmed, data-pubmed-trusted,
  * data-include,
- * data-exclude, data-style, data-from, data-to, data-group-by, data-preprints,
+ * data-exclude, data-style, data-from, data-to, data-group-by,
+ * data-heading-level, data-preprints,
  * data-japanese, data-review-policy, data-disclaimer, data-limit,
  * data-bold-names (comma-separated where plural, and each value escaped by
  * `encodeListValue`), plus the registry pointer data-list.
@@ -347,6 +452,7 @@ export function parseConfigFromDataset(el: HTMLElement): DatasetConfig {
 const SEARCH_PARAM_ALIASES: Readonly<Record<string, readonly string[]>> = {
   'bold-names': ['bold-names', 'boldNames', 'boldnames'],
   'group-by': ['group-by', 'groupBy', 'groupby'],
+  'heading-level': ['heading-level', 'headingLevel', 'headinglevel'],
   'pubmed-trusted': ['pubmed-trusted', 'pubmedTrusted', 'pubmedtrusted'],
   'review-policy': ['review-policy', 'reviewPolicy', 'reviewpolicy'],
 }
@@ -446,6 +552,11 @@ export function normalizeConfig(partial: Partial<ListConfig>): ListConfig {
     },
     style: partial.style ?? DEFAULT_STYLE,
     groupBy: partial.groupBy ?? DEFAULT_GROUP_BY,
+    // No snapshot is in play at parse time: every caller of `normalizeConfig`
+    // renders live and can measure, or is the wizard filling a form. The
+    // snapshot case is `buildEmbedSnippet`'s, and it calls the same function
+    // with the flag set.
+    headingLevel: headingLevelFor(partial),
     preprints: partial.preprints ?? DEFAULT_PREPRINTS,
     japanese: partial.japanese ?? DEFAULT_JAPANESE,
     reviewPolicy: partial.reviewPolicy ?? DEFAULT_REVIEW_POLICY,

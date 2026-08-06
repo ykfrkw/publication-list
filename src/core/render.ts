@@ -17,12 +17,15 @@
  * through `escapeHtml` / `escapeUrl` from `./format`.
  */
 
-import type { ListModel, Publication } from './types'
+import type { HeadingLevel, ListModel, Publication } from './types'
 import { CATEGORY_LABELS, CATEGORY_ORDER } from './types'
 import {
+  AUTO_HEADING_FALLBACK,
   DEFAULT_DISCLAIMER,
   DEFAULT_GROUP_BY,
   DEFAULT_JAPANESE,
+  clampHeadingLevel,
+  headingLevelFor,
 } from './config'
 import {
   escapeHtml,
@@ -394,6 +397,44 @@ export function pmidOf(pub: Publication): string | null {
   return /^\d+$/.test(pmid) ? pmid : null
 }
 
+// ─────────────────────────────────────────────────────────── heading level ──
+
+/** The two levels a render uses: group headings, and the year dividers below. */
+export interface HeadingLevels {
+  /** the group heading — 2–5 */
+  heading: HeadingLevel
+  /** always one below, and `<h6>` is as deep as HTML goes */
+  sub: 2 | 3 | 4 | 5 | 6
+}
+
+/**
+ * What level to render this model's headings at.
+ *
+ * `resolved` is the one thing a string renderer cannot work out for itself.
+ * `'auto'` is a request to look at the surrounding document, and only
+ * `src/embed/entry.ts` has one; it reads the level off the **container's own
+ * attributes** and measures the page when they say `'auto'`, then passes the
+ * answer here. It therefore wins outright: the model may have come from the
+ * cache, or from a `lists/*.json` file, and where on somebody's page it is
+ * being drawn is not a property of either.
+ *
+ * Everybody else passes nothing, and `'auto'` becomes `AUTO_HEADING_FALLBACK`.
+ *
+ * Exported because `PreviewList.tsx` composes the same two levels in JSX rather
+ * than as a string, and a second copy of the arithmetic is a second thing to
+ * get wrong.
+ */
+export function headingLevelsOf(
+  model: ListModel,
+  resolved?: HeadingLevel,
+): HeadingLevels {
+  const setting = headingLevelFor(model.config)
+  const heading =
+    resolved ?? (setting === 'auto' ? AUTO_HEADING_FALLBACK : setting)
+  const level = clampHeadingLevel(heading)
+  return { heading: level, sub: Math.min(level + 1, 6) as HeadingLevels['sub'] }
+}
+
 // ────────────────────────────────────────────────────────────── HTML ──
 
 export interface RenderHtmlOptions {
@@ -412,6 +453,18 @@ export interface RenderHtmlOptions {
    * leaves the one in the pasted snippet standing.
    */
   disclaimer?: boolean
+  /**
+   * The heading level the caller has already resolved for this render.
+   *
+   * Only `src/embed/entry.ts` passes it, and only it can: this function is
+   * pure, and "one below the heading above the container" is a question about a
+   * document it never sees. That script reads the setting off the container it
+   * is filling and measures the page when it says `'auto'`, so what arrives
+   * here is the answer for *this* container and takes precedence over the
+   * model's own config — which may have come out of the cache or a registry
+   * file. See `headingLevelsOf`.
+   */
+  headingLevel?: HeadingLevel
 }
 
 /**
@@ -441,9 +494,13 @@ function pmidHtml(pub: Publication): string {
 /**
  * Semantic HTML for injection into a host page.
  *
- * Deliberately unstyled: `<section>` / `<h3>` / `<h4>` / `<ol>` / `<li>` inherit
- * the host's typography, and every class is namespaced `publist-` so a host
- * stylesheet can target the list without colliding with anything.
+ * Deliberately unstyled: `<section>` / the two heading levels / `<ol>` / `<li>`
+ * inherit the host's typography, and every class is namespaced `publist-` so a
+ * host stylesheet can target the list without colliding with anything.
+ *
+ * The heading level comes from `headingLevelsOf` — `h3`/`h4` below is what an
+ * unset `headingLevel` produces, and every other level shifts both tags
+ * together.
  *
  * Under the default `groupBy: 'category-year'` the shape is two levels deep —
  * an `<h3 class="publist-heading">` per publication type, and inside it an
@@ -468,6 +525,7 @@ function pmidHtml(pub: Publication): string {
 export function renderHtml(model: ListModel, opts: RenderHtmlOptions): string {
   const style = styleOf(model)
   const bold = boldNamesOf(model)
+  const { heading, sub } = headingLevelsOf(model, opts.headingLevel)
   const out: string[] = ['<section class="publist">']
 
   const pushList = (items: Publication[]) => {
@@ -483,13 +541,15 @@ export function renderHtml(model: ListModel, opts: RenderHtmlOptions): string {
   for (const group of buildGroups(model)) {
     if (group.items.length === 0) continue
     if (group.label !== '') {
-      out.push(`<h3 class="publist-heading">${escapeHtml(group.label)}</h3>`)
+      out.push(
+        `<h${heading} class="publist-heading">${escapeHtml(group.label)}</h${heading}>`,
+      )
     }
     if (group.sections) {
       for (const section of group.sections) {
         if (section.items.length === 0) continue
         out.push(
-          `<h4 class="publist-subheading">${escapeHtml(section.label)}</h4>`,
+          `<h${sub} class="publist-subheading">${escapeHtml(section.label)}</h${sub}>`,
         )
         pushList(section.items)
       }
@@ -523,9 +583,15 @@ export function renderHtml(model: ListModel, opts: RenderHtmlOptions): string {
 export function renderWordpressBlocks(model: ListModel): string {
   const style = styleOf(model)
   const bold = boldNamesOf(model)
+  const { heading, sub } = headingLevelsOf(model)
   const blocks: string[] = []
 
-  const pushHeading = (level: 3 | 4, text: string) => {
+  // Widened from `3 | 4` to the whole range: the two call sites below now pass
+  // whatever `headingLevelsOf` worked out, and the `{"level":N}` attribute in
+  // the block comment has to agree with the tag beside it — WordPress reads the
+  // comment, the browser reads the tag, and a mismatch is invisible until the
+  // post is reopened in the editor.
+  const pushHeading = (level: HeadingLevels['sub'], text: string) => {
     blocks.push(
       [
         `<!-- wp:heading {"level":${level}} -->`,
@@ -555,12 +621,12 @@ export function renderWordpressBlocks(model: ListModel): string {
   for (const group of buildGroups(model)) {
     if (group.items.length === 0) continue
 
-    if (group.label !== '') pushHeading(3, group.label)
+    if (group.label !== '') pushHeading(heading, group.label)
 
     if (group.sections) {
       for (const section of group.sections) {
         if (section.items.length === 0) continue
-        pushHeading(4, section.label)
+        pushHeading(sub, section.label)
         pushList(section.items)
       }
     } else {
@@ -577,6 +643,11 @@ export function renderWordpressBlocks(model: ListModel): string {
 export function renderMarkdown(model: ListModel): string {
   const style = styleOf(model)
   const bold = boldNamesOf(model)
+  const { heading, sub } = headingLevelsOf(model)
+  // ATX headings: the level *is* the number of hashes, so the same two numbers
+  // the HTML puts in its tags go here as `###` / `####`.
+  const hashes = '#'.repeat(heading)
+  const subHashes = '#'.repeat(sub)
   const chunks: string[] = []
 
   const itemLines = (items: Publication[]) =>
@@ -589,14 +660,14 @@ export function renderMarkdown(model: ListModel): string {
   for (const group of buildGroups(model)) {
     if (group.items.length === 0) continue
     const lines: string[] = []
-    if (group.label !== '') lines.push(`### ${group.label}`, '')
+    if (group.label !== '') lines.push(`${hashes} ${group.label}`, '')
     if (group.sections) {
       // Same rule as the HTML: a heading per year, numbering restarting under
       // each, so what a reader sees matches what the embedded page shows.
       group.sections.forEach((section, i) => {
         if (section.items.length === 0) return
         if (i > 0) lines.push('')
-        lines.push(`#### ${section.label}`, '')
+        lines.push(`${subHashes} ${section.label}`, '')
         lines.push(...itemLines(section.items))
       })
     } else {

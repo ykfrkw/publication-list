@@ -11,8 +11,9 @@
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { CITATION_STYLES } from '@/core/types'
+import { headingLevelFor } from '@/core/config'
 import { CheckboxField, Field, SelectField } from './Field'
-import type { WizardDraft } from '../lib/wizard'
+import { HEADING_LEVEL_CHOICES, type WizardDraft } from '../lib/wizard'
 
 // The two-level grouping leads because it is the default everywhere except the
 // reference-list mode, which starts on "One flat list".
@@ -25,6 +26,38 @@ const GROUP_BY = [
   { value: 'year' as const, label: 'By year only' },
   { value: 'none' as const, label: 'One flat list' },
 ]
+
+/**
+ * ──────────────────────────────────────────────────────────────────────────
+ * AUTOMATIC AND THE SNAPSHOT CANNOT BOTH BE HAD
+ *
+ * Automatic works by measuring the page the list is pasted into, which only the
+ * embed script can do. A snapshot is written here, before anyone has said where
+ * it will be pasted, so a snapshot plus Automatic would bake one level and then
+ * change to another on load — leaving crawlers and JavaScript-off visitors on
+ * the wrong outline permanently.
+ *
+ * **The option is disabled rather than hidden, and a line beside the select
+ * says why.** Disabling alone would leave someone who came for Automatic
+ * staring at a greyed-out row with no explanation and no idea which checkbox
+ * caused it; a line alone would leave the select reading "Automatic" while the
+ * snippet below it says H3, which is the control lying about its own output.
+ * The select shows the level that will actually be written — `headingLevelFor`
+ * resolves it, the same function `buildEmbedSnippet` uses — so what is on
+ * screen and what is in the snippet are the same number.
+ *
+ * Nothing is lost by un-ticking the snapshot box: the stored choice is still
+ * `'auto'` (see `WizardDraft.headingLevel`), so the select goes straight back
+ * to Automatic.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+const HEADING_LEVEL_LABELS: Record<string, string> = {
+  auto: 'Automatic — match the page it is pasted into (recommended)',
+  '2': 'H2',
+  '3': 'H3',
+  '4': 'H4',
+  '5': 'H5',
+}
 
 const JAPANESE = [
   { value: 'separate' as const, label: 'In a section of their own' },
@@ -44,6 +77,19 @@ export function SharedOptions({
   draft: WizardDraft
   update: (patch: Partial<WizardDraft>) => void
 }) {
+  // The value the snippet will carry, not the raw draft field: with the
+  // snapshot box ticked these differ, and the select must show the one that
+  // ends up in the markup. See the note above `HEADING_LEVEL_LABELS`.
+  const headingLevel = headingLevelFor(
+    { headingLevel: draft.headingLevel },
+    draft.snapshot,
+  )
+  const headingLevelOptions = HEADING_LEVEL_CHOICES.map((choice) => ({
+    value: String(choice),
+    label: HEADING_LEVEL_LABELS[String(choice)],
+    disabled: choice === 'auto' && draft.snapshot,
+  }))
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -61,6 +107,25 @@ export function SharedOptions({
           options={GROUP_BY}
         />
       </div>
+
+      <SelectField
+        label="Heading level"
+        hint={
+          draft.snapshot
+            ? 'Automatic is unavailable while “Include the list itself in the snippet” is ticked: that copy of the list is written here, before it knows what page it will sit on, so it needs a fixed level. Un-tick that box to use Automatic.'
+            : 'Automatic looks at the page the list is pasted into and uses the level just below the nearest heading above it, so the list fits that page’s outline. Pick a level yourself if you would rather fix it. Year dividers always sit one level below.'
+        }
+        value={String(headingLevel)}
+        onChange={(value) =>
+          update({
+            headingLevel:
+              value === 'auto'
+                ? 'auto'
+                : (Number.parseInt(value, 10) as 2 | 3 | 4 | 5),
+          })
+        }
+        options={headingLevelOptions}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="From" hint="Year or year-month, e.g. 2020 or 2020-04. Leave blank for no lower bound.">

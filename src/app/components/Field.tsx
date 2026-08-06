@@ -45,7 +45,12 @@ export function SelectField<T extends string>({
   hint?: React.ReactNode
   value: T
   onChange: (value: T) => void
-  options: readonly { value: T; label: string }[]
+  /**
+   * `disabled` greys one choice out while leaving it visible. Used where an
+   * option is unavailable because of another control rather than removed
+   * outright — a vanishing option is a control the user cannot reason about.
+   */
+  options: readonly { value: T; label: string; disabled?: boolean }[]
   className?: string
 }) {
   return (
@@ -58,7 +63,11 @@ export function SelectField<T extends string>({
           className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
         >
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option
+              key={option.value}
+              value={option.value}
+              disabled={option.disabled}
+            >
               {option.label}
             </option>
           ))}

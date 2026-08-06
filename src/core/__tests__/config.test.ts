@@ -15,12 +15,15 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_DISCLAIMER,
   DEFAULT_GROUP_BY,
+  DEFAULT_HEADING_LEVEL,
   DEFAULT_JAPANESE,
   DEFAULT_PREPRINTS,
   DEFAULT_REVIEW_POLICY,
   DEFAULT_STYLE,
   LIST_ID_PATTERN,
+  SNAPSHOT_HEADING_LEVEL,
   decodeListValue,
+  headingLevelFor,
   encodeListValue,
   isListId,
   normalizeConfig,
@@ -397,6 +400,85 @@ describe('disclaimer defaults to show', () => {
     const config = normalizeConfig(fromQuery(`orcid=${ORCID}&credit=0`).config)
     expect(config.disclaimer).toBe('show')
     expect(config).not.toHaveProperty('credit')
+  })
+})
+
+describe('headingLevel', () => {
+  it('defaults to auto, on all three transports', () => {
+    expect(DEFAULT_HEADING_LEVEL).toBe('auto')
+    expect(
+      normalizeConfig(fromAttributes({ 'data-orcid': ORCID }).config).headingLevel,
+    ).toBe('auto')
+    expect(normalizeConfig(fromQuery(`orcid=${ORCID}`).config).headingLevel).toBe(
+      'auto',
+    )
+    expect(fromJson({ v: 1, seeds: { orcid: [ORCID] } }).headingLevel).toBe('auto')
+  })
+
+  it('reads an explicit level from either inline transport', () => {
+    for (const level of [2, 3, 4, 5] as const) {
+      expect(
+        normalizeConfig(
+          fromAttributes({ 'data-heading-level': String(level) }).config,
+        ).headingLevel,
+      ).toBe(level)
+      expect(
+        normalizeConfig(fromQuery(`heading-level=${level}`).config).headingLevel,
+      ).toBe(level)
+      // The camelCase alias a hand-written iframe URL is likely to use.
+      expect(
+        normalizeConfig(fromQuery(`headingLevel=${level}`).config).headingLevel,
+      ).toBe(level)
+    }
+  })
+
+  it('falls back to the default for anything it does not recognize', () => {
+    // Same rule as `group-by` and `review-policy`: `1` and `6` are outside the
+    // range the setting allows, and `h3` is somebody guessing the spelling.
+    for (const bad of ['1', '6', 'h3', 'auto3', '']) {
+      expect(
+        normalizeConfig(fromAttributes({ 'data-heading-level': bad }).config)
+          .headingLevel,
+      ).toBe('auto')
+      expect(
+        normalizeConfig(fromQuery(`heading-level=${bad}`).config).headingLevel,
+      ).toBe('auto')
+    }
+  })
+})
+
+/**
+ * The snapshot-dependent default, at its single source.
+ *
+ * `normalizeConfig` and `buildEmbedSnippet` both go through `headingLevelFor`
+ * rather than each deciding for themselves, so this is the only place the rule
+ * is written and the only place it has to be tested.
+ */
+describe('headingLevelFor — the default depends on the snapshot', () => {
+  it('is auto with no snapshot', () => {
+    expect(headingLevelFor({})).toBe('auto')
+    expect(headingLevelFor({}, false)).toBe('auto')
+  })
+
+  it('is an explicit 3 with a snapshot, because nothing can measure', () => {
+    expect(headingLevelFor({}, true)).toBe(3)
+    expect(SNAPSHOT_HEADING_LEVEL).toBe(3)
+  })
+
+  it('collapses an explicitly chosen auto too, for the same reason', () => {
+    expect(headingLevelFor({ headingLevel: 'auto' }, true)).toBe(3)
+  })
+
+  it('never overrides a level the author chose', () => {
+    for (const snapshot of [false, true]) {
+      expect(headingLevelFor({ headingLevel: 2 }, snapshot)).toBe(2)
+      expect(headingLevelFor({ headingLevel: 5 }, snapshot)).toBe(5)
+    }
+  })
+
+  it('clamps a level from outside the range', () => {
+    expect(headingLevelFor({ headingLevel: 1 as never })).toBe(2)
+    expect(headingLevelFor({ headingLevel: 9 as never })).toBe(5)
   })
 })
 

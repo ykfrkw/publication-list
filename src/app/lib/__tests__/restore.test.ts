@@ -12,6 +12,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_DISCLAIMER,
+  DEFAULT_HEADING_LEVEL,
   normalizeConfig,
   serializeConfig,
 } from '@/core/config'
@@ -82,7 +83,18 @@ function snippetFor(draft: WizardDraft, credit = true, snapshot = true): string 
  * the checkbox itself is asserted separately.
  */
 function comparable(config: ListConfig): ListConfig {
-  return { ...config, disclaimer: DEFAULT_DISCLAIMER }
+  return {
+    ...config,
+    disclaimer: DEFAULT_DISCLAIMER,
+    // `headingLevel` is normalized for a second, different reason, and only
+    // because `snippetFor` above builds *with* a snapshot. A snapshot is baked
+    // at a fixed level and the snippet pins that level so the live render
+    // matches it, so `'auto'` goes in and `3` comes back — faithfully, since
+    // that is what the snippet says. The round trip through a snippet with no
+    // snapshot keeps `'auto'` untouched; both directions are pinned by their
+    // own test under "the heading level" below.
+    headingLevel: DEFAULT_HEADING_LEVEL,
+  }
 }
 
 const ARTICLE_DRAFT: WizardDraft = {
@@ -217,6 +229,41 @@ describe('the round trip, draft → snippet → draft', () => {
     expect(draft.mode).toBe('lab')
     expect(draft.members).toBe('0000-0003-1317-0220\t..2023-03')
     expect(comparable(draftToConfig(draft))).toEqual(comparable(config))
+  })
+
+  /**
+   * The heading level, both ways round.
+   *
+   * The asymmetry is deliberate and is the whole of D-7: a snippet with a
+   * snapshot has to name a level, because the baked markup already committed to
+   * one; a snippet without one leaves the question to the page it is pasted
+   * into. A restore reports whichever the snippet actually said.
+   */
+  describe('the heading level', () => {
+    it('keeps automatic through a snippet with no snapshot', async () => {
+      const snippet = snippetFor(PERSON_DRAFT, true, false)
+      expect(snippet).not.toContain('data-heading-level')
+      const { draft } = await restoreFromPaste(snippet)
+      expect(draft.headingLevel).toBe('auto')
+      expect(draft.snapshot).toBe(false)
+    })
+
+    it('comes back as the level a snapshot snippet pinned', async () => {
+      const snippet = snippetFor(PERSON_DRAFT, true, true)
+      expect(snippet).toContain('data-heading-level="3"')
+      const { draft } = await restoreFromPaste(snippet)
+      expect(draft.headingLevel).toBe(3)
+      expect(draft.snapshot).toBe(true)
+      // And rebuilding from the restored draft reproduces the same snippet:
+      // the level is stable, so a paste-and-recopy does not move the headings.
+      expect(snippetFor(draft, true, true)).toContain('data-heading-level="3"')
+    })
+
+    it('restores a level the user chose', async () => {
+      const chosen: WizardDraft = { ...PERSON_DRAFT, headingLevel: 5 }
+      const { draft } = await restoreFromPaste(snippetFor(chosen, true, false))
+      expect(draft.headingLevel).toBe(5)
+    })
   })
 
   it('leaves the review-decision lists alone and puts every pin in the box', async () => {

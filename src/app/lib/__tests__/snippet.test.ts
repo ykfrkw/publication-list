@@ -178,16 +178,33 @@ describe('the optional snapshot', () => {
     expect(creditCount(snippet)).toBe(1)
   })
 
-  it('adds only the list — the rest of the snippet is unchanged', () => {
+  /*
+   * Exactly one thing other than the list changes, and it has to.
+   *
+   * A snapshot is markup baked here, so it is baked at a fixed heading level;
+   * the snippet therefore pins that level for the live render too. Without the
+   * pin `embed.js` would measure the host page and re-render at a different
+   * level, and the headings would move on load. See `buildEmbedSnippet`.
+   *
+   * Written as "remove the attribute and the two are identical" rather than
+   * dropped, so the assertion still catches anything *else* the snapshot
+   * changes.
+   */
+  it('adds the list and pins the heading level — nothing else changes', () => {
     const off = buildEmbedSnippet(model(), { credit: true })
     const on = buildEmbedSnippet(model(), { credit: true, snapshot: true })
+
+    expect(off).not.toContain('data-heading-level')
+    expect(on).toContain('data-heading-level="3"')
+
     // Cut from the snapshot comment to the end of the section it introduces.
     const start = on.indexOf('  <!-- Snapshot')
     const closing = '  </section>\n'
     const end = on.indexOf(closing) + closing.length
     expect(start).toBeGreaterThan(-1)
     expect(end).toBeGreaterThan(start)
-    expect(on.slice(0, start) + on.slice(end)).toBe(off)
+    const withoutList = on.slice(0, start) + on.slice(end)
+    expect(withoutList.replace('\n  data-heading-level="3"', '')).toBe(off)
   })
 })
 
@@ -517,5 +534,71 @@ describe('seed time windows in the emitted snippet', () => {
     expect(new Map(configToDataAttributes(plain)).get('data-orcid')).toBe(
       '0000-0003-1317-0220',
     )
+  })
+})
+
+/**
+ * The heading level, and the one place its default depends on the snapshot.
+ *
+ * `headingLevelFor` in `core/config.ts` is where that rule lives; this suite is
+ * about the snippet builder honouring it and — the part that matters — writing
+ * the resolved level into the attribute as well as into the baked markup, so
+ * the two halves of the snippet agree.
+ */
+describe('the heading level', () => {
+  const withLevel = (headingLevel: NonNullable<ListConfig['headingLevel']>) =>
+    model({ config: { ...model().config, headingLevel } })
+
+  it('stays automatic, and unwritten, with no snapshot', () => {
+    const snippet = buildEmbedSnippet(model(), { credit: true })
+    expect(snippet).not.toContain('data-heading-level')
+    // Nothing in the attributes means `'auto'` to `parseConfigFromDataset`,
+    // and `embed.js` does the measuring.
+    expect(normalizeConfig({}).headingLevel).toBe('auto')
+  })
+
+  it('becomes an explicit 3 with a snapshot, in the markup and the attribute', () => {
+    const snippet = buildEmbedSnippet(model(), { credit: true, snapshot: true })
+    expect(snippet).toContain('data-heading-level="3"')
+    expect(snippet).toContain('<h3 class="publist-heading">')
+    expect(snippet).toContain('<h4 class="publist-subheading">')
+  })
+
+  it('writes a chosen level out either way, and bakes the snapshot at it', () => {
+    const light = buildEmbedSnippet(withLevel(2), { credit: true })
+    expect(light).toContain('data-heading-level="2"')
+
+    const heavy = buildEmbedSnippet(withLevel(2), {
+      credit: true,
+      snapshot: true,
+    })
+    expect(heavy).toContain('data-heading-level="2"')
+    expect(heavy).toContain('<h2 class="publist-heading">')
+    expect(heavy).toContain('<h3 class="publist-subheading">')
+    expect(heavy).not.toContain('<h4')
+  })
+
+  it('never bakes a snapshot at a level the attribute does not name', () => {
+    // The failure this guards: a snapshot at one level plus an attribute
+    // saying `auto` means the headings move on load, and the readers the
+    // snapshot exists for — crawlers, JavaScript off — keep the wrong outline.
+    for (const headingLevel of ['auto', 2, 3, 4, 5] as const) {
+      const snippet = buildEmbedSnippet(withLevel(headingLevel), {
+        credit: true,
+        snapshot: true,
+      })
+      const attr = /data-heading-level="(\d)"/.exec(snippet)?.[1]
+      expect(attr).toBeDefined()
+      expect(snippet).toContain(`<h${attr} class="publist-heading">`)
+    }
+  })
+
+  it('projects onto the iframe URL like every other setting', () => {
+    const frame = buildIframeSnippet(withLevel(4).config)
+    expect(frame).toContain('heading-level=4')
+    const query = new URLSearchParams(
+      /src="[^?]+\?([^"]*)"/.exec(frame)?.[1]?.replace(/&amp;/g, '&') ?? '',
+    )
+    expect(parseConfigFromSearchParams(query).config.headingLevel).toBe(4)
   })
 })

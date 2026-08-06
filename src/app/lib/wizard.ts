@@ -8,9 +8,11 @@
 
 import {
   DEFAULT_GROUP_BY,
+  DEFAULT_HEADING_LEVEL,
   DEFAULT_JAPANESE,
   DEFAULT_REVIEW_POLICY,
   DEFAULT_STYLE,
+  headingLevelFor,
   normalizeConfig,
 } from '@/core/config'
 import { formatIdRef, parseIdRef, formatIdRefValue } from '@/core/ids'
@@ -100,6 +102,18 @@ export interface WizardDraft {
   from: string
   to: string
   groupBy: NonNullable<ListConfig['groupBy']>
+  /**
+   * What level the group headings render at, or `'auto'` to match the page the
+   * list is pasted into.
+   *
+   * Stored exactly as chosen, `'auto'` included. It is **not** collapsed to a
+   * number when the snapshot box is ticked: that collapse is a property of the
+   * snippet being built, `headingLevelFor` applies it there, and doing it here
+   * as well would mean un-ticking the box left the user on a level they never
+   * picked. The select displays the resolved value so the two never look
+   * different — see `SharedOptions`.
+   */
+  headingLevel: NonNullable<ListConfig['headingLevel']>
   /** "Include preprints" — false projects onto `preprints: 'exclude'`. */
   preprints: boolean
   japanese: NonNullable<ListConfig['japanese']>
@@ -172,6 +186,17 @@ export const GROUP_BY_DEFAULT: Record<
   lab: DEFAULT_GROUP_BY,
 }
 
+/**
+ * Every value the heading-level select offers, in the order it offers them.
+ *
+ * The same list the type allows — `'auto'` plus 2–5 — written out once so the
+ * control, the persistence guard and the tests all agree on what a usable
+ * value is.
+ */
+export const HEADING_LEVEL_CHOICES: readonly NonNullable<
+  ListConfig['headingLevel']
+>[] = ['auto', 2, 3, 4, 5]
+
 export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
   return {
     mode,
@@ -185,6 +210,7 @@ export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
     from: '',
     to: '',
     groupBy: GROUP_BY_DEFAULT[mode],
+    headingLevel: DEFAULT_HEADING_LEVEL,
     preprints: false,
     japanese: 'separate',
     reviewPolicy: 'strict',
@@ -285,6 +311,7 @@ export function draftToConfig(draft: WizardDraft): ListConfig {
 
   partial.style = draft.style
   partial.groupBy = draft.groupBy
+  partial.headingLevel = draft.headingLevel
   partial.preprints = draft.preprints ? 'include' : 'exclude'
   partial.japanese = draft.japanese
   partial.reviewPolicy = draft.reviewPolicy
@@ -462,6 +489,11 @@ export function configToDraft(
 
   draft.style = config.style ?? DEFAULT_STYLE
   draft.groupBy = config.groupBy ?? DEFAULT_GROUP_BY
+  // `headingLevelFor` with no snapshot flag: reading a config back is not
+  // building a snippet, so an absent value is the plain `'auto'` default and an
+  // explicit level — which is what a snapshot-bearing snippet carries — comes
+  // back as itself.
+  draft.headingLevel = headingLevelFor(config)
   draft.preprints = config.preprints === 'include'
   draft.japanese = config.japanese ?? DEFAULT_JAPANESE
   draft.reviewPolicy = config.reviewPolicy ?? DEFAULT_REVIEW_POLICY
@@ -920,6 +952,12 @@ export function loadDraft(): WizardDraft | null {
       // with a non-boolean in it, gets the lightweight snippet the wizard
       // offers by default rather than an unchecked box that behaves as ticked.
       snapshot: typeof draft.snapshot === 'boolean' ? draft.snapshot : false,
+      // A draft stored before this field existed, or one carrying a value the
+      // select cannot show, falls back to the default rather than putting the
+      // form into a state with no option selected.
+      headingLevel: HEADING_LEVEL_CHOICES.includes(draft.headingLevel)
+        ? draft.headingLevel
+        : DEFAULT_HEADING_LEVEL,
       removed:
         draft.removed != null &&
         typeof draft.removed === 'object' &&

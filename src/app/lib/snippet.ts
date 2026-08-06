@@ -41,7 +41,9 @@ import {
 import {
   DEFAULT_DISCLAIMER,
   DEFAULT_GROUP_BY,
+  DEFAULT_HEADING_LEVEL,
   encodeListValue,
+  headingLevelFor,
 } from '@/core/config'
 import { encodeSeed } from '@/core/seeds'
 import { escapeHtml } from '@/core/format'
@@ -113,6 +115,15 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
   push('data-style', config.style ?? 'vancouver')
   if (config.groupBy && config.groupBy !== DEFAULT_GROUP_BY) {
     push('data-group-by', config.groupBy)
+  }
+  // Written out for every value except the default, exactly like `group-by`
+  // above — and the default is `'auto'`, so a snippet that says nothing means
+  // "match the page you are pasted into". `buildEmbedSnippet` resolves the
+  // level *before* calling this when it is baking a snapshot, which is what
+  // makes the attribute and the baked markup agree.
+  const headingLevel = headingLevelFor(config)
+  if (headingLevel !== DEFAULT_HEADING_LEVEL) {
+    push('data-heading-level', String(headingLevel))
   }
   if (config.preprints && config.preprints !== 'exclude') {
     push('data-preprints', config.preprints)
@@ -194,7 +205,30 @@ export function buildEmbedSnippet(
   model: ListModel,
   opts: EmbedSnippetOptions,
 ): string {
-  const attrs = configToDataAttributes(model.config)
+  /*
+   * THE ONE SETTING THIS FUNCTION DECIDES RATHER THAN COPIES
+   *
+   * `headingLevel: 'auto'` asks whoever renders the list to measure the page it
+   * is on. With a snapshot in the snippet there is a second renderer — this
+   * one, running here, with no page to measure — and if the two disagree the
+   * headings move on load and the snapshot's readers (crawlers, JavaScript off)
+   * keep the wrong outline for good.
+   *
+   * So the level is resolved once, here, by `headingLevelFor` — the single
+   * place the snapshot-dependent default lives, in `core/config.ts` — and the
+   * resolved value is used for *both* halves of the snippet: the baked markup
+   * below and the `data-heading-level` attribute that `embed.js` will read.
+   * They cannot drift, because they are the same number.
+   *
+   * With no snapshot nothing is resolved: `'auto'` stays `'auto'`, no attribute
+   * is written, and `embed.js` does the measuring it is there to do.
+   */
+  const config: ListConfig = {
+    ...model.config,
+    headingLevel: headingLevelFor(model.config, opts.snapshot === true),
+  }
+  const snapshotModel: ListModel = { ...model, config }
+  const attrs = configToDataAttributes(config)
 
   const stamp = (model.generatedAt || '').slice(0, 10)
   const lines: string[] = [`<div class="publist-embed"${renderAttributes(attrs)}>`]
@@ -204,7 +238,7 @@ export function buildEmbedSnippet(
       `  <!-- Snapshot${stamp ? ` generated ${stamp}` : ''}. embed.js replaces it with a live list on load. -->`,
       // Both suppressed: the two lines below are the only ones in the snippet,
       // whether or not this branch ran.
-      indent(renderHtml(model, { credit: false, disclaimer: false })),
+      indent(renderHtml(snapshotModel, { credit: false, disclaimer: false })),
     )
   }
 

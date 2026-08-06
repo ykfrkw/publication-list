@@ -128,6 +128,38 @@ describe('draftToConfig — the source disclaimer', () => {
   })
 })
 
+describe('draftToConfig — the heading level', () => {
+  it('starts on automatic in every mode', () => {
+    for (const mode of ['article', 'person', 'lab'] as const) {
+      expect(emptyDraft(mode).headingLevel).toBe('auto')
+      expect(draftToConfig(emptyDraft(mode)).headingLevel).toBe('auto')
+    }
+  })
+
+  it('carries a chosen level through to the config', () => {
+    for (const headingLevel of [2, 3, 4, 5] as const) {
+      const draft = { ...emptyDraft('person'), headingLevel }
+      expect(draftToConfig(draft).headingLevel).toBe(headingLevel)
+    }
+  })
+
+  it('is not collapsed by the snapshot checkbox in the draft itself', () => {
+    // The collapse belongs to the snippet being built — `buildEmbedSnippet`
+    // applies it — so that un-ticking the box puts the user back on the choice
+    // they actually made rather than on a level they never picked.
+    const draft = { ...emptyDraft('person'), snapshot: true }
+    expect(draft.headingLevel).toBe('auto')
+    expect(draftToConfig(draft).headingLevel).toBe('auto')
+  })
+
+  it('comes back off a config, an explicit level included', () => {
+    expect(configToDraft(normalizeConfig({})).headingLevel).toBe('auto')
+    expect(
+      configToDraft(normalizeConfig({ headingLevel: 2 })).headingLevel,
+    ).toBe(2)
+  })
+})
+
 describe('draftToConfig — preprints', () => {
   it('leaves preprints excluded while the checkbox is unticked', () => {
     expect(emptyDraft('person').preprints).toBe(false)

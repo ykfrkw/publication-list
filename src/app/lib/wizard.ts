@@ -120,7 +120,7 @@ export interface WizardDraft {
    * back and one that quietly leaves it gone.
    *
    * Never reaches `ListConfig` — `draftToConfig` does not read it — so it
-   * changes no `configHash`, no `pubs.json` and no snippet. It is kept in step
+   * changes no `configHash` and no snippet. It is kept in step
    * with `exclude` by `syncRemoved`, which also prunes it, so undoing a removal
    * drops its entry with it and the map cannot grow without bound.
    */
@@ -147,8 +147,6 @@ export interface WizardDraft {
    * without a rebuild — the same responsiveness `credit` has.
    */
   disclaimer: boolean
-  /** optional URL of a hosted pubs.json, for the `data-config` snippet */
-  configUrl: string
 }
 
 /**
@@ -198,7 +196,6 @@ export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
     credit: true,
     snapshot: false,
     disclaimer: true,
-    configUrl: '',
   }
 }
 
@@ -217,8 +214,8 @@ export function exampleDraft(): WizardDraft {
  * A member line with no dates yields the **bare string** the seed arrays have
  * always held — not an object with three `undefined` fields. That keeps a
  * pasted member list projecting onto exactly the config it projected onto
- * before windows existed, byte for byte, so nothing about the snippet, the
- * `pubs.json` or the cache key changes for a lab that does not use them.
+ * before windows existed, byte for byte, so nothing about the snippet or the
+ * cache key changes for a lab that does not use them.
  */
 function memberSeed(id: string, member: ParsedMember): Seed {
   if (member.from == null && member.to == null && member.grace == null) return id
@@ -412,8 +409,6 @@ export interface ConfigToDraftOptions {
    * stands in when there was nothing to read.
    */
   snapshot?: boolean
-  /** A hosted `pubs.json` URL the config was fetched from, to keep in the form. */
-  configUrl?: string
 }
 
 /**
@@ -478,7 +473,6 @@ export function configToDraft(
   draft.credit = opts.credit ?? true
   draft.snapshot = opts.snapshot ?? false
   draft.disclaimer = opts.disclaimer ?? config.disclaimer !== 'hide'
-  draft.configUrl = opts.configUrl ?? ''
 
   // Rebuilds `removed` from `exclude`, so the "N removed" list is populated
   // (by identifier — the titles are not in the config) rather than empty while

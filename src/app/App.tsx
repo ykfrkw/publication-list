@@ -202,8 +202,8 @@ export default function App() {
    * `draftToConfig`: it changes nothing about what gets fetched, and feeding
    * it into `configHash` would throw away the cached build on every tick.
    * Everything downstream — the preview, the static HTML, the `data-*`
-   * projection, the iframe URL, the `pubs.json` download — then reads it from
-   * `config` with no further plumbing.
+   * projection, the iframe URL — then reads it from `config` with no further
+   * plumbing.
    */
   const outputModel = useMemo(
     () =>
@@ -373,11 +373,9 @@ export default function App() {
             credit={draft.credit}
             disclaimer={draft.disclaimer}
             snapshot={draft.snapshot}
-            configUrl={draft.configUrl}
             onCreditChange={(credit) => update({ credit })}
             onDisclaimerChange={(disclaimer) => update({ disclaimer })}
             onSnapshotChange={(snapshot) => update({ snapshot })}
-            onConfigUrlChange={(configUrl) => update({ configUrl })}
           />
 
           <div>

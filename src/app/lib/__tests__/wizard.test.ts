@@ -940,7 +940,7 @@ describe('configToDraft — the inverse of draftToConfig', () => {
     )
   })
 
-  it('restores the publish-without-review ticks a pubs.json carried', () => {
+  it('restores the publish-without-review ticks a registry file carried', () => {
     const draft = configToDraft(
       normalizeConfig({
         seeds: {
@@ -966,12 +966,6 @@ describe('configToDraft — the inverse of draftToConfig', () => {
     })
   })
 
-  it('keeps a hosted config URL in the form', () => {
-    const draft = configToDraft(normalizeConfig({ seeds: { orcid: ['x'] } }), {
-      configUrl: 'https://example.org/pubs.json',
-    })
-    expect(draft.configUrl).toBe('https://example.org/pubs.json')
-  })
 })
 
 describe('draftHasContent', () => {

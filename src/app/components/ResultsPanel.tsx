@@ -49,7 +49,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { serializeConfig } from '@/core/config'
 import {
   renderBibtex,
   renderClipboard,
@@ -63,7 +62,6 @@ import { CopyButton, DownloadButton } from './CopyButton'
 import { PreviewList } from './PreviewList'
 import { copyRich } from '../lib/clipboard'
 import { diagnoseEmptyList } from '../lib/diagnose'
-import { CONFIG_FILENAME } from '../lib/snippet'
 import type { RemovedEntry } from '../lib/wizard'
 
 export function ResultsPanel({
@@ -131,10 +129,20 @@ export function ResultsPanel({
           </Alert>
         ) : null}
 
+        {/*
+          Every control in this row is `outline`, deliberately and without
+          exception. They are peer export formats — Word, WordPress, static
+          HTML, Markdown, BibTeX, RIS — and the tool has no opinion about which
+          one a given person came for, so promoting any of them to solid would
+          be a claim it cannot make. A solid button means "we are asking you to
+          click this", and the one thing this tool does ask for is the embed
+          snippet, which is solid in `SnippetPanel` below. An empty primary slot
+          is the honest state for a panel of equals.
+        */}
         <div className="flex flex-wrap gap-2">
           <CopyButton
             label="Copy All (for Word)"
-            variant="default"
+            variant="outline"
             value=""
             onCopy={() => copyRich(renderClipboard(model))}
           />
@@ -157,12 +165,6 @@ export function ResultsPanel({
             value={() => renderRis(model)}
             label=".ris"
             mime="application/x-research-info-systems;charset=utf-8"
-          />
-          <DownloadButton
-            filename={CONFIG_FILENAME}
-            value={() => serializeConfig(model.config)}
-            label={CONFIG_FILENAME}
-            mime="application/json;charset=utf-8"
           />
         </div>
 

@@ -1,16 +1,19 @@
 /**
  * @vitest-environment jsdom
  *
- * Component test for the embed panel's disclosure rules.
+ * Component test for the embed panel's disclosure rules and its one call to
+ * action.
  *
- * Two things are asserted here rather than left to judgement, because both are
- * about what a first-time visitor is confronted with:
+ * Three things are asserted here rather than left to judgement, because all
+ * three are about what a first-time visitor is confronted with:
  *
- *   - the hosted-`pubs.json` route appears **only when it is needed** — an
- *     inline attribute block too long to paste and read back, or a value
- *     containing a comma that comma-joined attributes cannot carry;
+ *   - the script snippet is never collapsed, and its Copy button is the single
+ *     solid control in the whole output area;
  *   - the iframe snippet starts **collapsed**, because it is the fallback for a
- *     CMS that strips `<script>`, not the route to recommend.
+ *     CMS that strips `<script>`, not the route to recommend;
+ *   - nothing here asks the visitor to host a file. The route that did — a
+ *     `pubs.json` behind a `data-config` attribute — is gone, and the suite
+ *     that covered it went with it.
  *
  * Nothing here touches the network: the model is a fixture.
  */
@@ -20,7 +23,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { normalizeConfig } from '@/core/config'
 import type { ListConfig, ListModel, Publication } from '@/core/types'
-import { INLINE_ATTR_BUDGET, inlineAttributeLength } from '../../lib/snippet'
 import { SnippetPanel } from '../SnippetPanel'
 
 declare global {
@@ -62,8 +64,8 @@ const OVERSIZED = normalizeConfig({
   exclude: Array.from({ length: 40 }, (_, i) => `pmid:${30000000 + i}`),
 })
 
-/** A PubMed query with a comma in it — unrepresentable as a joined attribute. */
-const COMMA_HOSTILE = normalizeConfig({
+/** A PubMed query with a comma in it — the case that used to force a file. */
+const COMMA_QUERY = normalizeConfig({
   seeds: { pubmed: [{ query: 'Furukawa Y[au] AND (Tokyo, Japan[ad])' }] },
 })
 
@@ -86,7 +88,7 @@ afterEach(() => {
   container.remove()
 })
 
-function render(config: ListConfig, configUrl = '', snapshot = false) {
+function render(config: ListConfig, snapshot = false) {
   act(() => {
     root.render(
       <SnippetPanel
@@ -94,14 +96,25 @@ function render(config: ListConfig, configUrl = '', snapshot = false) {
         credit
         disclaimer
         snapshot={snapshot}
-        configUrl={configUrl}
         onCreditChange={() => {}}
         onDisclaimerChange={() => {}}
         onSnapshotChange={() => {}}
-        onConfigUrlChange={() => {}}
       />,
     )
   })
+}
+
+/**
+ * The solid buttons on screen.
+ *
+ * `variant="default"` is the only one that paints a filled background, and it
+ * does it with the `bg-primary` class — so counting that class counts the
+ * controls the panel is *asking* to have clicked.
+ */
+function solidButtons(): HTMLButtonElement[] {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>('button')).filter(
+    (b) => b.classList.contains('bg-primary'),
+  )
 }
 
 /** The checkbox whose label contains `text`. */
@@ -122,55 +135,95 @@ function disclosure(text: string): HTMLDetailsElement | undefined {
   )
 }
 
-function hostedUrlInput(): HTMLInputElement | null {
-  return container.querySelector<HTMLInputElement>('input[type="text"], input:not([type])')
-}
-
+/**
+ * The route that was removed, asserted as removed.
+ *
+ * Not a redundant test: the panel used to steer people here on two triggers —
+ * a long attribute block and a comma in a value — and both fixtures below are
+ * the ones that fired them. Neither may produce a file, a URL field or a
+ * download now; the comma is carried by the escape in `core/config.ts` and the
+ * length is simply not the panel's business.
+ */
 describe('the hosted pubs.json route', () => {
-  it('is out of the way for a plain single-ORCID configuration', () => {
-    expect(inlineAttributeLength(SIMPLE)).toBeLessThan(INLINE_ATTR_BUDGET)
-    render(SIMPLE)
+  const CONFIGS: [name: string, config: ListConfig][] = [
+    ['a plain single-ORCID configuration', SIMPLE],
+    ['a configuration with a very long attribute block', OVERSIZED],
+    ['a configuration whose query contains a comma', COMMA_QUERY],
+  ]
 
-    // Reachable, but behind a disclosure that starts closed — not a field
-    // competing with the snippet the visitor came for.
-    const details = disclosure('Keep the settings in a file')
-    expect(details).toBeDefined()
-    expect(details?.open).toBe(false)
-    expect(container.querySelector('[role="alert"]')).toBeNull()
-  })
+  for (const [name, config] of CONFIGS) {
+    it(`is nowhere to be found for ${name}`, () => {
+      render(config)
 
-  it('is shown outright when the inline attributes are too long to paste', () => {
-    expect(inlineAttributeLength(OVERSIZED)).toBeGreaterThan(INLINE_ATTR_BUDGET)
+      expect(container.textContent).not.toContain('pubs.json')
+      expect(container.textContent).not.toContain('data-config')
+      expect(disclosure('Keep the settings in a file')).toBeUndefined()
+      // No URL field, and no download that would produce a file to point at.
+      expect(container.querySelector('input[type="url"]')).toBeNull()
+      const buttons = Array.from(container.querySelectorAll('button')).map(
+        (b) => b.textContent ?? '',
+      )
+      expect(buttons.join('|')).not.toContain('Download')
+    })
+  }
+
+  it('complains about neither length nor commas, because neither is a problem', () => {
     render(OVERSIZED)
+    expect(container.textContent).not.toContain('large for inline attributes')
 
-    expect(disclosure('Keep the settings in a file')).toBeUndefined()
-    expect(container.textContent).toContain('large for inline attributes')
-    expect(hostedUrlInput()).not.toBeNull()
+    render(COMMA_QUERY)
+    expect(container.textContent).not.toContain('cannot travel in an inline attribute')
   })
 
-  it('is shown outright when a value contains a comma', () => {
-    render(COMMA_HOSTILE)
-
-    expect(disclosure('Keep the settings in a file')).toBeUndefined()
-    expect(container.textContent).toContain('cannot travel in an inline attribute')
+  it('carries the comma into the snippet, escaped, rather than routing around it', () => {
+    render(COMMA_QUERY)
+    const snippet = container.querySelector('pre')?.textContent ?? ''
+    expect(snippet).toContain(
+      'data-pubmed="Furukawa Y[au] AND (Tokyo%2C Japan[ad])"',
+    )
   })
+})
 
-  it('stays visible once a hosted URL has been pasted, with no size complaint', () => {
-    render(SIMPLE, 'https://gist.githubusercontent.com/x/pubs.json')
-
-    expect(disclosure('Keep the settings in a file')).toBeUndefined()
-    expect(container.querySelector('[role="alert"]')).toBeNull()
-  })
-
-  it('explains what the file is and why hosting it is worth the trouble', () => {
+/**
+ * One solid button, and it is `Copy snippet`.
+ *
+ * A solid button says "we are asking you to click this". Copying the embed
+ * snippet is the one thing this tool asks for, so it is solid here and nothing
+ * else in the output area is — see the matching count over `ResultsPanel` in
+ * `EmptyList.test.tsx`.
+ */
+describe('the call to action', () => {
+  it('is exactly one button, and it copies the script snippet', () => {
     render(SIMPLE)
-    const text = disclosure('Keep the settings in a file')?.textContent ?? ''
-    expect(text).toContain('pubs.json')
-    expect(text).toContain('Gist')
-    expect(text).toContain('data-config')
-    expect(text).toContain('every page')
-    // The download is right where the explanation is.
-    expect(text).toContain('Download pubs.json')
+    const solid = solidButtons()
+    expect(solid).toHaveLength(1)
+    expect(solid[0].textContent).toContain('Copy snippet')
+  })
+
+  it('stays at one however the panel is configured', () => {
+    for (const config of [SIMPLE, OVERSIZED, COMMA_QUERY]) {
+      for (const snapshot of [false, true]) {
+        render(config, snapshot)
+        expect(solidButtons()).toHaveLength(1)
+      }
+    }
+  })
+
+  it('leaves the iframe copy button quiet, inside its disclosure', () => {
+    render(SIMPLE)
+    const iframeCopy = Array.from(
+      disclosure('iframe snippet')?.querySelectorAll('button') ?? [],
+    )
+    expect(iframeCopy.length).toBeGreaterThan(0)
+    for (const button of iframeCopy) {
+      expect(button.classList.contains('bg-primary')).toBe(false)
+    }
+  })
+
+  it('says the snippet is the thing to keep, so there is nothing else to save', () => {
+    render(SIMPLE)
+    expect(container.textContent).toContain('it is the whole configuration')
+    expect(container.textContent).toContain('Start from an existing snippet')
   })
 })
 
@@ -217,21 +270,9 @@ describe('a list that trusts a PubMed query', () => {
     const iframe = disclosure('iframe snippet')
     expect(iframe).toBeDefined()
     expect(iframe?.textContent).toContain('pubmed-trusted=0')
-    // Nothing is demanded of the user: the hosted file is back behind its
-    // disclosure, where every other ordinary configuration leaves it.
+    // Nothing is demanded of the user, and there is no file to demand.
     expect(container.textContent).not.toContain('needs the file below')
-    expect(disclosure('Keep the settings in a file')).toBeDefined()
-  })
-
-  it('emits a data-config snippet once the URL is there', () => {
-    render(TRUSTED_SEED, 'https://example.org/pubs.json')
-
-    const pre = container.querySelector('pre')
-    expect(pre?.textContent).toContain('data-config="https://example.org/pubs.json"')
-    // The query is not also inlined — the file is the whole configuration.
-    expect(pre?.textContent).not.toContain('data-pubmed')
-    expect(container.textContent).not.toContain('needs the file below')
-    expect(disclosure('iframe snippet')).toBeDefined()
+    expect(container.textContent).not.toContain('pubs.json')
   })
 
   it('leaves an untrusted version of the same query alone', () => {
@@ -274,7 +315,7 @@ describe('the snapshot checkbox', () => {
     expect(before).not.toContain('The PRISMA 2020 statement')
     expect(before).toContain('publist-embed')
 
-    render(SIMPLE, '', true)
+    render(SIMPLE, true)
     const after = container.querySelector('pre')?.textContent ?? ''
     expect(after).toContain('The PRISMA 2020 statement')
     expect(after.length).toBeGreaterThan(before.length)
@@ -282,7 +323,7 @@ describe('the snapshot checkbox', () => {
 
   it('keeps exactly one credit line whether or not it is ticked', () => {
     for (const snapshot of [false, true]) {
-      render(SIMPLE, '', snapshot)
+      render(SIMPLE, snapshot)
       const snippet = container.querySelector('pre')?.textContent ?? ''
       expect(snippet.split('publist-credit').length - 1).toBe(1)
       expect(snippet.split('publist-disclaimer').length - 1).toBe(1)

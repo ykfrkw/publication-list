@@ -19,10 +19,12 @@
  *     anywhere, or re-serialized. The snapshot inside the container is only
  *     ever *queried* (`querySelector`), never rendered.
  *   - `innerHTML` does not appear in this file, in either direction.
- *   - The only URLs ever fetched are an explicit `data-config` / `?config=`
- *     (validated as `http:` or `https:`) or a `data-list` id that matches
- *     `LIST_ID_PATTERN` and is resolved against `SITE_BASE`, so it cannot climb
- *     out of `lists/`. Same two rules `src/widget/main.ts` applies.
+ *   - The only URL ever fetched is a `data-list` id that passes `isListId`
+ *     and is resolved against `SITE_BASE`, so it cannot climb out of `lists/`.
+ *     That registry holds this repository's own files; there is no route here
+ *     for a paste to name an arbitrary URL and have it fetched. `isListId`
+ *     lives in `core/config.ts` and is the same rule `src/widget/main.ts` and
+ *     `src/embed/entry.ts` apply — one definition, three call sites.
  *
  * Nothing that comes out of here is HTML: `restoreFromPaste` returns a
  * `WizardDraft`, which is strings and enums, and every value in it has been
@@ -35,6 +37,7 @@
  */
 
 import {
+  isListId,
   normalizeConfig,
   parseConfigFromDataset,
   parseConfigFromSearchParams,
@@ -47,7 +50,7 @@ import { SITE_BASE } from './snippet'
 import { configToDraft, pickMode, type WizardDraft } from './wizard'
 
 /** Which of the accepted shapes the paste turned out to be. */
-export type RestoreForm = 'embed' | 'iframe' | 'config-url' | 'list'
+export type RestoreForm = 'embed' | 'iframe' | 'list'
 
 export interface RestoreResult {
   draft: WizardDraft
@@ -74,11 +77,8 @@ export class RestoreError extends Error {
 
 /** Named in every error, so a failed paste says what would have worked. */
 const ACCEPTED =
-  'Paste the script snippet (the <div class="publist-embed"> block), the ' +
-  'iframe snippet, or the URL of a hosted pubs.json.'
-
-/** Same rule as `src/widget/main.ts`: a bare filename, no path climbing. */
-const LIST_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i
+  'Paste the script snippet (the <div class="publist-embed"> block) or the ' +
+  'iframe snippet.'
 
 type FetchLike = typeof globalThis.fetch
 
@@ -98,13 +98,11 @@ export interface RestoreOptions {
  *
  *   1. blank                                  → error naming what is accepted
  *   2. contains `<`  → parsed as HTML, then
- *        `.publist-embed` / `[data-config]` / `[data-list]` → embed form
- *        `iframe[src]`                                      → iframe form
- *        neither                                            → error
- *   3. a lone `http(s)` URL
- *        `…/widget.html?…`                                  → iframe form
- *        anything else                                      → hosted pubs.json
- *   4. otherwise                              → error naming what is accepted
+ *        `.publist-embed` / `[data-list]` → embed form
+ *        `iframe[src]`                    → iframe form
+ *        neither                          → error
+ *   3. a lone `…/widget.html?…` URL       → iframe form
+ *   4. otherwise                          → error naming what is accepted
  */
 export async function restoreFromPaste(
   text: string,
@@ -122,19 +120,17 @@ export async function restoreFromPaste(
     if (/widget\.html$/i.test(url.pathname) && url.search !== '') {
       return await fromSearchParams(url.searchParams, opts)
     }
-    // A bare URL with no query is a hosted pubs.json. Nothing about it says
-    // whether the credit line was on, so `configToDraft` uses its default and
-    // `describeLosses` says so.
-    return await build(
-      { config: {}, configUrl: url.toString() },
-      'config-url',
-      {},
-      opts,
+    // Every other URL is refused rather than fetched. A snippet carries the
+    // whole configuration in its own attributes, so there is nothing a URL
+    // could add — and fetching one named by a paste is a request this module
+    // has no reason to make.
+    throw new RestoreError(
+      `Nothing here reads settings from a URL. ${ACCEPTED}`,
     )
   }
 
   throw new RestoreError(
-    `That does not look like a snippet or a URL. ${ACCEPTED}`,
+    `That does not look like a snippet. ${ACCEPTED}`,
   )
 }
 
@@ -151,7 +147,7 @@ async function fromMarkup(
 
   const container =
     doc.querySelector<HTMLElement>('.publist-embed') ??
-    doc.querySelector<HTMLElement>('[data-config],[data-list]')
+    doc.querySelector<HTMLElement>('[data-list]')
   if (container) {
     return await build(
       parseConfigFromDataset(container),
@@ -236,9 +232,9 @@ function readSnapshotFlags(el: Element): {
  */
 const LIST_SELECTOR = 'section.publist'
 
-// ────────────────────────────────────────────── resolving a hosted config ──
+// ─────────────────────────────────────────── resolving a `data-list` id ──
 
-/** Inline `data-*` / query parameters win over the remote file, as in `entry.ts`. */
+/** Inline `data-*` / query parameters win over the registry file, as in `entry.ts`. */
 function mergeConfigs(
   base: Partial<ListConfig>,
   override: Partial<ListConfig>,
@@ -289,7 +285,7 @@ async function fetchConfig(
     }
     return json as Partial<ListConfig>
   } catch {
-    throw new RestoreError(`${url} is not a pubs.json file.`)
+    throw new RestoreError(`${url} is not a list configuration file.`)
   }
 }
 
@@ -305,7 +301,7 @@ async function build(
   flags: Flags,
   opts: RestoreOptions,
 ): Promise<RestoreResult> {
-  /** Did the PubMed seeds come from inline attributes rather than a file? */
+  /** Did the PubMed seeds come from inline attributes rather than a registry file? */
   const pubmedInline = (parsed.config.seeds?.pubmed?.length ?? 0) > 0
 
   let config: ListConfig
@@ -313,13 +309,8 @@ async function build(
   let fetchedFrom: string | undefined
   let listId: string | undefined
 
-  if (parsed.configUrl) {
-    fetchedFrom = toHttpUrl(parsed.configUrl).toString()
-    const remote = await fetchConfig(fetchedFrom, opts)
-    config = normalizeConfig(mergeConfigs(remote, parsed.config))
-    form = 'config-url'
-  } else if (parsed.listId) {
-    if (!LIST_ID_PATTERN.test(parsed.listId)) {
+  if (parsed.listId) {
+    if (!isListId(parsed.listId)) {
       throw new RestoreError(`That is not a usable list id: ${parsed.listId}`)
     }
     listId = parsed.listId
@@ -339,10 +330,7 @@ async function build(
     )
   }
 
-  const draft = configToDraft(config, {
-    ...flags,
-    configUrl: parsed.configUrl?.trim() || undefined,
-  })
+  const draft = configToDraft(config, flags)
 
   return {
     draft,
@@ -388,7 +376,7 @@ function pubmedExtras(seed: PubmedSeed): string[] {
 interface LossContext {
   form: RestoreForm
   flags: Flags
-  /** the PubMed seeds were read from a fetched file, so `trust` survived */
+  /** the PubMed seeds were read from a fetched registry file, so `trust` survived */
   pubmedFromFile: boolean
   listId?: string
   fetchedFrom?: string
@@ -415,8 +403,9 @@ function describeLosses(config: ListConfig, ctx: LossContext): string[] {
     // string.
     lost.push(
       'Any name, start date, end date or grace period you had set on a PubMed ' +
-        'query. Those live only in a pubs.json, and the query box holds one ' +
-        'query per line with nowhere to write them.',
+        'query. A snippet carries the query text and the “publish without ' +
+        'review” tick and nothing else, and the query box holds one query per ' +
+        'line with nowhere to write them.',
     )
   }
 
@@ -495,7 +484,7 @@ function describeLosses(config: ListConfig, ctx: LossContext): string[] {
     lost.push(
       `The data-list id “${ctx.listId}”. The wizard has no field for it, so ` +
         `the settings were read from ${ctx.fetchedFrom} and the next snippet ` +
-        'will carry them inline or in your own pubs.json.',
+        'will carry them inline.',
     )
   }
 

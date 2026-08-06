@@ -73,7 +73,7 @@ A few things worth knowing about what you just pasted:
 - **The credit link is one line and it is optional.** Untick "Include a credit link" before copying, or delete the `<p class="publist-credit">…</p>` line afterwards. Nothing else changes either way, and the checkbox applies to the iframe snippet too — see [that section](#my-cms-strips-script-tags).
 - **The list ends with a second line saying where it came from**, and that has its own checkbox: "Say where the list came from". It is on by default because it tells your readers that a missing paper is a gap in ORCID rather than a claim about your group. Untick it, or delete the `<p class="publist-disclaimer">…</p>` line, if you would rather word the caveat yourself elsewhere on the page. Turning the credit off does not turn this off, and the other way round.
 - **If the page cannot run JavaScript at all** — or your CMS eats the `<script>` tag — copy **Static HTML (no auto-update)** from the results panel instead and paste that. You lose the automatic updating; see [that section](#my-cms-strips-script-tags).
-- **If the snippet is unwieldy**, use the hosted-configuration route instead. Open **Keep the settings in a file instead of in the snippet** (the wizard opens it for you when the attributes get too long for a CMS field, when a PubMed query contains a comma, or when a query is [ticked as trusted](#a-cn-search-does-find-our-group--how-do-i-get-those-papers-onto-the-page), which the inline attributes cannot carry at all), press **Download `pubs.json`**, put that file anywhere that serves it publicly — your own server, or a GitHub Gist raw URL, which needs no setup — and paste the URL into the field. The snippet collapses to a single `data-config` attribute, and editing that one file then changes the list on every page it is embedded in, with nothing to re-paste. This is the right choice for a lab that will keep adjusting the list.
+- **The snippet carries everything, however long it gets.** A lab with twenty members, a long exclude list, a PubMed query containing a comma, a query [ticked as trusted](#a-cn-search-does-find-our-group--how-do-i-get-those-papers-onto-the-page) — all of it travels in the attributes. There is no file to host and no URL to keep. Commas inside a value are escaped as `%2C` and read back as commas, so a query like `Furukawa Y[au] AND (Tokyo, Japan[ad])` stays one query.
 
 Style it from your own stylesheet. The markup is unstyled and every class is namespaced `publist-`:
 
@@ -88,9 +88,11 @@ Style it from your own stylesheet. The markup is unstyled and every class is nam
 
 The last two lines are the exception: the source line and the credit line come with `style="font-size:0.8em;opacity:0.75"` already on them, so they look like small print on your page whether or not you style anything. An inline style beats your stylesheet, so to change them, edit that attribute in the snippet — it is sitting in your own markup — or add `!important` to your rule.
 
-## Step 5 — Keep the configuration
+## Step 5 — Keep the snippet
 
-Save the snippet, or the `pubs.json`, somewhere you can find it. When someone joins the group you will want to regenerate rather than start over — the wizard also keeps your last draft in the browser it was made in, but that is not a backup.
+**The snippet is the configuration.** Save it somewhere you can find it — a text file, an email to yourself, a note in the lab wiki. There is nothing else to keep: every setting is in those `data-*` attributes.
+
+When someone joins the group you will want to regenerate rather than start over. Paste the snippet into **Start from an existing snippet** at the top of the wizard, the form fills in from it, edit the members box and press **Generate list**. The wizard also keeps your last draft in the browser it was made in, but that is not a backup — the snippet is.
 
 ---
 
@@ -114,7 +116,7 @@ Three things to know:
 
 - **A pin can be taken back.** Freezing pins whatever is on the list at that moment, and some of it may not belong to your group — a paper from their new institution that was already showing, or a plain misattribution. Press **Remove** on the paper's own line in the list below, and it comes off. `exclude` outranks `include`, so this works whether the pin was typed by you or written by freezing, and you never have to go looking through a twenty-entry `include` list for it. Nothing about it is silent: what you removed is listed under **N removed** above the list with an **Undo** beside it, and the warnings panel names any pin an exclude cancelled.
 - **A paper with neither a DOI nor a PMID cannot be pinned.** There is nothing to pin it *by*. The confirmation tells you the count and names them before you commit, because those are the entries that will disappear from the list — usually conference abstracts and Japanese-language records from researchmap. If you need one of them, keep it another way (the **Static HTML** output, or a hand-written line in your page) before freezing.
-- **It is recoverable.** Freezing comments the member's line out rather than deleting it — the line stays in the box, marked with the date and the number of papers pinned. Delete the `#` and the seed is back. Regenerate afterwards, and save the new snippet or `pubs.json`.
+- **It is recoverable.** Freezing comments the member's line out rather than deleting it — the line stays in the box, marked with the date and the number of papers pinned. Delete the `#` and the seed is back. Regenerate afterwards, and save the new snippet.
 
 If a delayed paper of theirs comes out six months later, add it by DOI in the **Pinned papers** box. You would want to look at it before publishing it under your group's name anyway, which is precisely why that step is not automated.
 
@@ -152,7 +154,7 @@ Tanaka H[au] AND ("Univ Tokyo"[ad]) AND 2019:2026[dp]
 
 A bare `Tanaka H[au]` returns hundreds of people. Constrain it with an affiliation (`[ad]`) and a date range (`[dp]`), then work through the review queue. If a query hits PubMed's 200-result cap the tool warns you that it is probably too broad.
 
-Note that a comma inside a query cannot travel in an inline `data-pubmed` attribute — the attribute is comma-separated. Write `"Univ Tokyo"[ad]` rather than `Tokyo, Japan[ad]`, or use the hosted `pubs.json` route, where the query is a JSON string and the problem does not exist.
+A comma inside a query is fine. `data-pubmed` is comma-separated, so the comma is written `%2C` in the attribute and read back as a comma when the page loads — `Furukawa Y[au] AND (Tokyo, Japan[ad])` stays one query. Paste the snippet back into the wizard and you will see the query exactly as you typed it.
 
 You can also just pin their papers by PMID or DOI. For a member with a handful of relevant publications this is faster and completely reliable.
 
@@ -188,7 +190,7 @@ So the trust is something you assert, once, per query:
 
 From then on its hits go straight onto the published list and into the embed with no review step — including papers it finds in future, which you will not see first. That is the whole point, and the whole risk. If it ever brings in something that is not yours, press **Remove** on that paper's line: removing outranks this, exactly as it outranks a pinned paper.
 
-**A trusted query needs the hosted `pubs.json` route.** The tick has no `data-` attribute and no URL parameter — a PubMed seed travels as a raw query string, and there is nowhere in one to put a flag that could not be mistaken for part of the search. Rather than hand you a snippet that quietly loses it, the wizard withholds the snippet until you give it a URL for the file, then writes a one-attribute `data-config` snippet that carries everything. The last bullet of [Step 4](#step-4--paste-it-into-your-site) describes that route.
+**The tick travels in the snippet, beside the query rather than inside it.** A PubMed seed travels as a raw query string, and a flag hidden in one could not be told apart from the search syntax — so it rides in a second attribute, `data-pubmed-trusted`, holding the zero-based positions of the ticked queries within `data-pubmed`. `data-pubmed-trusted="0,2"` ticks the first and third. Both attributes are written in one pass, so the positions always line up, and the iframe snippet carries the same pair as `?pubmed-trusted=`.
 
 Leave the box unticked for a `[au]` name search. Those are exactly the queries the review queue exists for.
 
@@ -266,7 +268,7 @@ Their seed is still in the list, and it is following them to their new instituti
 
 1. **Press Freeze** on the member's row. Their seed comes out, so nothing further can arrive.
 2. **Remove the papers that are not yours.** Freezing pins *whatever is on the list at that moment*, so anything of theirs from the new institution that was already showing has just been pinned along with the rest. Press **Remove** on each one where it sits in the list. Excluding beats pinning, so this works after the freeze as well as before it, and an accidental removal is one **Undo** away.
-3. Regenerate, and save the new snippet or `pubs.json`.
+3. Regenerate, and save the new snippet.
 
 The order is up to you — a pin is not a decision you are stuck with, and you can go on excluding papers months later when someone finally notices one. Freezing prevents future arrivals; it does not decide on your behalf which of the papers currently listed were done here. Nothing in this tool can, which is why step 2 is yours.
 
@@ -291,6 +293,6 @@ The visitor's browser caches built lists in `localStorage` for 24 hours, and sho
 
 ## See also
 
-- [Full configuration reference](../README.md#listconfig-reference) — every field of `pubs.json`, and the complete `data-*` attribute table.
+- [Full configuration reference](../README.md#listconfig-reference) — every field of a `ListConfig`, and the complete `data-*` attribute table.
 - [Limitations](../README.md#limitations) — what this tool gets wrong, in its own words.
 - [The `lists/` registry](../lists/README.md) — why it is curated, and why you do not need it.

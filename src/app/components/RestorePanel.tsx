@@ -27,7 +27,6 @@ import { MODES, draftHasContent, type WizardDraft } from '../lib/wizard'
 const FORM_LABEL: Record<RestoreResult['form'], string> = {
   embed: 'script snippet',
   iframe: 'iframe snippet',
-  'config-url': 'hosted pubs.json',
   list: 'hosted list',
 }
 
@@ -86,10 +85,11 @@ export function RestorePanel({ draft, onRestore, confirm }: RestorePanelProps) {
       </summary>
       <div className="flex flex-col gap-3 pt-4">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Paste the snippet you put on your site — the script one, the iframe
-          one, or the URL of a hosted <code>pubs.json</code> — and the form below
-          is filled in from it. Nothing is fetched from ORCID or PubMed and no
-          list is built: your settings appear below, and you press{' '}
+          Paste the snippet you put on your site — the script one or the iframe
+          one — and the form below is filled in from it. The snippet carries the
+          whole configuration, so it is the only thing you need to keep. Nothing
+          is fetched from ORCID or PubMed and no list is built: your settings
+          appear below, and you press{' '}
           <strong className="font-medium text-foreground">Generate list</strong>{' '}
           when they look right.
         </p>

@@ -33,6 +33,26 @@ type Update = (patch: Partial<WizardDraft>) => void
 const textareaClass = 'min-h-28 font-mono text-xs'
 
 /**
+ * The pinned-papers field, spelled the same way in all three modes.
+ *
+ * It used to be `PMIDs and DOIs` in the reference-list mode, `Pin extra papers
+ * (PMIDs and DOIs)` for a person and `Pinned papers (PMIDs and DOIs)` for a lab
+ * — three names for one box, in a wizard whose whole point is that a list built
+ * in one mode reopens in another. One name.
+ */
+const PINNED_LABEL = 'Pinned papers (PMIDs and DOIs)'
+
+/**
+ * What a pin means, in the one sentence that matters.
+ *
+ * Person mode carried no explanation at all, which left the difference between
+ * this box and the query box — the difference that decides whether a record
+ * ever reaches an embedded page — visible only in lab mode.
+ */
+const PINNED_HINT =
+  'Pinned records are published whichever source found them, unless you reject them in the review queue — rejecting always wins.'
+
+/**
  * "You have typed pins into the search box."
  *
  * A hint beside the field, never a rewrite of it. The input is the user's, and
@@ -67,7 +87,7 @@ function PmidQueryNote({ hints }: { hints: PmidQuery[] }) {
       </strong>{' '}
       {pmidTerms} of the terms {pmidTerms === 1 ? 'is' : 'are'} a bare{' '}
       <code>[pmid]</code> lookup ({shown}
-      {rest}). Identifiers belong in the pinned-papers box below: a pinned
+      {rest}). Identifiers belong in the pinned-papers box above: a pinned
       record is confirmed outright and appears on the embedded page, whereas
       anything a PubMed query finds is a candidate that stays off the page until
       you confirm it here in the wizard — and an embedded page has no review
@@ -120,7 +140,7 @@ function CollectiveAuthorNote({ hints }: { hints: CollectiveAuthorHint[] }) {
       </strong>{' '}
       — check <code>[cn]</code> before concluding that. If <code>[cn]</code> is
       empty too, the records really do carry no collective author, and pinning
-      the papers below is the answer. Rewriting the query is left to you; this
+      the papers above is the answer. Rewriting the query is left to you; this
       box is not edited for you.
     </span>
   )
@@ -243,7 +263,7 @@ export function ArticleModeForm({
   const parsed = useMemo(() => parseIdList(draft.pins), [draft.pins])
   return (
     <Field
-      label="PMIDs and DOIs"
+      label={PINNED_LABEL}
       hint={
         <Counts ok={parsed.refs.length} okLabel="identifier" invalid={parsed.invalid} />
       }
@@ -312,6 +332,36 @@ export function PersonModeForm({
         </Field>
       </div>
 
+      {/*
+        Pins first, searches second. Naming a paper by its identifier is the
+        simpler act, the more reliable one and the more common one: it always
+        finds exactly the record meant, and it needs no review. A PubMed query
+        is the harder tool — it can be too broad, it can return nothing, and
+        everything it finds waits in a queue. Putting the easy, certain box
+        under the hard, uncertain one told the reader the wrong thing about
+        which they should reach for.
+      */}
+      <Field
+        label={PINNED_LABEL}
+        hint={
+          <>
+            <Counts ok={pins.refs.length} okLabel="identifier" invalid={pins.invalid} />{' '}
+            {PINNED_HINT}
+          </>
+        }
+      >
+        {(id) => (
+          <Textarea
+            id={id}
+            className={textareaClass}
+            spellCheck={false}
+            value={draft.pins}
+            onChange={(e) => update({ pins: e.currentTarget.value })}
+            placeholder={'33782057\n10.1101/2024.01.01.573000'}
+          />
+        )}
+      </Field>
+
       <Field
         label="PubMed queries (one per line)"
         hint={
@@ -338,22 +388,6 @@ export function PersonModeForm({
       </Field>
 
       <PubmedTrustRows draft={draft} update={update} />
-
-      <Field
-        label="Pin extra papers (PMIDs and DOIs)"
-        hint={<Counts ok={pins.refs.length} okLabel="identifier" invalid={pins.invalid} />}
-      >
-        {(id) => (
-          <Textarea
-            id={id}
-            className={textareaClass}
-            spellCheck={false}
-            value={draft.pins}
-            onChange={(e) => update({ pins: e.currentTarget.value })}
-            placeholder="10.1101/2024.01.01.573000"
-          />
-        )}
-      </Field>
     </div>
   )
 }
@@ -429,6 +463,28 @@ export function LabModeForm({
         onFreeze={onFreeze}
       />
 
+      {/* Pins above searches, for the reason spelled out in `PersonModeForm`. */}
+      <Field
+        label={PINNED_LABEL}
+        hint={
+          <>
+            <Counts ok={pins.refs.length} okLabel="identifier" invalid={pins.invalid} />{' '}
+            {PINNED_HINT}
+          </>
+        }
+      >
+        {(id) => (
+          <Textarea
+            id={id}
+            className={textareaClass}
+            spellCheck={false}
+            value={draft.pins}
+            onChange={(e) => update({ pins: e.currentTarget.value })}
+            placeholder={'33782057\n10.1136/bmj.n71'}
+          />
+        )}
+      </Field>
+
       <Field
         label="PubMed queries (one per line)"
         hint={
@@ -460,28 +516,6 @@ export function LabModeForm({
       </Field>
 
       <PubmedTrustRows draft={draft} update={update} />
-
-      <Field
-        label="Pinned papers (PMIDs and DOIs)"
-        hint={
-          <>
-            <Counts ok={pins.refs.length} okLabel="identifier" invalid={pins.invalid} />{' '}
-            Pinned records are published whichever source found them, unless you
-            reject them in the review queue — rejecting always wins.
-          </>
-        }
-      >
-        {(id) => (
-          <Textarea
-            id={id}
-            className={textareaClass}
-            spellCheck={false}
-            value={draft.pins}
-            onChange={(e) => update({ pins: e.currentTarget.value })}
-            placeholder={'33782057\n10.1136/bmj.n71'}
-          />
-        )}
-      </Field>
     </div>
   )
 }

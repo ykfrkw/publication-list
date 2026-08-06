@@ -27,7 +27,7 @@ import { normalizeConfig } from '@/core/config'
 import type { DroppedCounts, ListConfig, ListModel, Publication } from '@/core/types'
 import { ResultsPanel } from '../ResultsPanel'
 import { SnippetPanel } from '../SnippetPanel'
-import { LabModeForm } from '../ModeForms'
+import { ArticleModeForm, LabModeForm, PersonModeForm } from '../ModeForms'
 import { emptyDraft } from '../../lib/wizard'
 
 declare global {
@@ -128,11 +128,9 @@ function renderSnippet(m: ListModel) {
         credit
         disclaimer
         snapshot={false}
-        configUrl=""
         onCreditChange={() => {}}
         onDisclaimerChange={() => {}}
         onSnapshotChange={() => {}}
-        onConfigUrlChange={() => {}}
       />,
     )
   })
@@ -268,7 +266,10 @@ describe('the hint next to the PubMed query box', () => {
 
     expect(text()).toContain('Those look like pins rather than a search')
     expect(text()).toContain('38231522, 39242039, 39188094, 41061442, 40703853')
-    expect(text()).toContain('pinned-papers box below')
+    // "above", not "below": the pinned-papers field now precedes the query
+    // field, and a hint that points the wrong way is worse than none.
+    expect(text()).toContain('pinned-papers box above')
+    expect(text()).not.toContain('pinned-papers box below')
     // It is a hint, not a rewrite: the textarea still holds what was typed.
     const box = Array.from(container.querySelectorAll('textarea')).find((t) =>
       t.value.includes('[pmid]'),
@@ -279,5 +280,105 @@ describe('the hint next to the PubMed query box', () => {
   it('stays quiet for an ordinary author query', () => {
     renderLab('Tanaka H[au] AND ("Univ Tokyo"[ad]) AND 2019:2026[dp]')
     expect(text()).not.toContain('look like pins')
+  })
+})
+
+/**
+ * Which box comes first.
+ *
+ * Naming a paper by its identifier is the simpler act, the more reliable one
+ * and the more common one: it finds exactly the record meant and needs no
+ * review. A PubMed query can be too broad, can return nothing, and puts
+ * everything it finds in a queue. The pinned box therefore sits above the query
+ * box — and the hint above, which now says "above", depends on it.
+ */
+describe('the order of the two source fields', () => {
+  function fieldOrder(): string[] {
+    // Field labels in document order, which is what a reader meets them in.
+    return Array.from(container.querySelectorAll('label'))
+      .map((el) => el.textContent ?? '')
+      .filter(
+        (label) => label.includes('Pinned papers') || label.includes('PubMed queries'),
+      )
+  }
+
+  it('puts the pinned-papers field above the queries field in person mode', () => {
+    act(() => {
+      root.render(
+        <PersonModeForm draft={emptyDraft('person')} update={() => {}} />,
+      )
+    })
+    const order = fieldOrder()
+    expect(order).toHaveLength(2)
+    expect(order[0]).toContain('Pinned papers')
+    expect(order[1]).toContain('PubMed queries')
+  })
+
+  it('puts them in the same order in lab mode', () => {
+    act(() => {
+      root.render(<LabModeForm draft={emptyDraft('lab')} update={() => {}} />)
+    })
+    const order = fieldOrder()
+    expect(order).toHaveLength(2)
+    expect(order[0]).toContain('Pinned papers')
+    expect(order[1]).toContain('PubMed queries')
+  })
+
+  it('spells the pinned field the same way in all three modes', () => {
+    const labels = new Set<string>()
+    for (const form of [
+      <ArticleModeForm key="a" draft={emptyDraft('article')} update={() => {}} />,
+      <PersonModeForm key="p" draft={emptyDraft('person')} update={() => {}} />,
+      <LabModeForm key="l" draft={emptyDraft('lab')} update={() => {}} />,
+    ]) {
+      act(() => root.render(form))
+      const found = Array.from(container.querySelectorAll('label'))
+        .map((el) => el.textContent ?? '')
+        .find((label) => label.includes('Pinned papers'))
+      expect(found).toBeDefined()
+      labels.add(found!)
+    }
+    // Three modes, one name. It used to be three names for one box, in a
+    // wizard whose point is that a list built in one mode reopens in another.
+    expect([...labels]).toEqual(['Pinned papers (PMIDs and DOIs)'])
+  })
+})
+
+/**
+ * No solid button in the results panel — deliberately, not by omission.
+ *
+ * The row is a set of peer export formats (Word, WordPress, static HTML,
+ * Markdown, BibTeX, RIS) and the tool has no opinion about which one a given
+ * person came for. Promoting one to solid would be a claim it cannot make. The
+ * one action it does ask for is `Copy snippet`, which is solid in
+ * `SnippetPanel` — see the matching count in `SnippetPanel.test.tsx`.
+ */
+describe('the export row’s button hierarchy', () => {
+  function solidButtons(): HTMLButtonElement[] {
+    return Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button'),
+    ).filter((b) => b.classList.contains('bg-primary'))
+  }
+
+  it('has an empty primary slot for a list with publications on it', () => {
+    renderResults(model({ publications: [CONFIRMED] }))
+    expect(solidButtons()).toEqual([])
+    // The exports are all there — this is a hierarchy claim, not an absence of
+    // controls.
+    const labels = Array.from(container.querySelectorAll('button')).map(
+      (b) => b.textContent ?? '',
+    )
+    expect(labels.join('|')).toContain('Copy All (for Word)')
+    expect(labels.join('|')).toContain('.bib')
+  })
+
+  it('offers no pubs.json download beside the other formats', () => {
+    renderResults(model({ publications: [CONFIRMED] }))
+    expect(text()).not.toContain('pubs.json')
+  })
+
+  it('stays empty for an empty list too', () => {
+    renderResults(model({ candidates: SLEEPI_CANDIDATES }, SLEEPI_CONFIG))
+    expect(solidButtons()).toEqual([])
   })
 })

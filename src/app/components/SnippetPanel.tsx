@@ -36,9 +36,8 @@
  */
 
 import { useMemo } from 'react'
-import { InfoIcon, TriangleAlertIcon } from 'lucide-react'
+import { TriangleAlertIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Input } from '@/components/ui/input'
 import {
   Card,
   CardContent,
@@ -46,71 +45,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { serializeConfig } from '@/core/config'
 import type { ListModel } from '@/core/types'
-import { CheckboxField, Field } from './Field'
-import { CopyButton, DownloadButton } from './CopyButton'
-import {
-  CONFIG_FILENAME,
-  INLINE_ATTR_BUDGET,
-  buildEmbedSnippet,
-  buildIframeSnippet,
-  hasCommaHostileValues,
-  inlineAttributeLength,
-} from '../lib/snippet'
+import { CheckboxField } from './Field'
+import { CopyButton } from './CopyButton'
+import { buildEmbedSnippet, buildIframeSnippet } from '../lib/snippet'
 import { candidatesMissingFromEmbed, diagnoseEmptyList } from '../lib/diagnose'
-
-/**
- * The hosted-`pubs.json` route, explained where it is used.
- *
- * Two sentences, because the concept is not guessable from a URL field: what
- * the file is, where it can live, and the thing that makes it worth the
- * trouble — one file to edit instead of one snippet to re-paste per page.
- */
-function HostedConfig({
-  configUrl,
-  configJson,
-  onConfigUrlChange,
-}: {
-  configUrl: string
-  configJson: string
-  onConfigUrlChange: (url: string) => void
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="text-sm leading-relaxed text-muted-foreground">
-        <code>{CONFIG_FILENAME}</code> is this list’s settings as a file. Put it
-        anywhere that serves a URL — your own web server, or a GitHub Gist raw
-        URL, which needs no setup — and paste that URL below: the snippet
-        shrinks to a single <code>data-config</code> attribute that reads the
-        file. After that, editing the one file changes the list on every page it
-        is embedded in, with nothing to re-paste.
-      </p>
-      <Field
-        label="Hosted pubs.json URL"
-        hint="Leave this blank to keep the settings inline in the snippet."
-      >
-        {(id) => (
-          <Input
-            id={id}
-            value={configUrl}
-            spellCheck={false}
-            placeholder="https://gist.githubusercontent.com/…/pubs.json"
-            onChange={(e) => onConfigUrlChange(e.currentTarget.value)}
-          />
-        )}
-      </Field>
-      <div>
-        <DownloadButton
-          filename={CONFIG_FILENAME}
-          value={configJson}
-          label={`Download ${CONFIG_FILENAME}`}
-          mime="application/json;charset=utf-8"
-        />
-      </div>
-    </div>
-  )
-}
 
 function SnippetBlock({ value }: { value: string }) {
   return (
@@ -127,11 +66,9 @@ export interface SnippetPanelProps {
   disclaimer: boolean
   /** Include the pre-rendered list in the snippet. Off by default; recommended. */
   snapshot: boolean
-  configUrl: string
   onCreditChange: (credit: boolean) => void
   onDisclaimerChange: (disclaimer: boolean) => void
   onSnapshotChange: (snapshot: boolean) => void
-  onConfigUrlChange: (url: string) => void
 }
 
 /**
@@ -210,47 +147,18 @@ function SnippetPanelForList({
   credit,
   disclaimer,
   snapshot,
-  configUrl,
   onCreditChange,
   onDisclaimerChange,
   onSnapshotChange,
-  onConfigUrlChange,
 }: SnippetPanelProps) {
-  const hosted = configUrl.trim() !== ''
-
   const snippet = useMemo(
-    () =>
-      buildEmbedSnippet(model, {
-        credit,
-        snapshot,
-        configUrl: hosted ? configUrl : undefined,
-      }),
-    [model, credit, snapshot, configUrl, hosted],
+    () => buildEmbedSnippet(model, { credit, snapshot }),
+    [model, credit, snapshot],
   )
   const iframeSnippet = useMemo(
-    () =>
-      buildIframeSnippet(model.config, {
-        configUrl: hosted ? configUrl : undefined,
-        credit,
-      }),
-    [model.config, credit, configUrl, hosted],
+    () => buildIframeSnippet(model.config, { credit }),
+    [model.config, credit],
   )
-  const configJson = useMemo(() => serializeConfig(model.config), [model.config])
-
-  const attrLength = inlineAttributeLength(model.config)
-  const bulky = attrLength > INLINE_ATTR_BUDGET
-  const commaHostile = hasCommaHostileValues(model.config)
-  /**
-   * Show the hosted-config route up front only when the inline attributes
-   * genuinely cannot carry the configuration: too long to paste and read back
-   * (`INLINE_ATTR_BUDGET`), or containing a comma, which a comma-joined
-   * attribute would split. A URL the user has already pasted counts too —
-   * hiding the field that produced the snippet on screen would be baffling.
-   *
-   * For the common case, one ORCID iD and a style, none of that applies and
-   * the route is noise.
-   */
-  const needsHosted = bulky || commaHostile || hosted
 
   /**
    * How much smaller the embedded list will be than the one on screen.
@@ -331,60 +239,29 @@ function SnippetPanelForList({
           </Alert>
         ) : null}
 
+        {/*
+          The one solid button in this panel, and the only solid button in the
+          whole output area. Copying this snippet is what the tool is for — the
+          results panel above is a row of peer export formats, none of which is
+          being asked for over the others, so none of them is promoted. See the
+          note in `ResultsPanel.tsx`.
+        */}
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-medium">Script snippet</h3>
-            <CopyButton value={snippet} label="Copy snippet" />
+            <CopyButton value={snippet} label="Copy snippet" variant="default" />
           </div>
           <SnippetBlock value={snippet} />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Keep this snippet somewhere you can find it — it is the whole
+            configuration. Pasting it back into{' '}
+            <strong className="font-medium text-foreground">
+              Start from an existing snippet
+            </strong>{' '}
+            at the top of this page fills the form in again, so there is nothing
+            else to save.
+          </p>
         </div>
-
-        {/*
-          The hosted-config route earns its place only when the inline
-          attributes cannot do the job — see `needsHosted`. Otherwise it sits
-          behind a disclosure: still one click away, not competing with the
-          snippet the visitor actually came for.
-        */}
-        {needsHosted ? (
-          <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
-            {bulky || commaHostile ? (
-              <Alert>
-                <InfoIcon />
-                <AlertTitle>
-                  {commaHostile
-                    ? 'One of your values cannot travel in an inline attribute'
-                    : 'This configuration is large for inline attributes'}
-                </AlertTitle>
-                <AlertDescription>
-                  <p>
-                    {commaHostile
-                      ? 'A value here contains a comma, and the data attributes are comma-separated, so the snippet above would split it in two.'
-                      : `The inline attributes come to about ${attrLength} characters, which is more than anyone can read back in a CMS field.`}{' '}
-                    Use the hosted file below instead.
-                  </p>
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            <HostedConfig
-              configUrl={configUrl}
-              configJson={configJson}
-              onConfigUrlChange={onConfigUrlChange}
-            />
-          </div>
-        ) : (
-          <details className="rounded-lg border border-border p-3">
-            <summary className="cursor-pointer text-sm font-medium">
-              Keep the settings in a file instead of in the snippet
-            </summary>
-            <div className="pt-4">
-              <HostedConfig
-                configUrl={configUrl}
-                configJson={configJson}
-                onConfigUrlChange={onConfigUrlChange}
-              />
-            </div>
-          </details>
-        )}
 
         {/*
           Collapsed by default: the iframe is the fallback for a CMS that

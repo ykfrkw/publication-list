@@ -157,9 +157,14 @@ export interface PubmedSeed {
    * already spells as an object. The seed id a window is matched against is
    * `label ?? query`.
    *
-   * These three fields travel in a `pubs.json` only — and so does `trust`:
-   * `data-pubmed` and `?pubmed=` carry the query string alone, as they already
-   * do for `label`.
+   * These three fields, like `label`, travel in a `lists/*.json` registry file
+   * only: `data-pubmed` and `?pubmed=` carry the query string alone, and
+   * reading part of somebody's search syntax as a date range would be a guess.
+   * `restore.ts` names them as losses rather than dropping them silently.
+   *
+   * `trust` is the exception and does travel on both inline transports, beside
+   * the query rather than inside it — `data-pubmed-trusted` / `?pubmed-trusted=`,
+   * the zero-based positions of the trusted queries within `data-pubmed`.
    */
   from?: string
   to?: string

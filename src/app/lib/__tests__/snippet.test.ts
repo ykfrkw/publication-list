@@ -7,7 +7,6 @@ import {
   buildEmbedSnippet,
   buildIframeSnippet,
   configToDataAttributes,
-  hasCommaHostileValues,
 } from '../snippet'
 
 const publication: Publication = {
@@ -111,14 +110,12 @@ describe('buildEmbedSnippet', () => {
     expect(snippet).toContain(`<script src="${EMBED_SCRIPT_URL}" defer></script>`)
   })
 
-  it('collapses to a single data-config attribute when a hosted URL is given', () => {
-    const snippet = buildEmbedSnippet(model(), {
-      credit: true,
-      snapshot: true,
-      configUrl: 'https://example.org/pubs.json',
-    })
-    expect(snippet).toContain('data-config="https://example.org/pubs.json"')
-    expect(snippet).not.toContain('data-orcid=')
+  it('always writes the settings inline — there is no other transport', () => {
+    // The snippet is the only thing a user has to keep, so every setting has
+    // to be in it. Nothing here ever collapses to a pointer at a file.
+    const snippet = buildEmbedSnippet(model(), { credit: true, snapshot: true })
+    expect(snippet).toContain('data-orcid="0000-0003-1317-0220"')
+    expect(snippet).not.toContain('data-config')
     // The snapshot is still there — that is the whole point of it.
     expect(snippet).toContain('The PRISMA 2020 statement')
   })
@@ -296,16 +293,74 @@ describe('configToDataAttributes', () => {
   })
 })
 
-describe('hasCommaHostileValues', () => {
-  it('flags a PubMed query containing a comma, which comma-joined attributes cannot carry', () => {
-    const config = normalizeConfig({
-      seeds: { pubmed: [{ query: 'Furukawa Y[au] AND (Tokyo, Japan[ad])' }] },
-    })
-    expect(hasCommaHostileValues(config)).toBe(true)
+/**
+ * A comma inside a value, in the transport that joins values with commas.
+ *
+ * This replaces `hasCommaHostileValues`, which detected the problem and steered
+ * the user to a hosted file rather than solving it. The values are now
+ * percent-escaped on the way out and unescaped on the way in
+ * (`encodeListValue` / `decodeListValue` in `core/config.ts`), so the comma is
+ * carried rather than routed around. The failure being pinned is the silent
+ * one: one query arriving as two seeds, with no error anywhere.
+ */
+describe('a value containing a comma or a percent sign', () => {
+  const COMMA = 'Furukawa Y[au] AND (Tokyo, Japan[ad])'
+  const PERCENT = 'insomnia[ti] AND 50% response[tiab]'
+
+  const configWith = (...queries: string[]) =>
+    normalizeConfig({ seeds: { pubmed: queries.map((query) => ({ query })) } })
+
+  it('escapes the comma in the data attribute instead of splitting on it', () => {
+    const attrs = new Map(configToDataAttributes(configWith(COMMA)))
+    expect(attrs.get('data-pubmed')).toBe(
+      'Furukawa Y[au] AND (Tokyo%2C Japan[ad])',
+    )
   })
 
-  it('is quiet about an ordinary config', () => {
-    expect(hasCommaHostileValues(model().config)).toBe(false)
+  it('escapes a literal percent sign so the escape cannot be forged', () => {
+    const attrs = new Map(configToDataAttributes(configWith(PERCENT)))
+    expect(attrs.get('data-pubmed')).toBe(
+      'insomnia[ti] AND 50%25 response[tiab]',
+    )
+  })
+
+  it('comes back off the iframe URL as one seed per query, verbatim', () => {
+    const config = configWith(COMMA, PERCENT, 'plain[au]')
+    const url = buildIframeSnippet(config).match(/src="([^"]+)"/)?.[1] ?? ''
+    const query = new URLSearchParams(
+      (url.split('?')[1] ?? '').replace(/&amp;/g, '&'),
+    )
+    expect(parseConfigFromSearchParams(query).config.seeds?.pubmed).toEqual([
+      { query: COMMA },
+      { query: PERCENT },
+      { query: 'plain[au]' },
+    ])
+  })
+
+  it('keeps the ticks on the right queries when one of them holds a comma', () => {
+    // The ticks travel as positions within `data-pubmed`, so a query that split
+    // in two would move every tick after it onto the wrong query.
+    const config = normalizeConfig({
+      seeds: {
+        pubmed: [
+          { query: COMMA },
+          { query: 'b[au]', trust: 'confirmed' as const },
+        ],
+      },
+    })
+    const url = buildIframeSnippet(config).match(/src="([^"]+)"/)?.[1] ?? ''
+    const query = new URLSearchParams(
+      (url.split('?')[1] ?? '').replace(/&amp;/g, '&'),
+    )
+    expect(parseConfigFromSearchParams(query).config.seeds?.pubmed).toEqual([
+      { query: COMMA },
+      { query: 'b[au]', trust: 'confirmed' },
+    ])
+  })
+
+  it('leaves a value with neither character exactly as it was', () => {
+    const attrs = new Map(configToDataAttributes(model().config))
+    expect(attrs.get('data-orcid')).toBe('0000-0003-1317-0220')
   })
 })
 
@@ -417,16 +472,6 @@ describe('the credit checkbox reaches the iframe snippet', () => {
   it('says nothing about the credit when the option is omitted', () => {
     const snippet = buildIframeSnippet(model().config)
     expect(snippet).not.toContain('credit=')
-  })
-
-  it('carries credit=0 on the hosted-config variant too', () => {
-    const snippet = buildIframeSnippet(model().config, {
-      configUrl: 'https://example.org/pubs.json',
-      credit: false,
-    })
-    expect(snippet).toContain('credit=0')
-    expect(snippet).toContain('config=https%3A%2F%2Fexample.org%2Fpubs.json')
-    expect(snippet).not.toContain('orcid=')
   })
 
   it('changes nothing else about the snippet', () => {

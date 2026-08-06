@@ -65,19 +65,21 @@ Two elements are the exception. The last two lines — `.publist-disclaimer` and
 
 ## Coming back to a list you already made
 
-You do not have to rebuild a configuration by hand. **Paste the snippet you generated back into the wizard** — "Start from an existing snippet", above the mode tabs — and every setting it carries is read back out of the `data-*` attributes and put into the form. The whole snippet, the opening `<div>` alone, an iframe snippet, a `pubs.json` URL, or a `data-config` snippet all work; the last two are fetched.
+**The snippet is the configuration.** Keep the block you pasted into your site — that is the whole of it, and there is nothing else to save. Every setting travels in the `data-*` attributes, so a copy of the snippet in a text file, an email to yourself, or the page it is already living on is a complete backup.
 
-Nothing is built until you press Generate, so you can see what came back and adjust it first. If anything could not be recovered, the wizard names it rather than quietly returning a different list — the cases are a PubMed query's label and dates (the transports carry the query text only), member names and the pairing of an ORCID iD with a researchmap permalink, and the titles of records you had removed.
+To pick it up again, **paste it back into the wizard** — "Start from an existing snippet", above the mode tabs — and the form fills in from it. The whole snippet works, and so does the opening `<div>` on its own or an iframe snippet.
 
-The `pubs.json` download is still there, and is still what you want for a config that inline attributes cannot express. This is the lighter path for everything else.
+Nothing is built until you press Generate, so you can see what came back and adjust it first. If anything could not be recovered, the wizard names it rather than quietly returning a different list — the cases are a PubMed query's label and dates (the transports carry the query text and the review tick only), member names and the pairing of an ORCID iD with a researchmap permalink, and the titles of records you had removed.
+
+A URL is not accepted, and nothing is fetched from one. The wizard used to read settings out of a hosted `pubs.json` named by the paste; that route is gone, along with the file. See [Getting your configuration to the page](#getting-your-configuration-to-the-page).
 
 ## Getting your configuration to the page
 
-There are three ways, and none of them requires an account, an approval, or a pull request to this repository.
+There are two ways. Neither requires an account, an approval, or a pull request to this repository — and for all but a handful of lists, the first is the only one you need.
 
 ### 1. Inline `data-*` attributes
 
-Best for one person or a handful of seeds. Everything is visible in your own HTML.
+The normal route, for a person and for a lab alike. Everything is visible in your own HTML, and the snippet is the only thing you have to keep.
 
 ```html
 <div class="publist-embed"
@@ -97,7 +99,7 @@ Read off `src/core/config.ts`. Values are trimmed; an empty attribute is treated
 | --- | --- | --- | --- |
 | `data-orcid` | `seeds.orcid` | Comma-separated ORCID iDs. A full `https://orcid.org/…` URL is accepted and the prefix stripped. A member's time in the group may be appended as `iD@from:to:grace` — see [Seed time windows](#seed-time-windows). | none |
 | `data-researchmap` | `seeds.researchmap` | Comma-separated researchmap permalinks. A `https://researchmap.jp/…` URL is accepted; only the first path segment is kept. Takes the same `@from:to:grace` suffix. | none |
-| `data-pubmed` | `seeds.pubmed[].query` | Comma-separated PubMed queries. **A query containing a comma cannot be carried this way** — use a hosted `pubs.json` instead. The query text only: a PubMed seed's `label`, `from`, `to` and `grace` need the JSON route. Its `trust` travels beside it, in `data-pubmed-trusted`. | none |
+| `data-pubmed` | `seeds.pubmed[].query` | Comma-separated PubMed queries. A comma **inside** a query is written `%2C` and read back as a comma, so `Furukawa Y[au] AND (Tokyo, Japan[ad])` travels intact — see [Commas inside a value](#commas-inside-a-value). The query text only: a PubMed seed's `label`, `from`, `to` and `grace` have nowhere to go on either transport. Its `trust` does travel, beside it, in `data-pubmed-trusted`. | none |
 | `data-pubmed-trusted` | `seeds.pubmed[].trust` | Comma-separated **zero-based positions** within `data-pubmed` whose hits are published without review — `data-pubmed-trusted="0,2"` trusts the first and third query. Kept out of the query string itself so nothing has to be escaped inside somebody's search syntax. An index that is not a whole number, or points past the end of the list, is ignored, and that query falls back to needing review. | none — every query's hits are candidates |
 | `data-include` | `include` | Comma-separated `pmid:12345678` / `doi:10.1136/bmj.n71`. Pinned records are shown whatever else the configuration says — except `exclude`. | none |
 | `data-exclude` | `exclude` | Same format. Excluded records are dropped, **including pinned ones**: `exclude` outranks `include`. | none |
@@ -111,7 +113,6 @@ Read off `src/core/config.ts`. Values are trimmed; an empty attribute is treated
 | `data-from` | `from` | `YYYY` or `YYYY-MM`. A bare year means January of that year. | no lower bound |
 | `data-to` | `to` | `YYYY` or `YYYY-MM`. A bare year means December of that year. | no upper bound |
 | `data-limit` | `limit` | Positive integer. Applied after sorting, so you keep the newest N. | no limit |
-| `data-config` | — | URL of a hosted `pubs.json`. See below. | none |
 | `data-list` | — | Id in this repository's curated `lists/` registry. See below. | none |
 
 What the values mean:
@@ -124,29 +125,31 @@ What the values mean:
 - **`include`** — the way to put specific papers on the list. A pinned PMID or DOI is confirmed outright: it is published whatever found it, it is exempt from the seed time windows, and it appears in an embed. This is what a PubMed query cannot do — **a candidate never appears in an embed**, and there is no review queue on an embedded page to change that. If you know which papers you want, pin them rather than searching for them.
 - **`disclaimer`** — the one-line note under the list saying it was compiled automatically from ORCID, PubMed and researchmap and inherits their errors. **On by default**, and worth leaving on: it is what tells a reader that a missing paper is a gap in a database rather than a claim about the group. `hide` removes it. It is a separate switch from [the credit link](#the-credit-link) in both directions — turning either off leaves the other alone.
 
-### 2. `data-config` — a hosted JSON file
+#### Commas inside a value
 
-Best for anything larger: a lab with many members, a long exclude list, or a PubMed query containing a comma. You host the file; nobody has to approve anything.
+Six attributes are comma-separated lists, and a realistic PubMed query contains a comma: `Furukawa Y[au] AND (Tokyo, Japan[ad])`. So every value is escaped on the way out and unescaped on the way in, for exactly two characters:
 
-```html
-<div class="publist-embed" data-config="https://example.ac.uk/pubs.json"></div>
-<script src="https://ykfrkw.github.io/publication-list/embed.js" defer></script>
-```
+| written | read back |
+| --- | --- |
+| `%` | `%25` |
+| `,` | `%2C` |
 
-The file must be served with permissive CORS. Anything that works in a browser `fetch()` from your page works here — your own web server, GitHub Pages, or a GitHub Gist raw URL (`raw.githubusercontent.com` sends `Access-Control-Allow-Origin: *`).
+Nothing else is touched — quotes, brackets, spaces and `&` are left as they are. `%2C` in a value you type comes back as the literal text `%2C`, not as a comma, because the `%` was escaped first. The same rule applies to the iframe's query string; `src/core/config.ts` holds both halves so the two transports cannot drift apart.
 
-The wizard has a **Download `pubs.json`** button that writes exactly this file: in the results panel always, and in the embed panel next to the field you paste the hosted URL into. That field is offered up front only when the inline attributes cannot do the job — too long to paste and read back, or containing a comma — and otherwise sits under "Keep the settings in a file instead of in the snippet".
+This is why there is no size or shape of configuration that the snippet cannot carry, and why there is no longer a hosted-file route.
 
-**Precedence:** inline `data-*` attributes win over the hosted file. The two are merged shallowly, and `seeds` is merged one key at a time — so `data-orcid` on the container replaces the `seeds.orcid` array from the file, but leaves `seeds.researchmap` from the file alone. If both `data-config` and `data-list` are present, `data-config` is used and `data-list` is ignored.
-
-### 3. `data-list` — the curated registry
+### 2. `data-list` — the curated registry
 
 ```html
 <div class="publist-embed" data-list="furukawa"></div>
 <script src="https://ykfrkw.github.io/publication-list/embed.js" defer></script>
 ```
 
-The id is resolved against the script's own URL (`…/publication-list/lists/<id>.json`). This registry is small, curated, and **not open for submissions** — it exists for the maintainer's own lists and a handful of groups he was asked to host. Use `data-config` instead; it does the same thing with no gatekeeper. See [lists/README.md](lists/README.md).
+The id is resolved against the script's own URL (`…/publication-list/lists/<id>.json`), and is validated first: it must be a bare filename — letters, digits, dot, dash, underscore, starting with a letter or digit — so it cannot climb out of `lists/`. All three consumers (the embed script, the widget and the wizard's restore) apply the same check, from one definition in `src/core/config.ts`.
+
+This registry is small, curated, and **not open for submissions** — it exists for the maintainer's own lists and a handful of groups he was asked to host. Everyone else uses the snippet above, which carries the same settings with no gatekeeper and nothing to host. See [lists/README.md](lists/README.md).
+
+**Precedence:** inline `data-*` attributes win over the registry file. The two are merged shallowly, and `seeds` is merged one key at a time — so `data-orcid` on the container replaces the `seeds.orcid` array from the file, but leaves `seeds.researchmap` from the file alone.
 
 ---
 
@@ -167,7 +170,7 @@ The widget reads its configuration from the **query string** rather than from `d
 - **Repeated names are joined.** `?orcid=A&orcid=B` is the same as `?orcid=A,B`. For a single-valued parameter, the first occurrence wins.
 - **camelCase spellings are accepted** for the hyphenated names: `groupBy`, `boldNames` and `reviewPolicy` work as well as `group-by`, `bold-names` and `review-policy`.
 
-`?config=` and `?list=` work like their attribute counterparts. Both are validated because they come from a URL: `config` must be an `http(s)` URL, and `list` must be a bare filename so it cannot climb out of `lists/`.
+`?list=` works like its attribute counterpart, and is validated the same way and by the same function: a bare filename, so it cannot climb out of `lists/`. There is deliberately no parameter that names an arbitrary URL for the widget to fetch.
 
 One parameter has no `data-*` counterpart: **`?credit=0`** turns the credit line off inside the frame. It is how the wizard's "Include a credit link" checkbox reaches this route — see [The credit link](#the-credit-link). `credit=false`, `credit=off` and `credit=no` mean the same thing; anything else, including no parameter at all, leaves the credit on.
 
@@ -211,7 +214,7 @@ Choosing between the three:
 
 ## `ListConfig` reference
 
-The `pubs.json` schema, defined in `src/core/types.ts`. Every field except `v` and `seeds` is optional.
+The `ListConfig` document, defined in `src/core/types.ts`. Every field except `v` and `seeds` is optional. This is the shape a `lists/*.json` registry file has on disk, and the shape every `data-*` attribute set projects onto once it is parsed.
 
 ```ts
 {
@@ -246,9 +249,9 @@ Notes that are easy to get wrong:
 - **`seeds.pubmed[].query` is a raw PubMed query string.** A query ending in `[auid]` is an ORCID identifier search and its hits are trusted outright. Any other query — including `Furukawa Y[au]` — is a name search, and its hits become *candidates*: they do not appear on the page under the default `strict` policy until you confirm them in the wizard's review queue. `label` is cosmetic; it is what the record's provenance is attributed to.
 - **`seeds.pubmed[].trust` opts one query out of review, and defaults to `'candidate'`.** Set it to `'confirmed'` and every hit — including hits the query has not made yet — goes straight into `publications` and therefore into an embed, with no review step. It is an assertion by whoever wrote the config that the query returns their group's work and nobody else's, so run it on PubMed and read the results first. It is deliberately never inferred: `[auid]` is promoted automatically because an ORCID iD is a unique identifier, whereas every other PubMed author field holds a **name**, including `[cn]` — two groups can share an acronym, and a free-text `SLEEPI` search already returns an unrelated SLEEP-I trial. Anything other than the exact string `'confirmed'` is dropped and the seed is reviewed, so a typo fails safe. `exclude` still outranks it, which is how a wrong hit comes off. **On the inline routes it travels beside the query rather than inside it** — `data-pubmed-trusted="0,2"` / `?pubmed-trusted=0,2`, the zero-based positions within `data-pubmed` — because a flag hidden in the query text could be mistaken for part of the search. The wizard writes both attributes in one pass, so the positions always line up.
 - **A group is found with `[cn]`, not `[au]`.** PubMed files a collective author — a study group, a trial consortium — in its own field. Measured against the live API on 2026-08-06: `"RECOVERY Collaborative Group"[au]` returns 0 records; `"RECOVERY Collaborative Group"[cn]` returns 18, translated by PubMed as `[Author - Corporate]`. **An `[au]` search returning nothing is not evidence that the group is absent from PubMed** — check `[cn]` before concluding that. If `[cn]` is empty too, the journals never supplied a collective name for those articles and no query will reach them; pin the papers by PMID or DOI instead. The wizard hints at this when a query looks like a group name in `[au]`.
-- **`groupBy` defaults to `'category-year'`, and omitting the field means type headings with year dividers inside them.** The default has changed before, so a `pubs.json` that leaves the field out regroups itself when it changes again. Write the value out if you want it pinned — the wizard's downloaded file always does.
-- **`disclaimer` defaults to `'show'`, and omitting the field means shown.** A `pubs.json` written before this field existed therefore gains the source note on the next page load. That is the intended direction: the note is only ever absent because someone decided it should be.
-- **`preprints` defaults to `'exclude'`, and omitting the field means excluded.** A `pubs.json` written before this field existed therefore loses its preprints on the next page load. The wizard's downloaded file always writes the value out explicitly, so what you host says what you meant.
+- **`groupBy` defaults to `'category-year'`, and omitting the field means type headings with year dividers inside them.** The default has changed before, so a registry file that leaves the field out regroups itself when it changes again. Write the value out if you want it pinned. The wizard's snippet does not have this problem: it writes `data-group-by` whenever the value is not the current default, so a snippet always renders what you saw.
+- **`disclaimer` defaults to `'show'`, and omitting the field means shown.** A registry file written before this field existed therefore gains the source note on the next page load. That is the intended direction: the note is only ever absent because someone decided it should be.
+- **`preprints` defaults to `'exclude'`, and omitting the field means excluded.** A registry file written before this field existed therefore loses its preprints on the next page load. The wizard's snippet writes `data-preprints` out explicitly whenever preprints are on, so a snippet says what you meant.
 - **`include` is not just "extra papers".** It also force-confirms a record another seed already found. That is the mechanism the review queue uses: a confirmed candidate goes into `include`, a rejected one into `exclude`, and neither is ever asked about again.
 - **`exclude` wins over `include`.** A reference in both lists is dropped. Excluding is the corrective act — it is how a pin gets undone — and pins are no longer only ever typed one at a time: [freezing a member](docs/lab-setup.md#when-someone-joins-or-leaves) writes their whole publication list into `include` in one click. So getting one of those wrong has to be recoverable without hand-editing a twenty-entry list, and "take this off my page" always works — in the wizard it is the **Remove** control on the publication's own line, and what it removed is listed above the list with an **Undo**. It is not silent: a pin an exclude cancels is named in the model's warnings, once, with the count and the references, so a configuration you inherited tells you its two lists disagree rather than quietly picking a side.
 - **A pinned base DOI also matches the versioned records of the same work.** `doi:10.12688/f1000research.12345` catches `.1` through `.4`. An exclude is read as generously, and across identifiers: excluding a work by PMID cancels a pin that names it by DOI.
@@ -292,13 +295,13 @@ Four rules worth knowing, because they are what keep this from removing real wor
 
 | Route | Carries a window on `seeds.orcid` / `seeds.researchmap` | Carries one on `seeds.pubmed` |
 | --- | --- | --- |
-| `pubs.json` (`data-config`, `data-list`) | yes, as the object above | yes |
+| `lists/*.json` (`data-list`) | yes, as the object above | yes |
 | `data-orcid` / `data-researchmap` | yes, as `id@from:to:grace` | — |
 | `?orcid=` / `?researchmap=` (iframe) | yes, same encoding | no |
 
 The inline encoding is positional and every field is optional: `0000-0002-1825-0097@2019-04:2023-03`, `…@2019-04` (still here), `…@:2023-03` (open start), `…@2019-04:2023-03:0` (no grace). It contains no commas, so it survives the comma-joined attributes unchanged, and a value whose tail is not *exactly* a window is left alone entirely — an id containing an `@` is never reinterpreted.
 
-The one thing that does not travel inline is a window on a **PubMed** seed, for the same reason `label` does not: the attribute's value is a raw PubMed query, and reading part of one as a date range would be a guess about somebody else's search syntax. Put a windowed PubMed seed in a `pubs.json`. The wizard never produces one, so it cannot lose one.
+The one thing that does not travel inline is a window on a **PubMed** seed, for the same reason `label` does not: the attribute's value is a raw PubMed query, and reading part of one as a date range would be a guess about somebody else's search syntax. A windowed PubMed seed can therefore only come from a `lists/*.json` registry file. The wizard never produces one, so it cannot lose one; when it reads one it says so rather than dropping it silently.
 
 ### Worked example
 
@@ -370,8 +373,6 @@ When someone loads a page carrying the script snippet, their browser makes reque
 | `api.researchmap.jp` | if you seeded a researchmap permalink | Japanese-language records |
 | `api.openalex.org` | for any non-empty list | author names, work types, missing metadata |
 | `api.crossref.org` | for F1000-family DOIs, and records OpenAlex left without authors | peer-review status, author names |
-
-Plus whatever host you pointed `data-config` at, if you used one.
 
 Each of those receives what any third-party resource on a web page receives: the visitor's **IP address** and **User-Agent**, and — under browsers' default referrer policy — your page's origin, not its full URL, in the `Referer` header. It is the same exposure as an embedded font, a hotlinked image or an analytics tag. The difference is that here it is the entire story, so here is the rest of it.
 

@@ -60,25 +60,100 @@ export const DEFAULT_REVIEW_POLICY: NonNullable<ListConfig['reviewPolicy']> =
 /**
  * Result of reading an embed container's `data-*` attributes.
  *
- * The remote-config pointers (`data-config`, `data-list`) are returned beside
- * the config rather than inside it: they say *where to fetch a ListConfig
- * from*, they are not part of one.
+ * The registry pointer (`data-list`) is returned beside the config rather than
+ * inside it: it says *where to fetch a ListConfig from*, it is not part of one.
  */
 export interface DatasetConfig {
   config: Partial<ListConfig>
-  /** `data-config` — URL of a hosted pubs.json */
-  configUrl?: string
   /** `data-list` — id in this repository's invite-only `lists/` registry */
   listId?: string
 }
 
-/** Split a comma-separated attribute into trimmed, non-empty values. */
+/**
+ * ──────────────────────────────────────────────────────────────────────────
+ * WHAT COUNTS AS A REGISTRY ID
+ *
+ * A `data-list` / `?list=` value is interpolated into `lists/<id>.json` and
+ * resolved against a base URL, so it is a **path fragment supplied by whoever
+ * wrote the markup**. `new URL()` resolves `..` the way any path does:
+ * `data-list="../../secrets"` addresses `<site>/secrets.json`, outside the
+ * registry entirely.
+ *
+ * The rule is therefore "a bare filename": start with a letter or digit, then
+ * letters, digits, dot, dash, underscore. No slash, so no path; no leading dot,
+ * so `..` cannot even begin. Anything else is refused before a request is made.
+ *
+ * It lives here, beside `DatasetConfig.listId`, because this module is where an
+ * id is produced and all three consumers already import from it — the widget
+ * (`src/widget/main.ts`), the embed script (`src/embed/entry.ts`) and the
+ * wizard's restore (`src/app/lib/restore.ts`). It was written out three times
+ * before, and `entry.ts` was the copy that got missed: its comment claimed the
+ * guard while the code resolved the id unchecked. One definition, so a fourth
+ * consumer cannot repeat that.
+ *
+ * Each consumer still decides what to *do* with a bad id — they have different
+ * ways of reporting one — but none of them decides what "bad" means.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+export const LIST_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i
+
+/** Is this `data-list` / `?list=` value safe to resolve against `lists/`? */
+export function isListId(value: string | undefined): value is string {
+  return value != null && LIST_ID_PATTERN.test(value)
+}
+
+/**
+ * ──────────────────────────────────────────────────────────────────────────
+ * HOW A COMMA TRAVELS IN A COMMA-JOINED LIST
+ *
+ * Six parameters are lists, and both transports join them with `,`. A PubMed
+ * query is free text and a realistic one contains a comma —
+ * `Furukawa Y[au] AND (Tokyo, Japan[ad])` — which the naive join turns into two
+ * seeds, silently and with no error anywhere.
+ *
+ * So every element is percent-escaped on the way out and unescaped on the way
+ * in, and only for the two characters that need it:
+ *
+ *   encode:  `%` → `%25`   then   `,` → `%2C`
+ *   decode:  `%2C` → `,`   then   `%25` → `%`
+ *
+ * The orders are mirror images, which is what makes it a true inverse: after
+ * encoding, the only `%` left in the output is the one that starts an escape,
+ * so decoding `%2C` first cannot chew into a `%25` and decoding `%25` second
+ * cannot manufacture a fresh `%2C`. `%252C` (a literal `%2C` the user typed)
+ * decodes to `%2C`, not to a comma.
+ *
+ * `encodeListValue` lives here rather than in the snippet builder so that the
+ * writer and the reader are the same pair of functions, and the `data-*` and
+ * query-string transports cannot drift apart on it.
+ *
+ * The one cost, accepted deliberately: a snippet published *before* this
+ * existed whose value contained the literal text `%25`, `%2C` or `%2c` now
+ * decodes differently. The tool is days old and has no users but its author.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+export function encodeListValue(value: string): string {
+  return value.replace(/%/g, '%25').replace(/,/g, '%2C')
+}
+
+/** Inverse of `encodeListValue`. Lowercase `%2c` is accepted for hand edits. */
+export function decodeListValue(value: string): string {
+  return value.replace(/%2C/gi, ',').replace(/%25/g, '%')
+}
+
+/**
+ * Split a comma-separated attribute into trimmed, non-empty values.
+ *
+ * Trimming happens before decoding, so an escape can carry leading or trailing
+ * whitespace that the split would otherwise eat.
+ */
 function splitList(value: string | undefined): string[] | undefined {
   if (value == null) return undefined
   const parts = value
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s !== '')
+    .map(decodeListValue)
   return parts.length > 0 ? parts : undefined
 }
 
@@ -133,7 +208,6 @@ export const CONFIG_PARAM_NAMES = [
   'from',
   'to',
   'limit',
-  'config',
   'list',
 ] as const
 
@@ -169,16 +243,17 @@ function readConfig(read: ConfigReader): DatasetConfig {
     .filter((seed) => seed !== undefined)
   // No window decoding here: a PubMed seed's value is a free-text query, and
   // reinterpreting part of one as a date range would be a guess about somebody
-  // else's search syntax. `from` / `to` / `grace` on a PubMed seed travel in a
-  // `pubs.json`, exactly as `label` already does.
+  // else's search syntax. `from` / `to` / `grace` on a PubMed seed — like
+  // `label` — have nowhere to travel on either transport and are wizard-side
+  // losses that `restore.ts` reports rather than swallows.
   //
   // **`trust` is the exception, and it travels beside the query rather than
   // inside it.** Its loss is the one that is not cosmetic: a seed the owner
   // marked confirmed, arriving as a plain query, silently reverts to
   // `'candidate'` and its records vanish from the page. But a marker smuggled
   // into the query text would be indistinguishable from the user's own search
-  // syntax and could be mangled by the comma split this transport already
-  // suffers from — so the query string stays exactly what the user typed, and
+  // syntax — so the query string stays exactly what the user typed (commas
+  // and all: `encodeListValue` above is what keeps one intact), and
   // the flag rides in a second parameter, `pubmed-trusted`, as the zero-based
   // positions of the trusted queries within `pubmed`. Positions are safe here
   // because both parameters are written in one go by
@@ -242,7 +317,6 @@ function readConfig(read: ConfigReader): DatasetConfig {
 
   return {
     config,
-    configUrl: read('config', false),
     listId: read('list', false),
   }
 }
@@ -254,8 +328,8 @@ function readConfig(read: ConfigReader): DatasetConfig {
  * data-include,
  * data-exclude, data-style, data-from, data-to, data-group-by, data-preprints,
  * data-japanese, data-review-policy, data-disclaimer, data-limit,
- * data-bold-names (comma-separated where plural), plus the remote-config
- * pointers data-config and data-list.
+ * data-bold-names (comma-separated where plural, and each value escaped by
+ * `encodeListValue`), plus the registry pointer data-list.
  */
 export function parseConfigFromDataset(el: HTMLElement): DatasetConfig {
   return readConfig((name) => attr(el, `data-${name}`))
@@ -318,7 +392,7 @@ export function parseConfigFromSearchParams(
  *
  * The narrowing is what matters for `trust`: **anything that is not exactly
  * `'confirmed'` is dropped**, so a typo (`"trusted"`, `true`, `"yes"`) in a
- * hand-edited `pubs.json` falls back to the reviewed default rather than
+ * hand-edited `lists/*.json` falls back to the reviewed default rather than
  * publishing unreviewed hits. Same direction as `review-policy` above.
  */
 function normalizePubmedSeeds(
@@ -405,7 +479,14 @@ function sortKeys(value: unknown): unknown {
   return value
 }
 
-/** Stable pretty JSON, used for the `pubs.json` download and for hashing. */
+/**
+ * Stable pretty JSON.
+ *
+ * Its consumer is `configHash` below — the cache key — and the `lists/*.json`
+ * registry files, which are written by hand in this repository. There is no
+ * longer a download button behind it; the way a user comes back to a
+ * configuration is to paste their snippet into the wizard (`restore.ts`).
+ */
 export function serializeConfig(config: ListConfig): string {
   return `${JSON.stringify(sortKeys(config), null, 2)}\n`
 }

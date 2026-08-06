@@ -42,6 +42,7 @@
 
 import {
   configHash,
+  isListId,
   normalizeConfig,
   parseConfigFromSearchParams,
 } from '../core/config'
@@ -55,9 +56,6 @@ const STATE_ATTRIBUTE = 'data-publist-state'
 
 /** Also a styling hook: `[data-publist-state="loading"] { … }` in widget.html. */
 type WidgetState = 'loading' | 'cached' | 'ready' | 'empty' | 'error'
-
-/** A registry id addresses `lists/<id>.json` next to this page — keep it a filename. */
-const LIST_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i
 
 function setState(el: HTMLElement, state: WidgetState): void {
   el.setAttribute(STATE_ATTRIBUTE, state)
@@ -99,7 +97,7 @@ const CREDIT_OFF_VALUES: readonly string[] = ['0', 'false', 'off', 'no']
  * `?credit=` — the one query parameter that is not part of the `ListConfig`.
  *
  * It is deliberately not in `CONFIG_PARAM_NAMES`: it says how to render this
- * page, not what to put on it, it never travels in a `pubs.json`, and it has
+ * page, not what to put on it, it never travels in a `lists/*.json`, and it has
  * no `data-*` counterpart — `entry.ts` renders with the credit off on every
  * code path and must stay that way.
  */
@@ -136,7 +134,7 @@ async function fetchJson(url: string): Promise<Partial<ListConfig>> {
   return (await res.json()) as Partial<ListConfig>
 }
 
-/** Inline query parameters win over anything the remote config says. */
+/** Inline query parameters win over anything the `?list=` file says. */
 function mergeConfigs(
   base: Partial<ListConfig>,
   override: Partial<ListConfig>,
@@ -149,31 +147,20 @@ function mergeConfigs(
 }
 
 /**
- * Resolve `?config=` / `?list=` into a partial config.
+ * Resolve `?list=` into a partial config.
  *
- * Both pointers come from the query string, i.e. from whoever wrote the iframe
- * `src`, so both are checked before use: `config` must be http(s), and `list`
- * must look like a bare filename so it cannot climb out of `lists/`.
+ * The id comes from the query string, i.e. from whoever wrote the iframe
+ * `src`, so it is checked before use with `isListId` from `core/config.ts`: it
+ * must look like a bare filename, so it cannot climb out of `lists/`. Same
+ * function `src/embed/entry.ts` and `src/app/lib/restore.ts` call — the rule
+ * has one definition. There is deliberately no parameter that names an
+ * arbitrary URL for this page to fetch.
  */
 async function loadRemote(
-  configUrl: string | undefined,
   listId: string | undefined,
 ): Promise<Partial<ListConfig>> {
-  if (configUrl) {
-    let url: URL
-    try {
-      url = new URL(configUrl, document.baseURI)
-    } catch {
-      throw new Error(`config is not a valid URL: ${configUrl}`)
-    }
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-      throw new Error(`config must be an http(s) URL: ${configUrl}`)
-    }
-    return await fetchJson(url.toString())
-  }
-
   if (listId) {
-    if (!LIST_ID_PATTERN.test(listId)) {
+    if (!isListId(listId)) {
       throw new Error(`not a known list id: ${listId}`)
     }
     return await fetchJson(
@@ -200,7 +187,7 @@ async function run(el: HTMLElement): Promise<void> {
   const parsed = parseConfigFromSearchParams(params)
   const credit = parseCreditParam(params)
 
-  const remote = await loadRemote(parsed.configUrl, parsed.listId)
+  const remote = await loadRemote(parsed.listId)
   const config = normalizeConfig(mergeConfigs(remote, parsed.config))
 
   if (!hasSource(config)) {
@@ -209,7 +196,7 @@ async function run(el: HTMLElement): Promise<void> {
       el,
       'widget-status',
       'No publication source was given.',
-      'Add an orcid, researchmap, pubmed, include, config or list parameter to this page’s URL.',
+      'Add an orcid, researchmap, pubmed, include or list parameter to this page’s URL.',
     )
     return
   }

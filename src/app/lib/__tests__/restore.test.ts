@@ -288,6 +288,96 @@ describe('the round trip, draft → snippet → draft', () => {
   })
 })
 
+/**
+ * A comma inside a value, all the way round.
+ *
+ * Six parameters are comma-joined lists, and a realistic PubMed query contains
+ * a comma: `Furukawa Y[au] AND (Tokyo, Japan[ad])`. Before `encodeListValue`
+ * that query came back as **two** seeds — `…(Tokyo` and `Japan[ad])` — with no
+ * error anywhere, and the wizard's answer was to steer the user to a hosted
+ * file. The file is gone, so the escape has to hold: these are the tests that
+ * say it does, on the whole path a user actually takes.
+ */
+describe('values the comma-joined transports used to break', () => {
+  const COMMA = 'Furukawa Y[au] AND (Tokyo, Japan[ad])'
+  const PERCENT = 'insomnia[ti] AND 50% response[tiab]'
+
+  const withQueries = (pubmed: string): WizardDraft => ({
+    ...emptyDraft('person'),
+    orcid: '0000-0003-1317-0220',
+    pubmed,
+  })
+
+  it('brings a query containing a comma back as one seed, not two', async () => {
+    const before = withQueries(COMMA)
+    const { draft } = await restoreFromPaste(snippetFor(before))
+
+    expect(draft.pubmed).toBe(COMMA)
+    expect(draftToConfig(draft).seeds.pubmed).toEqual([{ query: COMMA }])
+    expect(visible(draft)).toEqual(visible(before))
+  })
+
+  it('brings a literal percent sign back unchanged', async () => {
+    const before = withQueries(PERCENT)
+    const { draft } = await restoreFromPaste(snippetFor(before))
+
+    expect(draft.pubmed).toBe(PERCENT)
+    expect(draftToConfig(draft).seeds.pubmed).toEqual([{ query: PERCENT }])
+  })
+
+  it('keeps several such queries apart, and in order', async () => {
+    const before = withQueries([COMMA, PERCENT, 'plain[au]'].join('\n'))
+    const { draft } = await restoreFromPaste(snippetFor(before))
+
+    expect(draft.pubmed).toBe([COMMA, PERCENT, 'plain[au]'].join('\n'))
+    expect(draftToConfig(draft).seeds.pubmed).toEqual([
+      { query: COMMA },
+      { query: PERCENT },
+      { query: 'plain[au]' },
+    ])
+  })
+
+  it('keeps the review tick on the query it was put on', async () => {
+    // The ticks travel as positions within `data-pubmed`. A query that split in
+    // two would shift every position after it onto the wrong query — the
+    // failure mode that publishes somebody else's unreviewed hits.
+    const before: WizardDraft = {
+      ...withQueries([COMMA, 'b[au]'].join('\n')),
+      pubmedTrusted: ['b[au]'],
+    }
+    const { draft } = await restoreFromPaste(snippetFor(before))
+
+    expect(draft.pubmedTrusted).toEqual(['b[au]'])
+    expect(draftToConfig(draft).seeds.pubmed).toEqual([
+      { query: COMMA },
+      { query: 'b[au]', trust: 'confirmed' },
+    ])
+  })
+
+  it('survives the iframe snippet too, which joins the same way', async () => {
+    const config = draftToConfig(withQueries([COMMA, PERCENT].join('\n')))
+    const { draft, form } = await restoreFromPaste(buildIframeSnippet(config))
+
+    expect(form).toBe('iframe')
+    expect(draft.pubmed).toBe([COMMA, PERCENT].join('\n'))
+  })
+
+  it('carries a comma in the other list fields as well', async () => {
+    // `exclude` rather than `boldNames`: the bold-names *box* is itself a
+    // comma-separated field, so a comma typed there is a separator by design
+    // and the wizard, not the transport, is where it splits. `exclude` is a
+    // real array on both sides, so the whole path is the transport's.
+    const config = normalizeConfig({
+      seeds: { orcid: ['0000-0003-1317-0220'] },
+      exclude: ['doi:10.1000/a,b', 'pmid:1'],
+    })
+    const { draft } = await restoreFromPaste(
+      buildEmbedSnippet(modelFor(config), { credit: true }),
+    )
+    expect(draft.exclude).toEqual(['doi:10.1000/a,b', 'pmid:1'])
+  })
+})
+
 // ────────────────────────────────────────────────────────── paste shapes ──
 
 describe('the shapes a paste can take', () => {
@@ -355,7 +445,7 @@ describe('the shapes a paste can take', () => {
   })
 })
 
-// ────────────────────────────────────────────────────── the hosted routes ──
+// ──────────────────────────────────────────────────────── the data-list id ──
 
 function stubFetch(body: unknown) {
   return vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
@@ -369,7 +459,18 @@ function stubFetch(body: unknown) {
   })
 }
 
-describe('the hosted-config routes', () => {
+/**
+ * `data-list` is the one route left that fetches anything.
+ *
+ * It names a file in this repository's own `lists/` registry, never a URL, and
+ * the id is checked with `isListId` (shared from `core/config.ts` with the
+ * widget and the embed script) before it is resolved against
+ * `SITE_BASE` — so a paste cannot make this module request an arbitrary
+ * address. The suite that used to live here covered `data-config` as well;
+ * that route is gone, and the tests that were only about it went with it. The
+ * ones below are the halves that still describe live behaviour.
+ */
+describe('the data-list route', () => {
   const HOSTED = normalizeConfig({
     seeds: {
       orcid: ['0000-0003-1317-0220'],
@@ -386,25 +487,25 @@ describe('the hosted-config routes', () => {
     style: 'apa',
   })
 
-  it('fetches a data-config URL and restores from the file', async () => {
+  it('resolves a data-list id against this site and nowhere else', async () => {
     const fetchStub = stubFetch(JSON.parse(serializeConfig(HOSTED)))
-    const { draft, form, fetchedFrom } = await restoreFromPaste(
-      '<div class="publist-embed" data-config="https://example.org/pubs.json"></div>',
+    const { draft, form, fetchedFrom, lost } = await restoreFromPaste(
+      '<div class="publist-embed" data-list="sleepi"></div>',
       { fetch: fetchStub },
     )
     expect(fetchStub).toHaveBeenCalledTimes(1)
-    expect(fetchStub.mock.calls[0][0]).toBe('https://example.org/pubs.json')
-    expect(form).toBe('config-url')
-    expect(fetchedFrom).toBe('https://example.org/pubs.json')
+    expect(fetchStub.mock.calls[0][0]).toBe(`${SITE_BASE}lists/sleepi.json`)
+    expect(form).toBe('list')
+    expect(fetchedFrom).toBe(`${SITE_BASE}lists/sleepi.json`)
     expect(draft.style).toBe('apa')
-    expect(draft.configUrl).toBe('https://example.org/pubs.json')
     // The file route is the one that carries `trust`.
     expect(draft.pubmedTrusted).toEqual(['Furukawa Y[au]'])
+    expect(lost.join(' ')).toContain('data-list id')
   })
 
   it('reports the PubMed fields the query box cannot hold', async () => {
     const { lost } = await restoreFromPaste(
-      '<div class="publist-embed" data-config="https://example.org/pubs.json"></div>',
+      '<div class="publist-embed" data-list="sleepi"></div>',
       { fetch: stubFetch(JSON.parse(serializeConfig(HOSTED))) },
     )
     const text = lost.join('\n')
@@ -418,28 +519,6 @@ describe('the hosted-config routes', () => {
     expect(text).not.toContain('Re-tick it')
   })
 
-  it('accepts a bare pubs.json URL', async () => {
-    const fetchStub = stubFetch(JSON.parse(serializeConfig(HOSTED)))
-    const { draft, form } = await restoreFromPaste(
-      'https://example.org/pubs.json',
-      { fetch: fetchStub },
-    )
-    expect(form).toBe('config-url')
-    expect(draft.orcid).toBe('0000-0003-1317-0220')
-    expect(draft.configUrl).toBe('https://example.org/pubs.json')
-  })
-
-  it('resolves a data-list id against this site and nowhere else', async () => {
-    const fetchStub = stubFetch(JSON.parse(serializeConfig(HOSTED)))
-    const { form, fetchedFrom, lost } = await restoreFromPaste(
-      '<div class="publist-embed" data-list="sleepi"></div>',
-      { fetch: fetchStub },
-    )
-    expect(form).toBe('list')
-    expect(fetchedFrom).toBe(`${SITE_BASE}lists/sleepi.json`)
-    expect(lost.join(' ')).toContain('data-list id')
-  })
-
   it('refuses a data-list id that tries to climb out of lists/', async () => {
     const fetchStub = stubFetch({})
     await expect(
@@ -451,40 +530,67 @@ describe('the hosted-config routes', () => {
     expect(fetchStub).not.toHaveBeenCalled()
   })
 
-  it('refuses a non-http(s) data-config and fetches nothing', async () => {
-    const fetchStub = stubFetch({})
-    await expect(
-      restoreFromPaste(
-        '<div class="publist-embed" data-config="javascript:alert(1)"></div>',
-        { fetch: fetchStub },
-      ),
-    ).rejects.toThrow(/http and https/)
-    expect(fetchStub).not.toHaveBeenCalled()
-
-    await expect(
-      restoreFromPaste(
-        '<div class="publist-embed" data-config="file:///etc/passwd"></div>',
-        { fetch: fetchStub },
-      ),
-    ).rejects.toThrow(/http and https/)
-    expect(fetchStub).not.toHaveBeenCalled()
-  })
-
   it('reports a fetch that fails rather than restoring half a form', async () => {
     const fetchStub = vi.fn(async () =>
       Promise.resolve({ ok: false, status: 404 } as unknown as Response),
     )
     await expect(
-      restoreFromPaste('https://example.org/pubs.json', { fetch: fetchStub }),
+      restoreFromPaste('<div class="publist-embed" data-list="sleepi"></div>', {
+        fetch: fetchStub,
+      }),
     ).rejects.toThrow(/404/)
   })
 
-  it('lets inline attributes win over the hosted file, as the embed does', async () => {
+  it('lets inline attributes win over the registry file, as the embed does', async () => {
     const { draft } = await restoreFromPaste(
-      '<div class="publist-embed" data-config="https://example.org/pubs.json" data-style="nature"></div>',
+      '<div class="publist-embed" data-list="sleepi" data-style="nature"></div>',
       { fetch: stubFetch(JSON.parse(serializeConfig(HOSTED))) },
     )
     expect(draft.style).toBe('nature')
+  })
+})
+
+/**
+ * The route that was removed, asserted as removed.
+ *
+ * A `data-config` attribute or a bare URL used to make this module fetch
+ * whatever address the paste named. Both now stop at an error message, and —
+ * the part that matters — neither reaches `fetch`.
+ */
+describe('a paste that names a URL to fetch', () => {
+  it('does not fetch a data-config attribute, whatever it points at', async () => {
+    const fetchStub = stubFetch({ seeds: { orcid: ['0000-0000-0000-0000'] } })
+    await expect(
+      restoreFromPaste(
+        '<div class="publist-embed" data-config="https://evil.example/pubs.json"></div>',
+        { fetch: fetchStub },
+      ),
+    ).rejects.toThrow(/no publication source/)
+    expect(fetchStub).not.toHaveBeenCalled()
+  })
+
+  it('ignores a data-config sitting beside real inline settings', async () => {
+    const fetchStub = stubFetch({ style: 'nature' })
+    const { draft, form } = await restoreFromPaste(
+      '<div class="publist-embed" data-config="https://evil.example/pubs.json" ' +
+        'data-orcid="0000-0003-1317-0220" data-style="apa"></div>',
+      { fetch: fetchStub },
+    )
+    expect(fetchStub).not.toHaveBeenCalled()
+    expect(form).toBe('embed')
+    expect(draft.orcid).toBe('0000-0003-1317-0220')
+    expect(draft.style).toBe('apa')
+  })
+
+  it('refuses a bare URL and says what would have worked', async () => {
+    const fetchStub = stubFetch({})
+    await expect(
+      restoreFromPaste('https://example.org/pubs.json', { fetch: fetchStub }),
+    ).rejects.toThrow(/Nothing here reads settings from a URL/)
+    await expect(
+      restoreFromPaste('https://example.org/pubs.json', { fetch: fetchStub }),
+    ).rejects.toThrow(/publist-embed/)
+    expect(fetchStub).not.toHaveBeenCalled()
   })
 })
 
@@ -541,14 +647,16 @@ describe('the credit and disclaimer checkboxes', () => {
 // ───────────────────────────────────────────────────────────── the losses ──
 
 describe('what it says could not be restored', () => {
-  it('names the PubMed extras on the inline route, but not the review tick', async () => {
+  it('names the PubMed extras on the inline route, and counts the tick as kept', async () => {
     const { lost } = await restoreFromPaste(snippetFor(PERSON_DRAFT))
     const text = lost.join('\n')
     // The name and the dates on a PubMed seed still have nowhere to go.
     expect(text).toContain('grace period')
-    // The tick does travel now, in `data-pubmed-trusted`, so claiming it was
-    // lost would send the user to re-tick something that is already ticked.
-    expect(text).not.toContain('publish without review')
+    // The tick does travel now, in `data-pubmed-trusted`. The sentence names
+    // it — as one of the two things a snippet *does* carry — so the assertion
+    // is about what it claims, not about whether the words appear.
+    expect(text).toContain('carries the query text and the “publish without review” tick')
+    expect(text).not.toContain('Re-tick')
   })
 
   it('says nothing about PubMed when there are no PubMed seeds', async () => {

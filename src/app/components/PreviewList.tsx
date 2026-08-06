@@ -34,6 +34,7 @@
 
 import { Fragment } from 'react'
 import { XIcon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { formatCitation } from '@/core/format'
 import {
   DISCLAIMER_TEXT,
@@ -71,18 +72,36 @@ function RemoveControl({
     ? `Remove “${title}” from the list`
     : `Cannot remove “${title}”. ${UNREMOVABLE_REASON}`
 
+  /*
+   * The design system's ghost button, not a hand-rolled one.
+   *
+   * It was a raw `<button>` at `text-[0.7rem]` (11.2px) in
+   * `text-muted-foreground` under `opacity-60`. The opacity is what made it a
+   * problem: 60% of `oklch(0.556 0 0)` composited on the card's white leaves
+   * roughly `#ababab`, about 2.3:1 against that background — well under the
+   * 4.5:1 WCAG AA needs for text this size, and 11.2px is not large text under
+   * any reading of the rule.
+   *
+   * `variant="ghost"` keeps it quiet the honest way — no background until it is
+   * hovered — and `size="sm"` brings it to 12.8px from the shared scale. The
+   * colour stays `text-muted-foreground` with no opacity on top, which measures
+   * 4.7:1 on the light card (`oklch(0.556)` against `oklch(1)`) and 6.9:1 on
+   * the dark one (`oklch(0.708)` against `oklch(0.205)`). Both pass AA.
+   */
   const button = (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="sm"
       disabled={!removable}
       aria-label={label}
       title={removable ? label : undefined}
       onClick={() => onRemove(pub)}
-      className="ms-1.5 inline-flex translate-y-px items-center gap-0.5 rounded-sm border border-transparent px-1 py-px align-baseline text-[0.7rem] text-muted-foreground opacity-60 transition-opacity hover:border-border hover:text-destructive hover:opacity-100 focus-visible:border-border focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-transparent disabled:hover:text-muted-foreground"
+      className="ms-1.5 inline-flex translate-y-px align-baseline text-muted-foreground hover:text-destructive disabled:cursor-not-allowed"
     >
-      <XIcon className="size-3" aria-hidden="true" />
+      <XIcon aria-hidden="true" />
       Remove
-    </button>
+    </Button>
   )
 
   // A disabled button fires no pointer events, so its own `title` never shows.

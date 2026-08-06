@@ -19,6 +19,10 @@ import {
   DEFAULT_PREPRINTS,
   DEFAULT_REVIEW_POLICY,
   DEFAULT_STYLE,
+  LIST_ID_PATTERN,
+  decodeListValue,
+  encodeListValue,
+  isListId,
   normalizeConfig,
   parseConfigFromDataset,
   parseConfigFromSearchParams,
@@ -101,12 +105,19 @@ describe('parseConfigFromSearchParams — every parameter', () => {
     expect(config.boldNames).toEqual(['Furukawa Y'])
   })
 
-  it('returns the remote-config pointers beside the config, not inside it', () => {
-    const parsed = fromQuery('config=https://example.org/pubs.json&list=sleepi')
-    expect(parsed.configUrl).toBe('https://example.org/pubs.json')
+  it('returns the registry pointer beside the config, not inside it', () => {
+    const parsed = fromQuery('list=sleepi')
     expect(parsed.listId).toBe('sleepi')
-    expect(parsed.config).not.toHaveProperty('configUrl')
     expect(parsed.config).not.toHaveProperty('listId')
+  })
+
+  it('has no parameter that names an arbitrary URL to fetch', () => {
+    // `config=` used to be that parameter. Nothing reads it now, and a paste
+    // that still carries one must not be able to point the widget anywhere.
+    const parsed = fromQuery('config=https://evil.example/pubs.json&orcid=' + ORCID)
+    expect(parsed).not.toHaveProperty('configUrl')
+    expect(parsed.listId).toBeUndefined()
+    expect(JSON.stringify(parsed)).not.toContain('evil.example')
   })
 
   it('normalizes ORCID and researchmap ids the way the dataset parser does', () => {
@@ -155,6 +166,125 @@ describe('parseConfigFromSearchParams — multi-values', () => {
   })
 })
 
+/**
+ * The one rule three modules share.
+ *
+ * A `data-list` / `?list=` value is interpolated into `lists/<id>.json` and
+ * resolved with `new URL()`, which walks `..` like any path — so an unchecked
+ * id addresses files outside the registry. `src/widget/main.ts`,
+ * `src/embed/entry.ts` and `src/app/lib/restore.ts` all call this before
+ * resolving, and each used to spell the pattern out for itself (`entry.ts` was
+ * the copy that never got written). One definition, so a fourth consumer
+ * cannot get it wrong.
+ */
+describe('isListId', () => {
+  it('accepts a bare filename, which is what the registry holds', () => {
+    for (const id of ['furukawa', 'sleepi', 'my-lab_2026', 'v1.list', 'a', 'A1']) {
+      expect(isListId(id)).toBe(true)
+    }
+  })
+
+  it('refuses anything that could climb out of lists/', () => {
+    for (const id of [
+      '..',
+      '../secrets',
+      '../../../etc/passwd',
+      './list',
+      '/absolute',
+      'sub/dir/list',
+      // A leading dot is refused outright rather than special-casing `..`.
+      '.hidden',
+    ]) {
+      expect(isListId(id)).toBe(false)
+    }
+  })
+
+  it('refuses a value that names somewhere else entirely', () => {
+    for (const id of [
+      'https://evil.example/pubs.json',
+      '//evil.example/pubs.json',
+      'javascript:alert(1)',
+    ]) {
+      expect(isListId(id)).toBe(false)
+    }
+  })
+
+  it('refuses the escaped spellings, because nothing decodes them first', () => {
+    // `attr()` and `URLSearchParams` hand the value over as-is at this point,
+    // so an id is checked exactly as it will be interpolated.
+    expect(isListId('%2e%2e%2fsecrets')).toBe(false)
+    expect(isListId('..%2Fsecrets')).toBe(false)
+  })
+
+  it('refuses blank, whitespace and undefined', () => {
+    expect(isListId('')).toBe(false)
+    expect(isListId('  ')).toBe(false)
+    expect(isListId(undefined)).toBe(false)
+  })
+
+  it('is stateless — the pattern carries no /g, so repeats agree', () => {
+    // A shared regex with /g would keep `lastIndex` between calls and start
+    // alternating. It is exported as a constant, so this is worth pinning.
+    for (let i = 0; i < 4; i += 1) {
+      expect(isListId('sleepi')).toBe(true)
+      expect(isListId('../secrets')).toBe(false)
+    }
+    expect(LIST_ID_PATTERN.global).toBe(false)
+  })
+})
+
+/**
+ * The escape that lets a comma travel inside a comma-joined list.
+ *
+ * Read the long note above `encodeListValue` in `config.ts` for why the two
+ * replacement orders are mirror images. What is asserted here is the property
+ * that note claims: `decode(encode(v)) === v` for every value, including the
+ * ones that look like an escape already.
+ */
+describe('encodeListValue / decodeListValue', () => {
+  const VALUES = [
+    'Furukawa Y[au] AND (Tokyo, Japan[ad])',
+    'insomnia[ti] AND 50% response[tiab]',
+    // A user who typed the escape sequence themselves. It must come back as
+    // the literal text, not as a comma.
+    '%2C',
+    '%25',
+    '%252C',
+    ',,,',
+    '100%,50%',
+    '',
+    'plain[au]',
+  ]
+
+  it('is a true inverse, escapes and all', () => {
+    for (const value of VALUES) {
+      expect(decodeListValue(encodeListValue(value))).toBe(value)
+    }
+  })
+
+  it('leaves no bare comma in an encoded value', () => {
+    for (const value of VALUES) {
+      expect(encodeListValue(value)).not.toContain(',')
+    }
+  })
+
+  it('survives the join and the split that the transports perform', () => {
+    const joined = VALUES.filter((v) => v !== '').map(encodeListValue).join(',')
+    const { config } = fromQuery(
+      `include=${encodeURIComponent(joined)}`,
+    )
+    expect(config.include).toEqual(VALUES.filter((v) => v !== ''))
+  })
+
+  it('accepts a lowercase %2c from a hand-edited attribute', () => {
+    expect(decodeListValue('Tokyo%2c Japan')).toBe('Tokyo, Japan')
+  })
+
+  it('touches nothing else — no other character is escaped', () => {
+    expect(encodeListValue('a b&c=d"e<f>g[h]')).toBe('a b&c=d"e<f>g[h]')
+  })
+})
+
 describe('parseConfigFromSearchParams — unusable values', () => {
   it('ignores a style outside the vocabulary', () => {
     expect(fromQuery('style=mla').config.style).toBeUndefined()
@@ -192,7 +322,7 @@ describe('parseConfigFromSearchParams — unusable values', () => {
   })
 })
 
-/** A `pubs.json` reaches `normalizeConfig` as a plain object, unparsed. */
+/** A `lists/*.json` file reaches `normalizeConfig` as a plain object, unparsed. */
 const fromJson = (json: Partial<ListConfig>) => normalizeConfig(json)
 
 describe('groupBy defaults to category-year', () => {
@@ -291,7 +421,6 @@ describe('parseConfigFromSearchParams agrees with parseConfigFromDataset', () =>
         'data-from': '2015-04',
         'data-to': '2026-12',
         'data-limit': '50',
-        'data-config': 'https://example.org/pubs.json',
         'data-list': 'sleepi',
       },
       query: [
@@ -310,9 +439,15 @@ describe('parseConfigFromSearchParams agrees with parseConfigFromDataset', () =>
         'from=2015-04',
         'to=2026-12',
         'limit=50',
-        'config=https://example.org/pubs.json',
         'list=sleepi',
       ].join('&'),
+    },
+    {
+      name: 'escaped commas and percent signs inside list values',
+      attrs: {
+        'data-pubmed': 'Furukawa Y[au] AND (Tokyo%2C Japan[ad]),50%25 [tiab]',
+      },
+      query: 'pubmed=Furukawa Y%5Bau%5D AND (Tokyo%252C Japan%5Bad%5D),50%2525 %5Btiab%5D',
     },
     {
       name: 'seeds only',
@@ -359,11 +494,11 @@ describe('parseConfigFromSearchParams agrees with parseConfigFromDataset', () =>
 })
 
 /**
- * The third transport: a hosted `pubs.json`, which reaches `normalizeConfig`
+ * The third transport: a `lists/*.json` registry file, which reaches `normalizeConfig`
  * as a plain object rather than through either string parser.
  */
 describe('normalizeConfig — preprints', () => {
-  it('excludes preprints when a pubs.json says nothing about them', () => {
+  it('excludes preprints when a registry file says nothing about them', () => {
     const config = normalizeConfig({
       v: 1,
       seeds: { orcid: ['0000-0003-1317-0220'] },
@@ -376,7 +511,7 @@ describe('normalizeConfig — preprints', () => {
     expect(normalizeConfig({ preprints: 'include' }).preprints).toBe('include')
   })
 
-  it('serializes the setting, so a downloaded pubs.json is explicit about it', () => {
+  it('serializes the setting, so a registry file is explicit about it', () => {
     expect(serializeConfig(normalizeConfig({}))).toContain('"preprints": "exclude"')
   })
 })
@@ -433,14 +568,14 @@ describe('seed time windows', () => {
     expect(JSON.parse(json).seeds.orcid).toEqual([
       { grace: 36, id: ORCID, to: '2023-03' },
     ])
-    // A pubs.json round trip must be lossless — it is the transport windows
+    // A registry-file round trip must be lossless — it is the transport windows
     // are documented as always working on.
     expect(normalizeConfig(JSON.parse(json) as ListConfig)).toEqual(config)
   })
 
   it('does not read a window out of a PubMed query', () => {
     // A query is free text; a date-looking tail in one is the user's syntax,
-    // not ours. PubMed windows travel in a pubs.json only.
+    // not ours. PubMed windows travel in a lists/*.json file only.
     const { config } = fromAttributes({ 'data-pubmed': 'Tanaka H[au]@2019:2023' })
     expect(config.seeds?.pubmed).toEqual([{ query: 'Tanaka H[au]@2019:2023' }])
   })
@@ -456,7 +591,7 @@ describe('a PubMed seed marked trusted', () => {
     },
   }
 
-  it('survives a pubs.json round trip', () => {
+  it('survives a registry-file round trip', () => {
     const config = normalizeConfig(TRUSTED)
     expect(config.seeds.pubmed).toEqual([
       { query: '"SLEEPI"[cn]', label: 'SLEEPI', trust: 'confirmed' },
@@ -520,7 +655,7 @@ describe('a PubMed seed marked trusted', () => {
   })
 
   it('drops a trust value that is not exactly "confirmed"', () => {
-    // A hand-edited pubs.json is where this comes from, and an unrecognized
+    // A hand-edited lists/*.json is where this comes from, and an unrecognized
     // value must fall back to reviewing rather than to publishing.
     const config = normalizeConfig({
       seeds: {

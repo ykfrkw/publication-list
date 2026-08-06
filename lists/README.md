@@ -15,22 +15,22 @@ It holds the maintainer's own lists and a small number of groups he was asked to
 
 Nothing is lost by being outside it. There is no feature, no badge and no ranking here.
 
-## Host your own configuration instead — no approval from anyone
+## Put the configuration in the snippet instead — no approval from anyone
 
-Use `data-config` with a URL you control:
+Everything a file here can express also fits in the embed's own `data-*` attributes, and that is the route everybody outside this registry uses:
 
 ```html
-<div class="publist-embed" data-config="https://example.ac.uk/pubs.json"></div>
+<div class="publist-embed"
+  data-orcid="0000-0003-1317-0220"
+  data-style="vancouver"></div>
 <script src="https://ykfrkw.github.io/publication-list/embed.js" defer></script>
 ```
 
-That is the identical mechanism. The embed fetches your JSON instead of one of these files and behaves exactly the same way afterwards.
+Generate it in the [wizard](https://ykfrkw.github.io/publication-list/) and paste it into your page. There is no file to host, no URL to keep working and no CORS to configure — and no size at which the attributes stop coping: a long member list, a long exclude list and a PubMed query containing a comma all travel inline (commas inside a value are escaped as `%2C`).
 
-To produce the file, generate your list in the [wizard](https://ykfrkw.github.io/publication-list/) and press **Download `pubs.json`**. Then put it anywhere that serves it publicly with permissive CORS — your own web server, GitHub Pages, or a GitHub Gist raw URL (`raw.githubusercontent.com` sends `Access-Control-Allow-Origin: *`).
+**The snippet is also the backup.** Paste it back into the wizard — "Start from an existing snippet" — and the form fills in from it, so keeping a copy of the snippet is keeping the configuration. See the [attribute reference](../README.md#full-attribute-reference).
 
-You do not need an account with this project, permission from its maintainer, or a pull request. Editing your own `pubs.json` later updates every page that points at it.
-
-If you would rather not host a file at all, put the configuration straight into the embed's `data-*` attributes. See the [attribute reference](../README.md#full-attribute-reference).
+A previous version of this project let you point `data-config` at a `pubs.json` you hosted yourself. That route and that download are gone; the snippet does the same job with nothing to maintain.
 
 ## Contents
 
@@ -41,7 +41,9 @@ If you would rather not host a file at all, put the configuration straight into 
 
 ## File format
 
-Each file is a `ListConfig` document — the same schema as a hosted `pubs.json`. See the [`ListConfig` reference](../README.md#listconfig-reference).
+Each file is a `ListConfig` document — the same shape a snippet's `data-*` attributes project onto once parsed. See the [`ListConfig` reference](../README.md#listconfig-reference).
+
+A file here can carry two things the attributes cannot: a `label`, `from`, `to` or `grace` on a **PubMed** seed. Everything else has an inline equivalent.
 
 A file may carry an extra `_comment` key for maintainer notes. It is not part of the schema; `normalizeConfig()` in `src/core/config.ts` rebuilds the configuration from known keys only, so unknown keys are ignored at runtime and never reach the rendered list.
 

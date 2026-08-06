@@ -41,8 +41,8 @@
  * BACKWARD COMPATIBILITY
  *
  * A seed may be a bare string, and a bare string means exactly what it always
- * meant: no window, no filtering, no behaviour change. Every `pubs.json`,
- * `lists/*.json` and published snippet written before windows existed keeps
+ * meant: no window, no filtering, no behaviour change. Every `lists/*.json`
+ * and every published snippet written before windows existed keeps
  * working untouched, and `seedId('0000-…')` is the only thing the rest of the
  * codebase needs to know about the distinction.
  * ──────────────────────────────────────────────────────────────────────────

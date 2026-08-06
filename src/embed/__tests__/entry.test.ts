@@ -395,33 +395,33 @@ describe('config resolution and state', () => {
     expect(config.reviewPolicy).toBe('auto')
   })
 
-  it('lets inline attributes win over a remote data-config', async () => {
-    const remote = {
-      v: 1,
-      seeds: { orcid: ['0000-0000-0000-0000'] },
-      style: 'nature',
-      limit: 99,
-    }
+  /**
+   * `data-config` used to name any URL for this script to fetch. It is gone,
+   * and a snippet that still carries one must be inert: no request, and the
+   * inline attributes used as the whole configuration.
+   */
+  it('fetches nothing for a data-config attribute and uses the inline settings', async () => {
     const fetchStub = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(
-        new Response(JSON.stringify(remote), {
+        new Response(JSON.stringify({ v: 1, style: 'nature', limit: 99 }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),
       )
 
     document.body.innerHTML =
-      `<div class="publist-embed" data-config="https://example.test/pubs.json" ` +
-      `data-style="apa">${SNAPSHOT_LIST}</div>`
+      `<div class="publist-embed" data-config="https://evil.test/pubs.json" ` +
+      `data-orcid="${ORCID}" data-style="apa">${SNAPSHOT_LIST}</div>`
 
     mocks.buildList.mockResolvedValue(model('Fresh citation'))
     await init()
 
+    expect(fetchStub).not.toHaveBeenCalled()
     const config = mocks.buildList.mock.calls[0][0] as ListModel['config']
     expect(config.style).toBe('apa')
-    expect(config.limit).toBe(99)
-    expect(config.seeds.orcid).toEqual(['0000-0000-0000-0000'])
+    expect(config.seeds.orcid).toEqual([ORCID])
+    expect(config.limit).toBeUndefined()
 
     fetchStub.mockRestore()
   })
@@ -476,5 +476,196 @@ describe('config resolution and state', () => {
     await init()
 
     expect(mocks.buildList).toHaveBeenCalledTimes(2)
+  })
+})
+
+/**
+ * The one route that still fetches: `data-list`.
+ *
+ * It resolves an id against the URL this script was served from, so the id can
+ * only ever name a file in this repository's own `lists/` registry. That base
+ * is read from `document.currentScript` at module scope, which is why this
+ * suite re-imports the module with a `<script src=…embed.js>` in the document
+ * rather than reusing the `init` above — with no script tag there is no base,
+ * and `loadConfig` skips the fetch entirely. Any future test of this route
+ * needs `initWithScriptBase()` for the same reason.
+ *
+ * Two assertions here are the load-bearing ones. Inline attributes win over the
+ * fetched file — carried over from the deleted `data-config` test, which is the
+ * half of it that still applies. And an id that is not a bare filename reaches
+ * no `fetch` at all: `new URL()` walks `..` like any path, so an unchecked
+ * `data-list="../../secrets"` addressed `<site>/secrets.json`. This script was
+ * the one of the three consumers that had no such check.
+ */
+describe('the data-list registry route', () => {
+  const SCRIPT = 'https://ykfrkw.github.io/publication-list/embed.js'
+
+  /** `entry.ts` re-evaluated with a script tag present, so it has a base URL. */
+  async function initWithScriptBase(): Promise<() => Promise<void>> {
+    document.body.innerHTML = ''
+    document.head.innerHTML = `<script src="${SCRIPT}"></script>`
+    vi.resetModules()
+    // Importing runs the module's own `init()` against an empty body: a no-op.
+    const mod = await import('../entry')
+    return mod.init
+  }
+
+  afterEach(() => {
+    document.head.innerHTML = ''
+  })
+
+  it('resolves the id against the script URL, inside lists/', async () => {
+    const initScoped = await initWithScriptBase()
+    const fetchStub = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ v: 1, seeds: { orcid: [ORCID] } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    document.body.innerHTML =
+      `<div class="publist-embed" data-list="sleepi">${SNAPSHOT_LIST}</div>`
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await initScoped()
+
+    expect(fetchStub).toHaveBeenCalledTimes(1)
+    expect(fetchStub.mock.calls[0][0]).toBe(
+      'https://ykfrkw.github.io/publication-list/lists/sleepi.json',
+    )
+
+    fetchStub.mockRestore()
+  })
+
+  it('lets inline attributes win over the file it fetched', async () => {
+    const initScoped = await initWithScriptBase()
+    const fetchStub = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          v: 1,
+          seeds: { orcid: ['0000-0000-0000-0000'] },
+          style: 'nature',
+          limit: 99,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    document.body.innerHTML =
+      `<div class="publist-embed" data-list="sleepi" data-style="apa">` +
+      `${SNAPSHOT_LIST}</div>`
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await initScoped()
+
+    const config = mocks.buildList.mock.calls[0][0] as ListModel['config']
+    // Inline wins where the two disagree…
+    expect(config.style).toBe('apa')
+    // …and the file supplies everything the attributes are silent about.
+    expect(config.limit).toBe(99)
+    expect(config.seeds.orcid).toEqual(['0000-0000-0000-0000'])
+
+    fetchStub.mockRestore()
+  })
+
+  /**
+   * The traversal guard, asserted where it matters: on the fetch stub.
+   *
+   * Not on the rendered outcome — a request that goes out and then fails still
+   * went out. `expect(fetchStub).not.toHaveBeenCalled()` is the whole claim.
+   */
+  it.each([
+    ['../../../secrets', 'climbs out of the registry directory'],
+    ['../secrets', 'climbs one level'],
+    ['sub/dir/list', 'names a path rather than a filename'],
+    ['.hidden', 'starts with a dot, so it could begin a climb'],
+    ['%2e%2e%2fsecrets', 'tries the escape the attribute reader does not decode'],
+    // Reaches the same outcome by a different route: `attr()` in `config.ts`
+    // trims and drops an empty value, so this never becomes an id at all.
+    ['   ', 'is blank, and so is read as no id rather than a bad one'],
+  ])('fetches nothing for data-list="%s", which %s', async (id) => {
+    const initScoped = await initWithScriptBase()
+    const fetchStub = vi.spyOn(globalThis, 'fetch')
+
+    document.body.innerHTML =
+      `<div class="publist-embed" data-list="${id}" data-orcid="${ORCID}">` +
+      `${SNAPSHOT_LIST}</div>`
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await initScoped()
+
+    expect(fetchStub).not.toHaveBeenCalled()
+    fetchStub.mockRestore()
+  })
+
+  it('leaves the snapshot up and warns when the id is refused', async () => {
+    // A snippet naming an unusable id is a broken snippet, so it is not
+    // quietly rendered from its inline attributes instead — but the visitor
+    // still keeps the list that was pasted into the page.
+    const initScoped = await initWithScriptBase()
+    const fetchStub = vi.spyOn(globalThis, 'fetch')
+
+    document.body.innerHTML =
+      `<div class="publist-embed" data-list="../../secrets" data-orcid="${ORCID}">` +
+      `${SNAPSHOT_LIST}</div>`
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await initScoped()
+
+    const el = document.querySelector<HTMLElement>('.publist-embed')!
+    expect(fetchStub).not.toHaveBeenCalled()
+    expect(mocks.buildList).not.toHaveBeenCalled()
+    expect(el.textContent).toContain('Snapshot citation')
+    expect(el.getAttribute('data-publist-state')).toBe('error')
+    expect(warn).toHaveBeenCalled()
+
+    fetchStub.mockRestore()
+  })
+
+  it('still accepts the ids the registry actually uses', async () => {
+    // The guard has to be narrow enough to be safe and wide enough to be
+    // useless-free: both files in `lists/` today, plus the shapes the pattern
+    // deliberately allows.
+    for (const id of ['furukawa', 'sleepi', 'my-lab_2026', 'v1.list']) {
+      const initScoped = await initWithScriptBase()
+      const fetchStub = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ v: 1, seeds: { orcid: [ORCID] } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+
+      document.body.innerHTML =
+        `<div class="publist-embed" data-list="${id}">${SNAPSHOT_LIST}</div>`
+      mocks.buildList.mockResolvedValue(model('Fresh citation'))
+      await initScoped()
+
+      expect(fetchStub.mock.calls[0][0]).toBe(
+        `https://ykfrkw.github.io/publication-list/lists/${id}.json`,
+      )
+      fetchStub.mockRestore()
+    }
+  })
+
+  /**
+   * A network failure must never blank out a lab's list.
+   *
+   * The snapshot in the container is the fallback for everything, and a
+   * `data-list` that 404s is the likeliest way to reach it — an id that was
+   * removed from the registry, on a page nobody re-pasted.
+   */
+  it('leaves the snapshot in place when the registry file is missing', async () => {
+    const initScoped = await initWithScriptBase()
+    const fetchStub = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('', { status: 404 }))
+
+    document.body.innerHTML =
+      `<div class="publist-embed" data-list="gone">${SNAPSHOT_LIST}</div>`
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await initScoped()
+
+    const el = document.querySelector<HTMLElement>('.publist-embed')!
+    expect(mocks.buildList).not.toHaveBeenCalled()
+    expect(el.textContent).toContain('Snapshot citation')
+    expect(el.getAttribute('data-publist-state')).toBe('error')
+
+    fetchStub.mockRestore()
   })
 })

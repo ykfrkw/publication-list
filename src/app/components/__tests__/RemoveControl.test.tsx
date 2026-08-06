@@ -6,7 +6,7 @@
  * This is the route that closes the gap the `exclude`-beats-`include` fix
  * opened: the pipeline has been able to drop a wrongly pinned paper for a while,
  * but until there was a control on the list itself the only way to reach it was
- * to hand-edit `pubs.json`. Four things are pinned here.
+ * to hand-edit a configuration file. Four things are pinned here.
  *
  *   1. Remove writes the `exclude` entry that does the work, and takes the ref
  *      out of `include` so the saved configuration does not pin and exclude the

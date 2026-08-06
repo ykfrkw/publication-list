@@ -38,7 +38,11 @@ import {
   renderHtml,
   showsDisclaimer,
 } from '@/core/render'
-import { DEFAULT_DISCLAIMER, DEFAULT_GROUP_BY } from '@/core/config'
+import {
+  DEFAULT_DISCLAIMER,
+  DEFAULT_GROUP_BY,
+  encodeListValue,
+} from '@/core/config'
 import { encodeSeed } from '@/core/seeds'
 import { escapeHtml } from '@/core/format'
 import type { ListConfig, ListModel } from '@/core/types'
@@ -47,16 +51,6 @@ import type { ListConfig, ListModel } from '@/core/types'
 export const SITE_BASE = 'https://ykfrkw.github.io/publication-list/'
 export const EMBED_SCRIPT_URL = `${SITE_BASE}embed.js`
 export const WIDGET_URL = `${SITE_BASE}widget.html`
-
-/** Suggested filename for the hosted-config download. */
-export const CONFIG_FILENAME = 'pubs.json'
-
-/**
- * Beyond this many characters of inline `data-*` attributes the snippet stops
- * being something a person can paste into a CMS field and read back. The UI
- * uses it to decide when to push the hosted-`pubs.json` route.
- */
-export const INLINE_ATTR_BUDGET = 400
 
 export type DataAttribute = readonly [name: string, value: string]
 
@@ -76,12 +70,19 @@ function attrEscape(value: string): string {
  * `data-style`, which is always written out — the citation style is the thing
  * a site owner is most likely to want to change by hand later, and having it
  * present makes that obvious.
+ *
+ * Every element of a joined list goes through `encodeListValue` first, so a
+ * value containing a comma survives the join instead of becoming two values.
+ * `splitList` in `core/config.ts` is the other half; read the note above it.
  */
 export function configToDataAttributes(config: ListConfig): DataAttribute[] {
   const out: DataAttribute[] = []
   const push = (name: string, value: string | undefined) => {
     if (value != null && value !== '') out.push([name, value] as const)
   }
+  /** Join a list the way `splitList` reads one back. */
+  const joinList = (values: readonly string[] | undefined) =>
+    values?.map(encodeListValue).join(',')
 
   // `encodeSeed` writes a bare id unchanged and a time-bounded one as
   // `id@from:to:grace`, which `decodeSeed` reads back — so a member window
@@ -95,9 +96,9 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
   // holds the zero-based positions of the trusted queries within
   // `data-pubmed`, and the two attributes are written here together, in one
   // pass over one array, which is what makes the positions trustworthy.
-  push('data-orcid', config.seeds.orcid?.map(encodeSeed).join(','))
-  push('data-researchmap', config.seeds.researchmap?.map(encodeSeed).join(','))
-  push('data-pubmed', config.seeds.pubmed?.map((s) => s.query).join(','))
+  push('data-orcid', joinList(config.seeds.orcid?.map(encodeSeed)))
+  push('data-researchmap', joinList(config.seeds.researchmap?.map(encodeSeed)))
+  push('data-pubmed', joinList(config.seeds.pubmed?.map((s) => s.query)))
   push(
     'data-pubmed-trusted',
     (config.seeds.pubmed ?? [])
@@ -105,9 +106,9 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
       .filter((index): index is number => index != null)
       .join(','),
   )
-  push('data-include', config.include?.join(','))
-  push('data-exclude', config.exclude?.join(','))
-  push('data-bold-names', config.boldNames?.join(','))
+  push('data-include', joinList(config.include))
+  push('data-exclude', joinList(config.exclude))
+  push('data-bold-names', joinList(config.boldNames))
 
   push('data-style', config.style ?? 'vancouver')
   if (config.groupBy && config.groupBy !== DEFAULT_GROUP_BY) {
@@ -130,26 +131,6 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
   if (config.limit != null) push('data-limit', String(config.limit))
 
   return out
-}
-
-/**
- * A comma-joined attribute cannot carry a value containing a comma.
- *
- * PubMed queries are the realistic case (`Furukawa Y[au] AND (Tokyo, Japan[ad])`).
- * Rather than emit a snippet that silently splits one query into two, the UI
- * checks this and steers the user to the hosted-`pubs.json` route, where the
- * value is a JSON string and the problem does not exist.
- */
-export function hasCommaHostileValues(config: ListConfig): boolean {
-  const lists = [
-    config.seeds.orcid?.map(encodeSeed),
-    config.seeds.researchmap?.map(encodeSeed),
-    config.include,
-    config.exclude,
-    config.boldNames,
-    config.seeds.pubmed?.map((s) => s.query),
-  ]
-  return lists.some((list) => (list ?? []).some((v) => v.includes(',')))
 }
 
 function renderAttributes(attrs: readonly DataAttribute[]): string {
@@ -182,11 +163,6 @@ export interface EmbedSnippetOptions {
    * `src/embed/entry.ts`, which shows a spinner for exactly this case).
    */
   snapshot?: boolean
-  /**
-   * When set, the config travels in a hosted `pubs.json` and the container
-   * carries a single `data-config` attribute instead of the inline set.
-   */
-  configUrl?: string
 }
 
 /**
@@ -218,10 +194,7 @@ export function buildEmbedSnippet(
   model: ListModel,
   opts: EmbedSnippetOptions,
 ): string {
-  const attrs: DataAttribute[] =
-    opts.configUrl && opts.configUrl.trim() !== ''
-      ? [['data-config', opts.configUrl.trim()] as const]
-      : configToDataAttributes(model.config)
+  const attrs = configToDataAttributes(model.config)
 
   const stamp = (model.generatedAt || '').slice(0, 10)
   const lines: string[] = [`<div class="publist-embed"${renderAttributes(attrs)}>`]
@@ -252,7 +225,6 @@ function attributesToQuery(attrs: readonly DataAttribute[]): string {
 }
 
 export interface IframeSnippetOptions {
-  configUrl?: string
   /** CSS height before the frame reports its own, in px. */
   fallbackHeight?: number
   /**
@@ -282,10 +254,7 @@ export function buildIframeSnippet(
   config: ListConfig,
   opts: IframeSnippetOptions = {},
 ): string {
-  const attrs: DataAttribute[] =
-    opts.configUrl && opts.configUrl.trim() !== ''
-      ? [['config', opts.configUrl.trim()] as const]
-      : configToDataAttributes(config)
+  const attrs: DataAttribute[] = configToDataAttributes(config)
   // Only written when it is off: an absent parameter already means "on", and a
   // snippet should not carry a parameter that changes nothing.
   if (opts.credit === false) attrs.push(['credit', '0'] as const)
@@ -318,12 +287,4 @@ export function buildIframeSnippet(
     '})();',
     '</script>',
   ].join('\n')
-}
-
-/** Total length of the inline attribute block, for the size hint in the UI. */
-export function inlineAttributeLength(config: ListConfig): number {
-  return configToDataAttributes(config).reduce(
-    (n, [name, value]) => n + name.length + value.length + 4,
-    0,
-  )
 }

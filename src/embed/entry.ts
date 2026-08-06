@@ -61,7 +61,12 @@
  * ──────────────────────────────────────────────────────────────────────────
  */
 
-import { configHash, normalizeConfig, parseConfigFromDataset } from '../core/config'
+import {
+  configHash,
+  isListId,
+  normalizeConfig,
+  parseConfigFromDataset,
+} from '../core/config'
 import { readCache, writeCache } from '../core/cache'
 import { buildList } from '../core/pipeline'
 import { CREDIT_SELECTOR, DISCLAIMER_SELECTOR, renderHtml } from '../core/render'
@@ -249,7 +254,7 @@ async function fetchJson(url: string): Promise<Partial<ListConfig>> {
   return (await res.json()) as Partial<ListConfig>
 }
 
-/** Inline `data-*` attributes win over anything the remote config says. */
+/** Inline `data-*` attributes win over anything the `data-list` file says. */
 function mergeConfigs(
   base: Partial<ListConfig>,
   override: Partial<ListConfig>,
@@ -316,11 +321,25 @@ async function loadConfig(el: HTMLElement): Promise<ListConfig> {
   const parsed = parseConfigFromDataset(el)
 
   let remote: Partial<ListConfig> = {}
-  if (parsed.configUrl) {
-    remote = await fetchJson(parsed.configUrl)
-  } else if (parsed.listId && SCRIPT_SRC) {
-    const url = new URL(`lists/${parsed.listId}.json`, SCRIPT_SRC).toString()
-    remote = await fetchJson(url)
+  if (parsed.listId != null) {
+    // Checked before it is interpolated into a path, with the same rule the
+    // widget and the wizard's restore use — `isListId` in `core/config.ts`.
+    // Without it `data-list="../../secrets"` resolves to `<site>/secrets.json`
+    // and is fetched: `new URL()` walks `..` like any other path.
+    //
+    // Thrown rather than ignored, because a snippet naming an unusable id is a
+    // broken snippet and quietly rendering it from the inline attributes would
+    // hide that. `hydrate`'s caller catches it, warns on the console and leaves
+    // the pasted snapshot on the page — so a visitor still sees the list.
+    if (!isListId(parsed.listId)) {
+      throw new Error(`not a known list id: ${parsed.listId}`)
+    }
+    // No base URL means the script tag could not be located, so there is
+    // nothing to resolve against; the inline attributes stand on their own.
+    if (SCRIPT_SRC) {
+      const url = new URL(`lists/${parsed.listId}.json`, SCRIPT_SRC).toString()
+      remote = await fetchJson(url)
+    }
   }
 
   return normalizeConfig(mergeConfigs(remote, parsed.config))

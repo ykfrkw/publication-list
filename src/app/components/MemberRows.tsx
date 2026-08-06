@@ -85,7 +85,32 @@ export function MemberRows({
   )
   const [confirming, setConfirming] = useState<string | null>(null)
 
-  if (members.length === 0) return null
+  /**
+   * Nothing pasted yet — say what this block is for anyway.
+   *
+   * It used to render nothing at all until a member existed, which meant the
+   * one capability people open this tab *for* — someone joined, someone left —
+   * was invisible on an untouched form. The only hint was a date inside the
+   * textarea's placeholder, which reads as sample text. A heading and a line
+   * cost nothing and are the difference between finding this and concluding it
+   * was never built. No example rows: a disabled row that does nothing teaches
+   * the wrong thing about the real ones.
+   */
+  if (members.length === 0) {
+    return (
+      <div className="flex flex-col gap-1 rounded-lg border border-dashed border-border p-3">
+        <h4 className="text-sm font-medium">Members and their time here</h4>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Every member you add above gets a row here with optional{' '}
+          <strong className="font-medium text-foreground">Joined</strong> and{' '}
+          <strong className="font-medium text-foreground">Left</strong> dates and
+          a <strong className="font-medium text-foreground">Freeze</strong>{' '}
+          button — press Freeze when someone leaves and what they published here
+          stays on the list while what they publish next can never join it.
+        </p>
+      </div>
+    )
+  }
 
   const setWindow = (
     member: ParsedMember,

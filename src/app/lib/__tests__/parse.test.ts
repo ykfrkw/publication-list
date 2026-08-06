@@ -9,6 +9,7 @@ import {
   parseIdList,
   parseMemberLines,
   parseMemberWindow,
+  parseMemberWindowToken,
   parseNameList,
   parsePubmedQueries,
   parseYearMonth,
@@ -216,6 +217,60 @@ describe('member time windows in the pasted list', () => {
     })
   })
 
+  /**
+   * The `id@from:to:grace` spelling is what the `data-*` attributes carry, so it
+   * is the one a user reads out of their own snippet. Accepted here as well —
+   * read, not rewritten: the line keeps the spelling it was typed in until the
+   * user edits that member's dates.
+   */
+  it('reads the @ spelling the snippet attributes use', () => {
+    const { members } = parseMemberLines(
+      'Yuki Furukawa\t0000-0003-1317-0220@2019-04:2023-03:36',
+    )
+    expect(members[0]).toEqual({
+      raw: 'Yuki Furukawa\t0000-0003-1317-0220@2019-04:2023-03:36',
+      lineIndex: 0,
+      name: 'Yuki Furukawa',
+      orcid: '0000-0003-1317-0220',
+      from: '2019-04',
+      to: '2023-03',
+      grace: 36,
+    })
+  })
+
+  it('takes only the dates off an @ token, never the identifier', () => {
+    expect(parseMemberWindowToken('0000-0003-1317-0220@2019-04')).toEqual({
+      rest: '0000-0003-1317-0220',
+      window: { from: '2019-04' },
+    })
+    expect(parseMemberWindowToken('2019-04..2023-03')).toEqual({
+      rest: '',
+      window: { from: '2019-04', to: '2023-03' },
+    })
+  })
+
+  it('does not mistake an email address for a window', () => {
+    for (const token of [
+      'someone@example.com',
+      'yuki.furukawa@example.co.jp',
+      'someone@',
+      '@2019-04',
+      'a@b@2019',
+    ]) {
+      expect(parseMemberWindowToken(token)).toBeNull()
+    }
+  })
+
+  it('leaves an email in a pasted column exactly where it was', () => {
+    const line = 'Yuki Furukawa\tsomeone@example.com\t0000-0003-1317-0220'
+    const { members } = parseMemberLines(line)
+    expect(members[0].from).toBeUndefined()
+    expect(members[0].to).toBeUndefined()
+    expect(members[0].orcid).toBe('0000-0003-1317-0220')
+    // Whatever the address is taken for, it is what it was taken for before.
+    expect(members[0].researchmap).toBe('someone@example.com')
+  })
+
   it('leaves a line without dates exactly as it was', () => {
     const { members } = parseMemberLines('0000-0003-1317-0220')
     expect(members[0].from).toBeUndefined()
@@ -244,6 +299,14 @@ describe('setMemberWindow', () => {
     const once = setMemberWindow(text, 0, { from: '2019-04' })
     const twice = setMemberWindow(once, 0, { from: '2019-04', to: '2023-03' })
     expect(twice.split('\n')[0]).toBe('0000-0003-1317-0220\t2019-04..2023-03')
+  })
+
+  it('replaces an @ window with the canonical form, keeping the identifier', () => {
+    const text = '0000-0003-1317-0220@2019-04:2023-03'
+    expect(setMemberWindow(text, 0, { from: '2019-04', to: '2024-03' })).toBe(
+      '0000-0003-1317-0220\t2019-04..2024-03',
+    )
+    expect(setMemberWindow(text, 0, null)).toBe('0000-0003-1317-0220')
   })
 
   it('clears the window when given null', () => {

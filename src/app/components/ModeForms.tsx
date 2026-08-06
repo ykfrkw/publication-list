@@ -393,7 +393,9 @@ export function LabModeForm({
             {members.members.length === 1 ? '' : 's'} — {withOrcid} with an ORCID
             iD, {withRm} with a researchmap permalink. Paste a column straight
             out of a spreadsheet: tabs, commas and ORCID URLs are all understood,
-            in any column order.
+            in any column order. A line can also carry the member’s time in the
+            group — <code>2019-04..2023-03</code> — which you can type here or
+            fill in on the rows below.
             {members.invalid.length > 0 ? (
               <span className="text-destructive">
                 {' '}

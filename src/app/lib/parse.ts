@@ -14,6 +14,7 @@ import {
   normalizeResearchmapId,
   parseIdRef,
 } from '@/core/ids'
+import { decodeSeed } from '@/core/seeds'
 import type { PubmedSeed } from '@/core/types'
 
 export interface ParsedRefs {
@@ -313,6 +314,63 @@ export function parseMemberWindow(token: string): MemberWindow | null {
   return window
 }
 
+/** One token of a pasted line, with its window taken off it. */
+export interface MemberWindowToken {
+  /**
+   * What is left of the token once the window has been removed — `''` for a
+   * bare `2019-04..2023-03`, the identifier for an `id@2019-04:2023-03`.
+   */
+  rest: string
+  window: MemberWindow
+}
+
+/**
+ * Read a window off one token, in **either** spelling.
+ *
+ * There are two, for reasons specific to each transport, and a user meets both:
+ *
+ *   - `2019-04..2023-03+36` — the members box (`MEMBER_WINDOW` above). Canonical:
+ *     it is what the placeholder shows and what `setMemberWindow` writes back.
+ *   - `id@2019-04:2023-03:36` — the `data-*` attributes and the URL parameters
+ *     (`encodeSeed` / `decodeSeed` in `src/core/seeds.ts`), where `..` and a
+ *     bare separator would collide with the comma-joined attribute syntax.
+ *
+ * The second is the one a user *reads*, because it is sitting in the snippet
+ * they just copied out of the wizard. Typing it back into the members box used
+ * to do nothing visible: the token failed `MEMBER_WINDOW`, was left in place,
+ * and its `@…` tail fell through into the name and permalink cells. So both are
+ * accepted here — read, never rewritten. A line is only ever normalised to the
+ * `..` form when the user edits that member's dates, which goes through
+ * `setMemberWindow`.
+ *
+ * **An email address in a pasted spreadsheet column is not a window.** The `@`
+ * branch defers to `decodeSeed`, whose tail pattern is anchored and holds only
+ * digits, hyphens and colons, so `someone@example.com` — whose tail is letters
+ * and a dot — comes back as a plain string and is treated exactly as it is
+ * today. As a second guard the identifier half must itself be free of `@`, and
+ * as with `parseMemberWindow` a tail carrying only a grace period and no dates
+ * is not a window either.
+ */
+export function parseMemberWindowToken(token: string): MemberWindowToken | null {
+  const raw = token.trim()
+  if (raw === '') return null
+
+  const dotted = parseMemberWindow(raw)
+  if (dotted) return { rest: '', window: dotted }
+
+  if (!raw.includes('@')) return null
+  const seed = decodeSeed(raw)
+  if (typeof seed === 'string') return null
+  if (seed.id === '' || seed.id.includes('@')) return null
+  if (!seed.from && !seed.to) return null
+
+  const window: MemberWindow = {}
+  if (seed.from) window.from = seed.from
+  if (seed.to) window.to = seed.to
+  if (seed.grace != null) window.grace = seed.grace
+  return { rest: seed.id, window }
+}
+
 /** Inverse of `parseMemberWindow`. Empty string when there is no window. */
 export function formatMemberWindow(window: MemberWindow | null): string {
   if (!window || (!window.from && !window.to)) return ''
@@ -369,10 +427,11 @@ function looksLikeName(cell: string): boolean {
  * single space: a permalink is just a bare word, and there is no way to tell
  * it from a middle name. Separate those two with a tab, a comma or two spaces.
  *
- * A line may also carry the member's time in the group as a `2019-04..2023-03`
- * token in any position — see `parseMemberWindow`. **A line without one is a
- * seed with no window**, which is what every pasted list has always been and
- * what it stays.
+ * A line may also carry the member's time in the group, in any position, as a
+ * `2019-04..2023-03` token or as the `0000-0002-1825-0097@2019-04:2023-03`
+ * spelling the snippet's `data-*` attributes use — see
+ * `parseMemberWindowToken`. **A line without one is a seed with no window**,
+ * which is what every pasted list has always been and what it stays.
  */
 export function parseMemberLines(text: string): ParsedMembers {
   const members: ParsedMember[] = []
@@ -393,13 +452,18 @@ export function parseMemberLines(text: string): ParsedMembers {
     // The window token, before anything else looks at the leftovers: it is a
     // bare ASCII word with no whitespace, which is also the shape of a
     // researchmap permalink, so whichever check runs first wins.
+    //
+    // Only the window itself is taken out. In the `id@from:to` spelling the
+    // identifier stays in `rest`, where the ORCID and researchmap checks below
+    // find it exactly as they would have found it on its own.
     for (const token of rest.split(/[\s,\t]+/)) {
-      const window = parseMemberWindow(token)
-      if (!window) continue
+      const parsed = parseMemberWindowToken(token)
+      if (!parsed) continue
+      const { window } = parsed
       if (window.from) member.from = window.from
       if (window.to) member.to = window.to
       if (window.grace != null) member.grace = window.grace
-      rest = rest.replace(token, ' ')
+      rest = rest.replace(token, () => ` ${parsed.rest} `)
       break
     }
 
@@ -482,10 +546,13 @@ export function setMemberWindow(
   const lines = text.split(/\r?\n/)
   if (lineIndex < 0 || lineIndex >= lines.length) return text
 
-  // Strip whatever window the line already carries, wherever it sits.
+  // Strip whatever window the line already carries, wherever it sits, in
+  // whichever spelling it is written in — an `id@2019-04:2023-03` token keeps
+  // its identifier and loses only the dates, so editing a date here cannot cost
+  // the member their seed, and cannot leave two windows on one line.
   const stripped = lines[lineIndex]
     .split(/([\s,\t]+)/)
-    .filter((part) => parseMemberWindow(part) == null)
+    .map((part) => parseMemberWindowToken(part)?.rest ?? part)
     .join('')
     .replace(/[\s,\t]+$/, '')
 

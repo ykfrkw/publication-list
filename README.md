@@ -63,6 +63,14 @@ Two elements are the exception. The last two lines — `.publist-disclaimer` and
 
 ---
 
+## Coming back to a list you already made
+
+You do not have to rebuild a configuration by hand. **Paste the snippet you generated back into the wizard** — "Start from an existing snippet", above the mode tabs — and every setting it carries is read back out of the `data-*` attributes and put into the form. The whole snippet, the opening `<div>` alone, an iframe snippet, a `pubs.json` URL, or a `data-config` snippet all work; the last two are fetched.
+
+Nothing is built until you press Generate, so you can see what came back and adjust it first. If anything could not be recovered, the wizard names it rather than quietly returning a different list — the cases are a PubMed query's label and dates (the transports carry the query text only), member names and the pairing of an ORCID iD with a researchmap permalink, and the titles of records you had removed.
+
+The `pubs.json` download is still there, and is still what you want for a config that inline attributes cannot express. This is the lighter path for everything else.
+
 ## Getting your configuration to the page
 
 There are three ways, and none of them requires an account, an approval, or a pull request to this repository.

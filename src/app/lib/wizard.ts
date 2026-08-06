@@ -6,9 +6,15 @@
  * functions. `App.tsx` holds a `WizardDraft` in state and calls into here.
  */
 
-import { DEFAULT_GROUP_BY, normalizeConfig } from '@/core/config'
+import {
+  DEFAULT_GROUP_BY,
+  DEFAULT_JAPANESE,
+  DEFAULT_REVIEW_POLICY,
+  DEFAULT_STYLE,
+  normalizeConfig,
+} from '@/core/config'
 import { formatIdRef, parseIdRef, formatIdRefValue } from '@/core/ids'
-import { INCLUDE_SEED_ID } from '@/core/seeds'
+import { INCLUDE_SEED_ID, seedId, seedWindowOf } from '@/core/seeds'
 import { CACHE_PREFIX } from '@/core/cache'
 import type {
   CitationStyle,
@@ -19,6 +25,7 @@ import type {
 } from '@/core/types'
 import {
   commentOutLine,
+  formatMemberWindow,
   parseIdList,
   parseMemberLines,
   parseNameList,
@@ -311,6 +318,155 @@ export function hasNameQuery(config: ListConfig): boolean {
     (seed) =>
       seed.trust !== 'confirmed' && !/\[\s*auid\s*\]/i.test(seed.query),
   )
+}
+
+// ───────────────────────────────────────────────────── ListConfig → draft ──
+
+/**
+ * Is there anything in this draft worth asking before overwriting?
+ *
+ * Only the fields a person types. Formatting choices are not counted: nobody
+ * means "I have unsaved work" by having picked APA, and asking about it would
+ * make the confirmation appear on a form that is visibly empty.
+ */
+export function draftHasContent(draft: WizardDraft): boolean {
+  return (
+    draft.pins.trim() !== '' ||
+    draft.orcid.trim() !== '' ||
+    draft.researchmap.trim() !== '' ||
+    draft.pubmed.trim() !== '' ||
+    draft.members.trim() !== '' ||
+    draft.include.length > 0 ||
+    draft.exclude.length > 0
+  )
+}
+
+/**
+ * Which mode's form can hold this configuration?
+ *
+ * Mode never travels in a `ListConfig` — it is a projection rule, not a
+ * setting (see `draftToConfig`) — so coming back the other way it has to be
+ * inferred. The rule is deliberately the simplest one that cannot lose data:
+ *
+ *   no seeds at all                     → `article`, the pins-only form
+ *   ≤1 ORCID and ≤1 researchmap seed,
+ *   neither carrying a time window      → `person`
+ *   anything else                       → `lab`
+ *
+ * The "no time window" clause is what stops a window being silently dropped:
+ * person mode's ORCID field is a single line with nowhere to write
+ * `2019-04..2023-03`, whereas the members box in lab mode has a spelling for
+ * it. A one-person list with a window therefore opens in lab mode — the same
+ * seeds, on a form that can show all of them.
+ */
+export function pickMode(config: ListConfig): WizardMode {
+  const orcid = config.seeds.orcid ?? []
+  const researchmap = config.seeds.researchmap ?? []
+  const pubmed = config.seeds.pubmed ?? []
+
+  if (orcid.length === 0 && researchmap.length === 0 && pubmed.length === 0) {
+    return 'article'
+  }
+  const windowed = [...orcid, ...researchmap].some(
+    (seed) => seedWindowOf(seed) != null,
+  )
+  if (orcid.length <= 1 && researchmap.length <= 1 && !windowed) return 'person'
+  return 'lab'
+}
+
+/** One seed as a line of the members box, window and all. */
+function memberLine(seed: Seed): string {
+  const id = seedId(seed)
+  const window = seedWindowOf(seed)
+  const token = formatMemberWindow(window ?? null)
+  return token === '' ? id : `${id}\t${token}`
+}
+
+export interface ConfigToDraftOptions {
+  /**
+   * Whether the credit line was switched on. Not part of a `ListConfig` — it
+   * is read from the pasted snapshot or from `?credit=` — so the caller
+   * supplies it, and `true` (the wizard's own default) stands in when nothing
+   * knows.
+   */
+  credit?: boolean
+  /**
+   * Same, for the source disclaimer. This one *is* a config field, so the
+   * fallback reads it; the option exists because a pasted snapshot is better
+   * evidence than the attribute — the site owner may have deleted the line.
+   */
+  disclaimer?: boolean
+  /** A hosted `pubs.json` URL the config was fetched from, to keep in the form. */
+  configUrl?: string
+}
+
+/**
+ * Inverse of `draftToConfig`: fill the wizard's form from a `ListConfig`.
+ *
+ * Everything the config records lands in the box that projects back onto it,
+ * so `draftToConfig(configToDraft(c))` is `c` again — with the one exception
+ * of `disclaimer`, which `draftToConfig` deliberately does not write (see the
+ * comment on `WizardDraft.disclaimer`) and which is carried here as the
+ * checkbox instead.
+ *
+ * `include` all goes into the free-text **pinned papers** box and
+ * `draft.include` is left empty. The config cannot tell a typed pin from a
+ * review-queue confirmation — both are just references in one array — and
+ * `draftToConfig` re-emits the same array from either box, so the choice
+ * changes nothing downstream. The pinned box is the one the user can read and
+ * edit, which makes it the honest place to put a reference whose provenance is
+ * unknown.
+ */
+export function configToDraft(
+  config: ListConfig,
+  opts: ConfigToDraftOptions = {},
+): WizardDraft {
+  const mode = pickMode(config)
+  const draft = emptyDraft(mode)
+
+  const orcidSeeds = config.seeds.orcid ?? []
+  const researchmapSeeds = config.seeds.researchmap ?? []
+  const pubmedSeeds = config.seeds.pubmed ?? []
+
+  if (mode === 'person') {
+    if (orcidSeeds[0]) draft.orcid = seedId(orcidSeeds[0])
+    if (researchmapSeeds[0]) draft.researchmap = seedId(researchmapSeeds[0])
+  } else if (mode === 'lab') {
+    // ORCID seeds first, then researchmap ones — the order `draftToConfig`'s
+    // two filters read them back in, so the seed arrays come out identical.
+    draft.members = [...orcidSeeds, ...researchmapSeeds]
+      .map(memberLine)
+      .join('\n')
+  }
+
+  if (mode !== 'article') {
+    draft.pubmed = pubmedSeeds.map((seed) => seed.query).join('\n')
+    draft.pubmedTrusted = pubmedSeeds
+      .filter((seed) => seed.trust === 'confirmed')
+      .map((seed) => seed.query)
+  }
+
+  draft.pins = (config.include ?? []).join('\n')
+  draft.exclude = [...(config.exclude ?? [])]
+
+  draft.style = config.style ?? DEFAULT_STYLE
+  draft.groupBy = config.groupBy ?? DEFAULT_GROUP_BY
+  draft.preprints = config.preprints === 'include'
+  draft.japanese = config.japanese ?? DEFAULT_JAPANESE
+  draft.reviewPolicy = config.reviewPolicy ?? DEFAULT_REVIEW_POLICY
+  draft.boldNames = (config.boldNames ?? []).join(', ')
+  draft.from = config.from ?? ''
+  draft.to = config.to ?? ''
+  draft.limit = config.limit != null ? String(config.limit) : ''
+
+  draft.credit = opts.credit ?? true
+  draft.disclaimer = opts.disclaimer ?? config.disclaimer !== 'hide'
+  draft.configUrl = opts.configUrl ?? ''
+
+  // Rebuilds `removed` from `exclude`, so the "N removed" list is populated
+  // (by identifier — the titles are not in the config) rather than empty while
+  // records are being kept off the page.
+  return syncRemoved(draft)
 }
 
 // ──────────────────────────────────────────────────────── review queue ──

@@ -112,6 +112,35 @@ function byText(selector: string, text: string): HTMLElement {
   return match
 }
 
+/** The paste box in the restore panel, which is the first textarea on the page. */
+function restoreBox(): HTMLTextAreaElement {
+  const box = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Snippet to restore"]',
+  )
+  if (!box) throw new Error('no restore textarea')
+  return box
+}
+
+/** The mode form's own textarea — every one except the restore panel's. */
+function formTextarea(): HTMLTextAreaElement {
+  const box = Array.from(
+    container.querySelectorAll<HTMLTextAreaElement>('textarea'),
+  ).find((el) => el.getAttribute('aria-label') !== 'Snippet to restore')
+  if (!box) throw new Error('no form textarea')
+  return box
+}
+
+function typeInto(el: HTMLTextAreaElement, value: string) {
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'value',
+    )!.set!
+    setter.call(el, value)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
 async function flush() {
   await act(async () => {
     await Promise.resolve()
@@ -314,22 +343,96 @@ describe('the source-disclaimer checkbox on the generated snippet', () => {
 describe('persistence', () => {
   it('restores a half-built draft after a reload', async () => {
     render()
-    const membersBox = container.querySelector('textarea')
+    const membersBox = formTextarea()
     expect(membersBox).not.toBeNull()
-    act(() => {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        'value',
-      )!.set!
-      setter.call(membersBox, '0000-0003-1317-0220')
-      membersBox!.dispatchEvent(new Event('input', { bubbles: true }))
-    })
+    typeInto(membersBox, '0000-0003-1317-0220')
     await flush()
 
     // A reload: a fresh root reading the same localStorage.
     act(() => root.unmount())
     root = createRoot(container)
     render()
-    expect(container.querySelector('textarea')?.value).toBe('0000-0003-1317-0220')
+    expect(formTextarea().value).toBe('0000-0003-1317-0220')
+  })
+})
+
+describe('starting from an existing snippet', () => {
+  const SNIPPET = [
+    '<div class="publist-embed"',
+    '  data-orcid="0000-0003-1317-0220"',
+    '  data-style="apa"',
+    '  data-group-by="year">',
+    '  <section class="publist">',
+    '    <ol class="publist-list"><li>A paper</li></ol>',
+    '    <p class="publist-disclaimer">…</p>',
+    '  </section>',
+    '</div>',
+    '<script src="https://ykfrkw.github.io/publication-list/embed.js" defer></script>',
+  ].join('\n')
+
+  async function paste(text: string) {
+    typeInto(restoreBox(), text)
+    click(byText('button', 'Restore settings'))
+    await flush()
+  }
+
+  it('fills the form from the paste and builds nothing', async () => {
+    render()
+    await paste(SNIPPET)
+
+    expect(buildListMock).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('Settings restored')
+    expect(container.textContent).toContain('Nothing has been built yet')
+    // It landed on the one-person form with the ORCID iD in it.
+    const values = Array.from(container.querySelectorAll('input')).map(
+      (input) => input.value,
+    )
+    expect(values).toContain('0000-0003-1317-0220')
+  })
+
+  it('says so when the whole snippet came back', async () => {
+    render()
+    await paste(SNIPPET)
+    expect(container.textContent).toContain(
+      'Every setting the snippet carries came back',
+    )
+  })
+
+  it('names what the paste could not carry', async () => {
+    render()
+    // The opening <div> alone: no snapshot, so the credit line's state was
+    // never in the paste to be read.
+    await paste('<div class="publist-embed" data-orcid="0000-0003-1317-0220"></div>')
+    expect(container.textContent).toContain('credit link')
+  })
+
+  it('asks before discarding work already on the form', async () => {
+    const ask = vi.fn(() => false)
+    const original = globalThis.confirm
+    globalThis.confirm = ask as unknown as typeof globalThis.confirm
+    try {
+      render()
+      typeInto(formTextarea(), '33782057')
+      await flush()
+
+      await paste(SNIPPET)
+      expect(ask).toHaveBeenCalledTimes(1)
+      // Declined: the form is untouched and nothing was restored.
+      expect(formTextarea().value).toBe('33782057')
+      expect(container.textContent).not.toContain('Settings restored')
+    } finally {
+      globalThis.confirm = original
+    }
+  })
+
+  it('reports an unreadable paste instead of clearing the form', async () => {
+    render()
+    typeInto(formTextarea(), '33782057')
+    await flush()
+    await paste('this is not a snippet')
+
+    expect(container.textContent).toContain('could not be read')
+    expect(formTextarea().value).toBe('33782057')
+    expect(buildListMock).not.toHaveBeenCalled()
   })
 })

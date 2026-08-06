@@ -66,6 +66,7 @@ import { WarningsPanel } from './components/WarningsPanel'
 import { ReviewQueue } from './components/ReviewQueue'
 import { ResultsPanel } from './components/ResultsPanel'
 import { SnippetPanel } from './components/SnippetPanel'
+import { RestorePanel } from './components/RestorePanel'
 
 export default function App() {
   const [draft, setDraft] = useState<WizardDraft>(() => loadDraft() ?? emptyDraft())
@@ -168,6 +169,23 @@ export default function App() {
     [draft, rerunWith],
   )
 
+  /**
+   * Adopt a draft restored from a pasted snippet.
+   *
+   * Deliberately *not* `rerunWith`: restoring settings and spending ten seconds
+   * of somebody's network on them are two different consents, and the point of
+   * the panel is to leave a populated form for the user to check. The previous
+   * result is dropped, because it belongs to the configuration that has just
+   * been replaced.
+   */
+  const restoreDraft = useCallback(
+    (next: WizardDraft) => {
+      reset()
+      setDraft(next)
+    },
+    [reset],
+  )
+
   const startOver = useCallback(() => {
     reset()
     clearDraft()
@@ -216,6 +234,12 @@ export default function App() {
           keeps itself up to date. No account, no server, nothing to install.
         </p>
       </header>
+
+      {/*
+        Above the tabs, because it comes before the choice they make: someone
+        holding a snippet is not picking a mode, they are reopening one.
+      */}
+      <RestorePanel draft={draft} onRestore={restoreDraft} />
 
       <Tabs
         value={draft.mode}

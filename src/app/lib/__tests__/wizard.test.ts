@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { DEFAULT_GROUP_BY, configHash } from '@/core/config'
+import { DEFAULT_GROUP_BY, configHash, normalizeConfig } from '@/core/config'
 import { buildList } from '@/core/pipeline'
 import type { FetchStub } from '@/core/sources/__tests__/helpers'
 import { loadFixture, stubFetch } from '@/core/sources/__tests__/helpers'
@@ -9,11 +9,14 @@ import {
   applyFreeze,
   applyReviewDecisions,
   candidateRef,
+  configToDraft,
+  draftHasContent,
   draftToConfig,
   emptyDraft,
   hasNameQuery,
   initialChecked,
   isRunnable,
+  pickMode,
   planFreeze,
   removePublication,
   removedEntries,
@@ -819,5 +822,168 @@ describe('removePublication — taking one record off the list', () => {
         pinned: true,
       })
     })
+  })
+})
+
+describe('pickMode — which form can hold a config', () => {
+  it('picks the reference list when there are no seeds at all', () => {
+    expect(pickMode(normalizeConfig({ include: ['pmid:1'] }))).toBe('article')
+  })
+
+  it('picks one person for a single ORCID iD', () => {
+    expect(
+      pickMode(normalizeConfig({ seeds: { orcid: ['0000-0003-1317-0220'] } })),
+    ).toBe('person')
+  })
+
+  it('picks one person for one ORCID plus one researchmap plus PubMed', () => {
+    expect(
+      pickMode(
+        normalizeConfig({
+          seeds: {
+            orcid: ['0000-0003-1317-0220'],
+            researchmap: ['yukifurukawa'],
+            pubmed: [{ query: 'Furukawa Y[au]' }],
+          },
+        }),
+      ),
+    ).toBe('person')
+  })
+
+  it('picks the lab as soon as there are two of a kind', () => {
+    expect(
+      pickMode(
+        normalizeConfig({
+          seeds: { orcid: ['0000-0003-1317-0220', '0000-0002-1825-0097'] },
+        }),
+      ),
+    ).toBe('lab')
+  })
+
+  it('picks the lab for a lone seed carrying a time window', () => {
+    // Person mode's single-line ORCID field has nowhere to put the window, and
+    // dropping it would quietly widen the list.
+    expect(
+      pickMode(
+        normalizeConfig({
+          seeds: { orcid: [{ id: '0000-0003-1317-0220', from: '2019-04' }] },
+        }),
+      ),
+    ).toBe('lab')
+  })
+})
+
+describe('configToDraft — the inverse of draftToConfig', () => {
+  it('round-trips every shared option', () => {
+    const config = normalizeConfig({
+      seeds: { orcid: ['0000-0003-1317-0220'] },
+      style: 'apa',
+      groupBy: 'year',
+      preprints: 'include',
+      japanese: 'merge',
+      reviewPolicy: 'auto',
+      boldNames: ['Yuki Furukawa', 'Matthew J Page'],
+      from: '2015',
+      to: '2026-08',
+      limit: 25,
+    })
+    const draft = configToDraft(config)
+
+    expect(draft.style).toBe('apa')
+    expect(draft.groupBy).toBe('year')
+    expect(draft.preprints).toBe(true)
+    expect(draft.japanese).toBe('merge')
+    expect(draft.reviewPolicy).toBe('auto')
+    expect(draft.boldNames).toBe('Yuki Furukawa, Matthew J Page')
+    expect(draft.from).toBe('2015')
+    expect(draft.to).toBe('2026-08')
+    expect(draft.limit).toBe('25')
+    expect(draftToConfig(draft)).toEqual(config)
+  })
+
+  it('leaves limit blank rather than writing a zero', () => {
+    expect(configToDraft(normalizeConfig({ seeds: { orcid: ['x'] } })).limit).toBe('')
+  })
+
+  it('puts the whole include list in the pins box and none of it in include', () => {
+    const config = normalizeConfig({
+      include: ['pmid:33782057', 'doi:10.1136/bmj.n71'],
+    })
+    const draft = configToDraft(config)
+    expect(draft.pins).toBe('pmid:33782057\ndoi:10.1136/bmj.n71')
+    expect(draft.include).toEqual([])
+    expect(draftToConfig(draft).include).toEqual(config.include)
+  })
+
+  it('rebuilds the removed list from exclude so removals stay visible', () => {
+    const draft = configToDraft(
+      normalizeConfig({ include: ['pmid:1'], exclude: ['pmid:2'] }),
+    )
+    expect(removedEntries(draft)).toEqual([{ ref: 'pmid:2', label: 'pmid:2' }])
+  })
+
+  it('writes member windows in the members box spelling', () => {
+    const draft = configToDraft(
+      normalizeConfig({
+        seeds: {
+          orcid: [
+            '0000-0003-1317-0220',
+            { id: '0000-0002-1825-0097', from: '2019-04', to: '2023-03', grace: 0 },
+          ],
+          researchmap: ['yukifurukawa'],
+        },
+      }),
+    )
+    expect(draft.mode).toBe('lab')
+    expect(draft.members).toBe(
+      '0000-0003-1317-0220\n0000-0002-1825-0097\t2019-04..2023-03+0\nyukifurukawa',
+    )
+  })
+
+  it('restores the publish-without-review ticks a pubs.json carried', () => {
+    const draft = configToDraft(
+      normalizeConfig({
+        seeds: {
+          orcid: ['0000-0003-1317-0220'],
+          pubmed: [
+            { query: 'Furukawa Y[au]', trust: 'confirmed' },
+            { query: 'insomnia[ti]' },
+          ],
+        },
+      }),
+    )
+    expect(draft.pubmed).toBe('Furukawa Y[au]\ninsomnia[ti]')
+    expect(draft.pubmedTrusted).toEqual(['Furukawa Y[au]'])
+  })
+
+  it('takes credit and disclaimer from the caller, not from the config', () => {
+    const config = normalizeConfig({ seeds: { orcid: ['x'] }, disclaimer: 'hide' })
+    expect(configToDraft(config).disclaimer).toBe(false)
+    expect(configToDraft(config).credit).toBe(true)
+    expect(configToDraft(config, { credit: false, disclaimer: true })).toMatchObject({
+      credit: false,
+      disclaimer: true,
+    })
+  })
+
+  it('keeps a hosted config URL in the form', () => {
+    const draft = configToDraft(normalizeConfig({ seeds: { orcid: ['x'] } }), {
+      configUrl: 'https://example.org/pubs.json',
+    })
+    expect(draft.configUrl).toBe('https://example.org/pubs.json')
+  })
+})
+
+describe('draftHasContent', () => {
+  it('is false for a fresh draft and for one that only picked a style', () => {
+    expect(draftHasContent(emptyDraft())).toBe(false)
+    expect(draftHasContent({ ...emptyDraft(), style: 'apa' })).toBe(false)
+  })
+
+  it('is true once anything has been typed or decided', () => {
+    expect(draftHasContent({ ...emptyDraft(), pins: ' 123 ' })).toBe(true)
+    expect(draftHasContent({ ...emptyDraft('person'), orcid: 'x' })).toBe(true)
+    expect(draftHasContent({ ...emptyDraft('lab'), members: 'x' })).toBe(true)
+    expect(draftHasContent({ ...emptyDraft(), exclude: ['pmid:1'] })).toBe(true)
   })
 })

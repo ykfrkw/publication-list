@@ -58,3 +58,12 @@ jobs:
     steps:
       - uses: actions/deploy-pages@v4
         id: deployment
+        with:
+          # The action's default is 10 minutes, after which it gives up and
+          # CANCELS the deployment it was waiting on — which leaves that commit's
+          # deployment wedged server-side and refuses every later attempt at the
+          # same SHA until it is cancelled through the API. On 2026-08-06 the
+          # Pages queue repeatedly sat in `deployment_queued` past ten minutes,
+          # so the timeout, not the queue, is what broke the deploy. Waiting
+          # longer costs an idle runner; timing out costs a manual recovery.
+          timeout: 1800000

@@ -50,6 +50,8 @@ Go through them and tick the ones that belong to your group. The tool pre-ticks 
 
 This is a one-time cost per paper. Your ticks become an `include` list and your rejections an `exclude` list, both stored in the configuration, so the same paper is never presented to you twice. New papers matching the query will show up as candidates on a future visit to the wizard; already-decided ones will not.
 
+A rejection is the stronger of the two. If a paper somehow ends up in both lists — you pinned it by hand, or freezing pinned it for you, and later decided against it — `exclude` wins and the paper is off the page. That is deliberate: taking something off your publication list should never depend on finding where it was put on.
+
 Records that come from ORCID, from researchmap, from a pinned PMID/DOI, or from a PubMed `[auid]` (ORCID-identifier) search never enter the queue. They are trusted outright.
 
 ## Step 4 — Paste it into your site
@@ -101,8 +103,9 @@ In the **Lab or group** mode, each member has a row under the members box with a
 
 That is the whole mechanism. Their publications become explicit `include` entries — pinned by DOI or PMID, exactly as if you had typed the identifiers yourself — and the seed comes out of the configuration. Nothing is inferred and nothing is guessed, so nothing can be got wrong later: a pinned paper cannot vanish, and a paper that does not exist yet cannot be pinned.
 
-Two things to know:
+Three things to know:
 
+- **A pin can be taken back.** Freezing pins whatever is on the list at that moment, and some of it may not belong to your group — a paper from their new institution that was already showing, or a plain misattribution. Reject it in the review queue, or put its DOI or PMID in the exclude list, and it comes off. `exclude` outranks `include`, so this works whether the pin was typed by you or written by freezing, and you never have to go looking through a twenty-entry `include` list for it. The warnings panel names any pin an exclude cancelled, so nothing about it is silent.
 - **A paper with neither a DOI nor a PMID cannot be pinned.** There is nothing to pin it *by*. The confirmation tells you the count and names them before you commit, because those are the entries that will disappear from the list — usually conference abstracts and Japanese-language records from researchmap. If you need one of them, keep it another way (the **Static HTML** output, or a hand-written line in your page) before freezing.
 - **It is recoverable.** Freezing comments the member's line out rather than deleting it — the line stays in the box, marked with the date and the number of papers pinned. Delete the `#` and the seed is back. Regenerate afterwards, and save the new snippet or `pubs.json`.
 
@@ -123,7 +126,7 @@ What the dates cannot do, and freezing can:
 
 Two things the dates deliberately never do:
 
-- **A pinned paper is never removed by a date window.** Anything in the pinned box, and anything freezing put there, is immune. An identifier you named outranks any rule about dates.
+- **A pinned paper is never removed by a date window.** Anything in the pinned box, and anything freezing put there, is immune. An identifier you named outranks any rule about dates. The one thing that outranks a pin is the exclude list — that is how you take a pin back, and a date rule is not allowed to hold a paper on the page after you have said it should come off.
 - **A co-authored paper survives on the co-author.** This is the one that would otherwise ruin a lab page: a paper written by a student who left *and* a member who is still here keeps the current member's claim on it and stays on the list. The dates are applied per member, not per paper, so one person's departure can never take another person's work off the page.
 
 ---
@@ -205,6 +208,7 @@ Almost always this is a gap in the source, not in the tool. In order of likeliho
 1. **The paper is not in the member's ORCID record.** Open `https://orcid.org/<their-iD>` and look. This is the single most common cause. The fix is in ORCID.
 2. **You set a date filter.** Check the `from` / `to` fields, and the `limit`.
 2b. **A member's Joined / Left dates ruled it out.** Every record a member window removes is named in the warnings panel with the window responsible. Widen the grace period, clear the dates, or pin the paper — a pinned paper is never removed by a window. See [When someone joins or leaves](#when-someone-joins-or-leaves).
+2c. **It is in the exclude list.** Rejecting a paper in the review queue puts it there, and a rejection outranks a pin, so a paper can be missing even though it is also pinned. The warnings panel names any pin cancelled this way. Take the reference out of the exclude list to bring it back.
 3. **It was found only by a name search and is sitting unreviewed in the queue.** Under the default policy it is deliberately not on the page. Approve it.
 4. **It was categorised as an erratum or as paratext and dropped.** The warnings panel names every record dropped this way.
 5. **It is a preprint, and preprints are off by default.** The warnings panel names every one that was held back. Tick **Include preprints** if you want them on the page. Note that this also covers an F1000-family article whose referees have not approved it yet — see [that entry below](#an-f1000research-paper-shows-as-a-preprint).
@@ -215,13 +219,13 @@ If a paper is in ORCID but still missing, check the warnings panel — an upstre
 
 ### A former member's new papers are appearing on our page
 
-Their seed is still in the list, and it is following them to their new institution. Fix it the way [that section](#when-someone-joins-or-leaves) describes — but in this order, because freezing pins *whatever is on the list at that moment*:
+Their seed is still in the list, and it is following them to their new institution. Fix it the way [that section](#when-someone-joins-or-leaves) describes:
 
-1. **First remove the papers that are not yours.** They are already on the page, and freezing would pin them there permanently. Untick them in the review queue if they arrived through a name search; otherwise add their DOIs or PMIDs to the exclude list and regenerate.
-2. **Then press Freeze** on the member's row. What gets pinned is now exactly their work with your group.
+1. **Press Freeze** on the member's row. Their seed comes out, so nothing further can arrive.
+2. **Remove the papers that are not yours.** Freezing pins *whatever is on the list at that moment*, so anything of theirs from the new institution that was already showing has just been pinned along with the rest. Untick those in the review queue if they arrived through a name search; otherwise add their DOIs or PMIDs to the exclude list. Excluding beats pinning, so this works after the freeze as well as before it.
 3. Regenerate, and save the new snippet or `pubs.json`.
 
-Freezing prevents future arrivals. It does not decide on your behalf which of the papers currently listed were done here — nothing in this tool can, which is why the step above is yours.
+The order is up to you — a pin is not a decision you are stuck with, and you can go on excluding papers months later when someone finally notices one. Freezing prevents future arrivals; it does not decide on your behalf which of the papers currently listed were done here. Nothing in this tool can, which is why step 2 is yours.
 
 ### The categories are wrong
 

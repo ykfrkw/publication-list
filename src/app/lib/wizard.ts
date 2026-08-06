@@ -326,7 +326,14 @@ export interface ReviewDecisionsResult {
  * removed from `include`). Every candidate in the queue lands in exactly one
  * of the two lists, which is what makes the decision stick: on the next build
  * a confirmed record is force-confirmed by the pipeline and a rejected one is
- * dropped before anything else runs, so neither is ever asked about again.
+ * dropped, so neither is ever asked about again.
+ *
+ * Dropping from `include` and adding to `exclude` are belt and braces, and the
+ * braces are what matter: `draftToConfig` also folds the free-text **Pinned
+ * papers** box into `include`, and `planFreeze` writes a departing member's
+ * whole list there, so a rejected record may well still be pinned by a route
+ * this function cannot reach. Since an exclude outranks a pin (`pipeline.ts`
+ * stage 3), the added `exclude` entry is what actually takes it off the page.
  *
  * Records outside `candidates` are left alone — pins the user typed and
  * decisions taken on earlier runs survive untouched.
@@ -396,6 +403,12 @@ export function canonicalRef(input: string): string | null {
  * It is deliberately built out of `include`, the mechanism that already exists:
  * no new matching rule means no new way to be wrong, and a pin is exempt from
  * the seed time windows, so a window added later cannot undo a freeze.
+ *
+ * Freezing pins whatever is on the list at that moment, so some of what it pins
+ * may not belong to the group at all. That is recoverable and does not have to
+ * be got right first: an exclude outranks a pin, so rejecting one of these
+ * records in the review queue, or adding its identifier to `exclude`, takes it
+ * off the list afterwards without anyone editing the `include` list by hand.
  *
  * The one thing it cannot do is pin a record with neither a DOI nor a PMID —
  * `formatIdRef` has nothing to write. Those are counted and named rather than
@@ -469,6 +482,13 @@ export function planFreeze(
  * Apply a plan: pin the records, then take the member's line out of the seed
  * list by commenting it out (see `commentOutLine` — the line stays readable and
  * the `#` can be deleted to undo).
+ *
+ * A reference the user has already excluded is not written back as a pin. It
+ * would be inert — an exclude outranks a pin — and a saved configuration whose
+ * two lists contradict each other is a puzzle for whoever inherits it. In
+ * practice the plan never contains one, because an excluded record is not in
+ * `model.publications` for `planFreeze` to see; keeping the check makes that a
+ * guarantee rather than a coincidence of ordering.
  */
 export function applyFreeze(
   draft: WizardDraft,
@@ -477,14 +497,19 @@ export function applyFreeze(
   today: Date = new Date(),
 ): WizardDraft {
   const include = [...draft.include]
-  for (const ref of plan.refs) if (!include.includes(ref)) include.push(ref)
+  let pinned = 0
+  for (const ref of plan.refs) {
+    if (draft.exclude.includes(ref)) continue
+    pinned++
+    if (!include.includes(ref)) include.push(ref)
+  }
   return {
     ...draft,
     include,
     members: commentOutLine(
       draft.members,
       lineIndex,
-      `frozen ${today.toISOString().slice(0, 10)} — ${plan.refs.length} paper(s) pinned`,
+      `frozen ${today.toISOString().slice(0, 10)} — ${pinned} paper(s) pinned`,
     ),
   }
 }

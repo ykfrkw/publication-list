@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_GROUP_BY, configHash } from '@/core/config'
+import { buildList } from '@/core/pipeline'
+import type { FetchStub } from '@/core/sources/__tests__/helpers'
+import { loadFixture, stubFetch } from '@/core/sources/__tests__/helpers'
 import type { ListModel, Publication } from '@/core/types'
 import {
   GROUP_BY_DEFAULT,
@@ -472,4 +475,127 @@ describe('applyFreeze', () => {
     }
     expect(applyFreeze(draft, plan, 0).include).toEqual(['doi:10.1136/bmj.n71'])
   })
+
+  it('does not pin back a reference the user has already excluded', () => {
+    // An exclude outranks a pin, so writing one back would be inert — and a
+    // saved configuration whose two lists contradict each other is a puzzle
+    // for whoever inherits it.
+    const draft = {
+      ...labDraft(STUDENT),
+      exclude: ['doi:10.1136/bmj.n71'],
+    }
+    const plan = {
+      seedIds: [STUDENT],
+      label: STUDENT,
+      refs: ['doi:10.1136/bmj.n71', 'pmid:33782057'],
+      pinned: [],
+      unpinnable: [],
+      losing: [],
+    }
+    const next = applyFreeze(draft, plan, 0, new Date('2026-08-06T00:00:00Z'))
+    expect(next.include).toEqual(['pmid:33782057'])
+    expect(next.members).toContain('1 paper(s) pinned')
+  })
+})
+
+// ─────────────────────────────────── the review queue, through to the list ──
+
+/**
+ * Rejecting a frozen pin.
+ *
+ * The dead end this closes: `planFreeze` writes a departing member's whole
+ * publication list into `include`, and one of those records being wrong is
+ * ordinary. `applyReviewDecisions` has always dropped a rejection from
+ * `include` and added it to `exclude`; what makes the rejection stick is that
+ * an exclude now outranks a pin in `pipeline.ts` stage 3. Asserted end to end,
+ * because it is the composition of the two that the user experiences.
+ */
+describe('applyReviewDecisions → buildList', () => {
+  let stub: FetchStub | null = null
+
+  afterEach(() => {
+    stub?.restore()
+    stub = null
+  })
+
+  /** The frozen member's pin, which PubMed also returns for another member. */
+  const FROZEN_PIN = 'pmid:39199005'
+
+  function useRoutes() {
+    stub = stubFetch((url: string) => {
+      if (url.includes('esearch.fcgi')) return loadFixture('pubmed-esearch.json')
+      if (url.includes('esummary.fcgi')) return loadFixture('pubmed-esummary.json')
+      if (url.includes('api.openalex.org')) return { results: [] }
+      if (url.includes('api.crossref.org')) return { message: {} }
+      throw new Error(`unrouted request: ${url}`)
+    })
+  }
+
+  it(
+    'takes a rejected frozen pin off the built list',
+    async () => {
+      const frozen = {
+        ...emptyDraft('lab'),
+        pubmed: 'Tanaka H[au]',
+        include: [FROZEN_PIN],
+      }
+
+      useRoutes()
+      const before = await buildList(draftToConfig(frozen))
+      const pinnedRecord = before.publications.find((p) => p.pmid === '39199005')
+      expect(pinnedRecord).toBeDefined()
+      expect(pinnedRecord!.trust).toBe('confirmed')
+
+      // What the review queue's reject button does: untick the row and apply.
+      const decided = applyReviewDecisions(
+        frozen.include,
+        frozen.exclude,
+        [pinnedRecord!],
+        new Set<string>(),
+      )
+      // Worth seeing plainly: the freeze pinned this work by PMID and the
+      // rejection references it by DOI, because `candidateRef` prefers the DOI.
+      // So the pin is still in `include` — nothing in the wizard can take it
+      // out — and it is the exclude outranking it that removes the record.
+      expect(decided.exclude).toEqual([candidateRef(pinnedRecord!)])
+      expect(decided.include).toEqual([FROZEN_PIN])
+
+      stub!.restore()
+      useRoutes()
+      const after = await buildList(
+        draftToConfig({
+          ...frozen,
+          include: decided.include,
+          exclude: decided.exclude,
+        }),
+      )
+      expect(after.publications.some((p) => p.pmid === '39199005')).toBe(false)
+      expect(after.candidates.some((p) => p.pmid === '39199005')).toBe(false)
+    },
+    20_000,
+  )
+
+  it(
+    'still removes it when the pin is left in the Pinned papers box',
+    async () => {
+      // `draftToConfig` folds the free-text pins box into `include` as well, and
+      // `applyReviewDecisions` cannot reach that text. The added `exclude`
+      // entry is what actually takes the record off the page.
+      useRoutes()
+      const model = await buildList(
+        draftToConfig({
+          ...emptyDraft('lab'),
+          pubmed: 'Tanaka H[au]',
+          pins: '39199005',
+          exclude: [FROZEN_PIN],
+        }),
+      )
+
+      expect(model.publications.some((p) => p.pmid === '39199005')).toBe(false)
+      expect(
+        model.warnings.filter((w) => w.includes('also in exclude')),
+      ).toHaveLength(1)
+    },
+    20_000,
+  )
 })

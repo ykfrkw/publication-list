@@ -28,10 +28,15 @@
  *      an out-of-window seed id is dropped from `Publication.seedIds`, and the
  *      publication is only removed once it has lost *every* seed.
  *
- *   2. **A pin always wins.** A record whose `seedIds` carry `INCLUDE_SEED_ID`
- *      was named explicitly by the site owner and is never removed by a window.
- *      That is also what makes freezing safe: the pins it writes cannot later be
- *      swept away by a window somebody adds.
+ *   2. **A pin beats a window — and an exclude beats a pin.** A record whose
+ *      `seedIds` carry `INCLUDE_SEED_ID` was named explicitly by the site owner
+ *      and is never removed by a window. That is also what makes freezing safe:
+ *      the pins it writes cannot later be swept away by a window somebody adds.
+ *      The one thing that does outrank a pin is `config.exclude`, because that
+ *      is how a wrong pin gets undone. `pipeline.ts` stage 3 has already dropped
+ *      such records by the time this module runs, and the exemption below
+ *      declines to cover them anyway, so the exemption cannot resurrect a record
+ *      the owner has excluded no matter who calls `applySeedWindows`.
  *
  * BACKWARD COMPATIBILITY
  *
@@ -43,6 +48,8 @@
  * ──────────────────────────────────────────────────────────────────────────
  */
 
+import type { IdRef } from './ids'
+import { matchesIdRef, parseIdRef } from './ids'
 import type { ListConfig, Publication, Seed, SeedWindow } from './types'
 
 /**
@@ -352,7 +359,9 @@ export interface SeedWindowResult {
  * Three things it deliberately does not do:
  *
  *   - **Touch a pinned record.** `INCLUDE_SEED_ID` in `seedIds` exempts it
- *     outright, before any date is looked at.
+ *     outright, before any date is looked at — unless `config.exclude` names it,
+ *     because an exclude outranks a pin and an exemption that ignored that would
+ *     be a way for an excluded record to come back.
  *   - **Judge an undated record.** A record with no usable year cannot be
  *     placed inside or outside a window, and guessing would remove work from a
  *     CV on the strength of missing metadata. It is kept.
@@ -368,6 +377,17 @@ export function applySeedWindows(
   const { windows, warnings } = resolveSeedWindows(config)
   if (windows.size === 0) return { publications: [...pubs], warnings }
 
+  // An exclude outranks a pin, so the pin exemption below must not cover an
+  // excluded record. `pipeline.ts` stage 3 has already dropped those before this
+  // runs; reading the list again here is what makes the rule a property of this
+  // function rather than of the order two stages happen to be in.
+  const excluded: IdRef[] = []
+  for (const raw of config.exclude ?? []) {
+    const ref = parseIdRef(raw)
+    // An unreadable reference is reported by the pipeline, not twice here.
+    if (ref) excluded.push(ref)
+  }
+
   const publications: Publication[] = []
   const removed: Publication[] = []
   /** seed id → how many records it alone was responsible for losing */
@@ -375,7 +395,10 @@ export function applySeedWindows(
   let rescued = 0
 
   for (const pub of pubs) {
-    if (pub.seedIds.includes(INCLUDE_SEED_ID)) {
+    if (
+      pub.seedIds.includes(INCLUDE_SEED_ID) &&
+      !excluded.some((ref) => matchesIdRef(pub, ref))
+    ) {
       publications.push(pub)
       continue
     }
@@ -387,7 +410,11 @@ export function applySeedWindows(
     const value = publicationYearMonth(pub)
     const kept: string[] = []
     const dropped: string[] = []
-    for (const id of pub.seedIds) {
+    // `INCLUDE_SEED_ID` carries no window, so leaving it in would make it count
+    // as a surviving seed and keep every record that reaches this point —
+    // declining the exemption above would then change nothing. A record only
+    // gets here with the marker still on it when an exclude cancelled the pin.
+    for (const id of pub.seedIds.filter((id) => id !== INCLUDE_SEED_ID)) {
       const window = windows.get(id)
       if (window == null || isWithin(value, window)) kept.push(id)
       else dropped.push(id)
@@ -419,7 +446,8 @@ export function applySeedWindows(
         `contributed them has a time window that does not cover them: ` +
         `${removed.map((p) => p.title || p.doi || p.pmid || p.key).join('; ')}. ` +
         `Windows responsible — ${bySeed}. ` +
-        `Pin a record (include / data-include) to keep it whatever the windows say.`,
+        `Pin a record (include / data-include) to keep it whatever the windows say, ` +
+        `as long as it is not also in exclude.`,
     )
   }
   if (rescued > 0) {

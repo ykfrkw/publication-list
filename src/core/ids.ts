@@ -180,6 +180,41 @@ export function formatIdRefValue(ref: IdRef): string {
   return `${ref.kind}:${ref.value}`
 }
 
+/** The fields a record needs before an `include` / `exclude` ref can be tested against it. */
+export type IdRefMatchable = Partial<Pick<Publication, 'doi' | 'pmid'>>
+
+/**
+ * Does a record answer to this pinned/excluded reference?
+ *
+ * Lives here rather than in `pipeline.ts` because both the pipeline's
+ * include/exclude stage and the seed-window exemption in `seeds.ts` have to
+ * decide the same question the same way — an exclude that removed a record from
+ * the list but not from the window exemption would be an exclude that only
+ * half worked.
+ */
+export function matchesIdRef(pub: IdRefMatchable, ref: IdRef): boolean {
+  if (ref.kind === 'pmid') return (pub.pmid ?? '').trim() === ref.value
+  const doi = (pub.doi ?? '').trim()
+  if (doi === '') return false
+  const normalized = normalizeDoi(doi)
+  if (normalized === ref.value) return true
+  // A pinned base DOI must also catch the versioned records of the same work.
+  return stripDoiVersion(normalized).doi === stripDoiVersion(ref.value).doi
+}
+
+/**
+ * Do two references name the same work?
+ *
+ * The reference-level twin of `matchesIdRef`, and deliberately as generous: a
+ * base DOI in `exclude` cancels a versioned DOI in `include`, exactly as it
+ * would have removed the record the versioned pin would have produced.
+ */
+export function sameIdRef(a: IdRef, b: IdRef): boolean {
+  if (a.kind !== b.kind) return false
+  if (a.kind === 'pmid') return a.value === b.value
+  return stripDoiVersion(a.value).doi === stripDoiVersion(b.value).doi
+}
+
 /**
  * Canonical `include` / `exclude` reference for a publication, using the same
  * DOI-before-PMID precedence as `pubKey`. Returns `null` when the record has

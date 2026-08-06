@@ -255,7 +255,8 @@ export function LabModeForm({
         hint={
           <>
             <Counts ok={pins.refs.length} okLabel="identifier" invalid={pins.invalid} />{' '}
-            Pinned records are always published, whichever source found them.
+            Pinned records are published whichever source found them, unless you
+            reject them in the review queue — rejecting always wins.
           </>
         }
       >

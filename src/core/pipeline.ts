@@ -13,7 +13,8 @@
  *
  *   1. seeds → members     resolve display names, merge same-person rows
  *   2. fetch               ORCID + researchmap + one PubMed search per query
- *   3. include / exclude   drop excluded, force-confirm and back-fill pinned
+ *   3. include / exclude   force-confirm and back-fill pinned, THEN drop
+ *                          excluded — an exclude outranks a pin, *reported*
  *   4. dedupe              one record per work
  *   5. enrich              OpenAlex (doi → pmid → title), then Crossref
  *  5c. seed windows        per-member tenure, applied per SEED, *reported*
@@ -26,7 +27,14 @@
 
 import type { ListConfig, ListModel, Member, Publication, Trust } from './types'
 import type { IdRef } from './ids'
-import { normalizeDoi, parseIdRef, pubKey, stripDoiVersion } from './ids'
+import {
+  matchesIdRef,
+  normalizeDoi,
+  parseIdRef,
+  pubKey,
+  sameIdRef,
+  stripDoiVersion,
+} from './ids'
 import { dedupePublications } from './dedupe'
 import { categorizeAll, isOpenReviewJournal } from './categorize'
 import { matchesBoldName } from './format'
@@ -410,17 +418,6 @@ function refKey(ref: IdRef): string {
   return `${ref.kind}:${ref.value}`
 }
 
-/** Does a record answer to this pinned/excluded reference? */
-function matchesRef(pub: Publication, ref: IdRef): boolean {
-  if (ref.kind === 'pmid') return (pub.pmid ?? '').trim() === ref.value
-  const doi = (pub.doi ?? '').trim()
-  if (doi === '') return false
-  const normalized = normalizeDoi(doi)
-  if (normalized === ref.value) return true
-  // A pinned base DOI must also catch the versioned records of the same work.
-  return stripDoiVersion(normalized).doi === stripDoiVersion(ref.value).doi
-}
-
 function comparePublications(a: Publication, b: Publication): number {
   const ay = typeof a.year === 'number' ? a.year : 0
   const by = typeof b.year === 'number' ? b.year : 0
@@ -572,6 +569,22 @@ export async function buildList(
   }
 
   // ── 3. include / exclude ──────────────────────────────────────────────
+  //
+  // **An exclude outranks a pin.** Excludes are applied after includes and are
+  // allowed to remove a pinned record.
+  //
+  // Excluding is the corrective, more specific act: it is how a wrong pin gets
+  // undone. That mattered little when pins were only ever typed one at a time,
+  // but `planFreeze` now writes a departing member's entire publication list
+  // into `include` in one click, and one of those twenty-odd records being
+  // wrong — a paper from their new institution that happened to be showing at
+  // freeze time, or a misattribution — is ordinary. Under the old precedence
+  // the only way out was to find and hand-edit the `include` list, and the
+  // review queue's reject button appeared to do nothing at all.
+  //
+  // So "get this off my page" always works. What it must not do is work
+  // silently: a pin the owner wrote is evidence of intent, and a config where
+  // the two lists disagree should say so rather than quietly picking a side.
   report(40, 'Applying pinned and excluded records')
 
   const excludeRefs: IdRef[] = []
@@ -594,15 +607,28 @@ export async function buildList(
     includeRefs.push(ref)
   }
 
-  let working =
-    excludeRefs.length === 0
-      ? fetched
-      : fetched.filter((pub) => !excludeRefs.some((ref) => matchesRef(pub, ref)))
+  /** `refKey`s of include entries an exclude cancelled. */
+  const cancelledIncludes = new Set<string>()
+
+  // A reference in both lists is dropped, and the pin is not even looked up:
+  // materializing a record we are about to remove costs a round trip and would
+  // report a pinned identifier as unretrievable when nothing is waiting for it.
+  const activeIncludes = includeRefs.filter((ref) => {
+    if (!excludeRefs.some((ex) => sameIdRef(ex, ref))) return true
+    cancelledIncludes.add(refKey(ref))
+    return false
+  })
+
+  // Deliberately the un-excluded set: an active pin that lands on a record an
+  // exclude also names is marked here and removed below, which is what lets the
+  // record-level check see the disagreement and report it. Filtering first
+  // would instead make the pin look like a reference nothing could satisfy.
+  let working = fetched
 
   const missingPmids: string[] = []
   const missingDois: string[] = []
-  for (const ref of includeRefs) {
-    const hits = working.filter((pub) => matchesRef(pub, ref))
+  for (const ref of activeIncludes) {
+    const hits = working.filter((pub) => matchesIdRef(pub, ref))
     if (hits.length > 0) {
       // A pinned record is confirmed by definition, whatever found it.
       working = working.map((pub) =>
@@ -658,6 +684,37 @@ export async function buildList(
         warnings.push(`Pinned DOI ${doi} could not be retrieved.`)
       }
     }
+  }
+
+  // Excludes last, over the pinned records too. The record-level pass catches
+  // what the reference-level one above cannot: a work pinned by DOI and
+  // excluded by PMID, or the other way round, is the same disagreement written
+  // in two different identifiers.
+  if (excludeRefs.length > 0) {
+    const kept: Publication[] = []
+    for (const pub of working) {
+      if (!excludeRefs.some((ref) => matchesIdRef(pub, ref))) {
+        kept.push(pub)
+        continue
+      }
+      if (pub.seedIds.includes(INCLUDE_SEED_ID)) {
+        for (const ref of activeIncludes) {
+          if (matchesIdRef(pub, ref)) cancelledIncludes.add(refKey(ref))
+        }
+      }
+    }
+    working = kept
+  }
+
+  if (cancelledIncludes.size > 0) {
+    // One warning for the lot, in `include` order, so a config someone
+    // inherited reads as a single disagreement rather than a wall of them.
+    const ids = includeRefs.map(refKey).filter((key) => cancelledIncludes.has(key))
+    warnings.push(
+      `Left ${ids.length} pinned record(s) off the list because they are also in ` +
+        `exclude: ${ids.join(', ')}. An exclude outranks a pin, so a record you have ` +
+        `taken off the list stays off — remove the reference from exclude to bring it back.`,
+    )
   }
 
   // ── 4. dedupe ─────────────────────────────────────────────────────────

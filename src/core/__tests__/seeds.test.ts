@@ -252,6 +252,52 @@ describe('applySeedWindows', () => {
     expect(result.warnings).toEqual([])
   })
 
+  it('does not let the pin exemption cover a record the owner excluded', () => {
+    // The exemption is what makes freezing safe, and it is also the one way a
+    // record removed by `exclude` could come back. `pipeline.ts` has already
+    // dropped this record by the time windows run; the exemption declines to
+    // cover it here as well, so the rule does not depend on that ordering.
+    const pinned = pub({
+      key: 'pinned',
+      year: 2026,
+      month: 6,
+      doi: '10.1136/bmj.n71',
+      seedIds: [STUDENT, INCLUDE_SEED_ID],
+    })
+    const result = applySeedWindows(
+      [pinned],
+      normalizeConfig({
+        v: 1,
+        seeds: { orcid: [{ id: STUDENT, to: '2023-03', grace: 0 }] },
+        exclude: ['doi:10.1136/bmj.n71'],
+      }),
+    )
+    expect(result.publications).toEqual([])
+    expect(result.warnings[0]).toContain('Left 1 record(s) off the list')
+  })
+
+  it('declines the exemption without removing an excluded pin in window', () => {
+    // Declining the exemption is not the same as removing the record: it just
+    // subjects it to the window like anything else, and this one is inside it.
+    const pinned = pub({
+      key: 'pinned',
+      year: 2022,
+      month: 6,
+      doi: '10.1136/bmj.n71',
+      seedIds: [STUDENT, INCLUDE_SEED_ID],
+    })
+    const result = applySeedWindows(
+      [pinned],
+      normalizeConfig({
+        v: 1,
+        seeds: { orcid: [{ id: STUDENT, to: '2023-03', grace: 0 }] },
+        exclude: ['doi:10.1136/bmj.n71'],
+      }),
+    )
+    expect(result.publications).toEqual([pinned])
+    expect(result.warnings).toEqual([])
+  })
+
   it('keeps a record whose date is unknown', () => {
     const undated = pub({ key: 'undated', year: 0, seedIds: [STUDENT] })
     const result = applySeedWindows(

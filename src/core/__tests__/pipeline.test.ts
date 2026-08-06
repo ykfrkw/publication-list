@@ -388,6 +388,126 @@ describe('buildList — include / exclude', () => {
     },
     TIMEOUT,
   )
+
+  // ── exclude outranks include ──────────────────────────────────────────
+  //
+  // The rule that makes a wrong pin recoverable. `planFreeze` writes a whole
+  // publication list into `include` in one click, so "take this one off" has to
+  // work without hand-editing that list.
+
+  it(
+    'drops a reference that is in both lists, and names it in one warning',
+    async () => {
+      useRoutes()
+      const both = '10.1016/j.euroneuro.2026.112802'
+      const model = await buildList(
+        normalizeConfig({
+          seeds: { orcid: [ORCID] },
+          include: [`doi:${both}`],
+          exclude: [`doi:${both}`],
+          preprints: 'include',
+        }),
+      )
+
+      expect(model.publications.some((p) => p.doi === both)).toBe(false)
+      expect(model.candidates.some((p) => p.doi === both)).toBe(false)
+      expect(model.publications.length).toBe(3)
+
+      const reported = model.warnings.filter((w) => w.includes('also in exclude'))
+      expect(reported).toHaveLength(1)
+      expect(reported[0]).toContain('Left 1 pinned record(s)')
+      expect(reported[0]).toContain(`doi:${both}`)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'never looks a cancelled pin up, and still reports it',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({
+          seeds: {},
+          include: ['doi:10.1136/bmj.n71'],
+          exclude: ['doi:10.1136/bmj.n71'],
+        }),
+      )
+
+      // Nothing to fetch: materializing a record we are about to remove would
+      // cost a round trip and report the pin as unretrievable for no reason.
+      expect(stub!.calls).toEqual([])
+      expect(model.publications).toEqual([])
+      expect(model.warnings.some((w) => w.includes('Pinned DOI'))).toBe(false)
+      expect(
+        model.warnings.filter((w) => w.includes('also in exclude')),
+      ).toHaveLength(1)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'lets an exclude cancel a pin written in the other identifier',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({
+          seeds: { orcid: [ORCID] },
+          include: ['doi:10.1093/sleepadvances/zpaf070'],
+          exclude: ['pmid:41278217'],
+          preprints: 'include',
+        }),
+      )
+
+      expect(model.publications.some((p) => p.pmid === '41278217')).toBe(false)
+      const reported = model.warnings.filter((w) => w.includes('also in exclude'))
+      expect(reported).toHaveLength(1)
+      // The *pin* is what gets named — that is the entry someone has to edit.
+      expect(reported[0]).toContain('doi:10.1093/sleepadvances/zpaf070')
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'reports every cancelled pin in a single warning, in include order',
+    async () => {
+      useRoutes()
+      const first = '10.1016/j.euroneuro.2026.112802'
+      const second = '10.1093/sleepadvances/zpaf070'
+      const model = await buildList(
+        normalizeConfig({
+          seeds: { orcid: [ORCID] },
+          include: [`doi:${first}`, `doi:${second}`],
+          exclude: [`doi:${second}`, `doi:${first}`],
+          preprints: 'include',
+        }),
+      )
+
+      const reported = model.warnings.filter((w) => w.includes('also in exclude'))
+      expect(reported).toHaveLength(1)
+      expect(reported[0]).toContain('Left 2 pinned record(s)')
+      expect(reported[0]).toContain(`doi:${first}, doi:${second}`)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'says nothing about an excluded record that was never pinned',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({
+          seeds: { orcid: [ORCID] },
+          exclude: ['doi:10.1016/j.euroneuro.2026.112802'],
+          preprints: 'include',
+        }),
+      )
+
+      expect(
+        model.warnings.some((w) => w.includes('also in exclude')),
+      ).toBe(false)
+    },
+    TIMEOUT,
+  )
 })
 
 describe('buildList — review policy', () => {

@@ -86,19 +86,32 @@ afterEach(() => {
   container.remove()
 })
 
-function render(config: ListConfig, configUrl = '') {
+function render(config: ListConfig, configUrl = '', snapshot = false) {
   act(() => {
     root.render(
       <SnippetPanel
         model={model(config)}
         credit
         disclaimer
+        snapshot={snapshot}
         configUrl={configUrl}
         onCreditChange={() => {}}
         onDisclaimerChange={() => {}}
+        onSnapshotChange={() => {}}
         onConfigUrlChange={() => {}}
       />,
     )
+  })
+}
+
+/** The checkbox whose label contains `text`. */
+function checkbox(text: string): HTMLInputElement | undefined {
+  return Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+  ).find((input) => {
+    const id = input.getAttribute('id')
+    const label = id == null ? null : container.querySelector(`label[for="${id}"]`)
+    return (label?.textContent ?? '').includes(text)
   })
 }
 
@@ -187,26 +200,27 @@ describe('the script snippet', () => {
 })
 
 /**
- * A trusted PubMed seed has no `data-*` and no query-string spelling, so an
- * inline snippet would carry the query and drop the trust. The embed would
- * then re-run the search, get candidates, and render a list shorter than the
- * snapshot that was pasted — silently, on the second page load.
- *
- * So there is no snippet to copy until the configuration travels as a file.
- * Same stance as the empty-list case above it, for the same reason: what is
- * being withheld is a page that looks right once and is wrong afterwards.
+ * A trusted PubMed seed used to leave this panel with nothing to hand over:
+ * both snippets were withheld and a hosted `pubs.json` was demanded instead.
+ * Since the trust travels in `data-pubmed-trusted`, it is an ordinary list —
+ * and this is the regression test for the dead end, because the only route to
+ * an auto-updating group list ran through it.
  */
 describe('a list that trusts a PubMed query', () => {
-  it('withholds both snippets until a hosted URL is given', () => {
+  it('produces both snippets, with the tick carried inline', () => {
     render(TRUSTED_SEED)
 
-    expect(container.querySelector('pre')).toBeNull()
-    expect(disclosure('iframe snippet')).toBeUndefined()
-    expect(container.textContent).toContain('needs the file below')
-    expect(container.textContent).toContain('a candidate never appears in an embed')
-    // …and the way out is on screen, not behind a disclosure.
-    expect(disclosure('Keep the settings in a file')).toBeUndefined()
-    expect(hostedUrlInput()).not.toBeNull()
+    const pre = container.querySelector('pre')
+    expect(pre?.textContent).toContain('data-pubmed="&quot;SLEEPI&quot;[cn]"')
+    expect(pre?.textContent).toContain('data-pubmed-trusted="0"')
+    // The iframe fallback is there too, and carries the same flag.
+    const iframe = disclosure('iframe snippet')
+    expect(iframe).toBeDefined()
+    expect(iframe?.textContent).toContain('pubmed-trusted=0')
+    // Nothing is demanded of the user: the hosted file is back behind its
+    // disclosure, where every other ordinary configuration leaves it.
+    expect(container.textContent).not.toContain('needs the file below')
+    expect(disclosure('Keep the settings in a file')).toBeDefined()
   })
 
   it('emits a data-config snippet once the URL is there', () => {
@@ -225,6 +239,53 @@ describe('a list that trusts a PubMed query', () => {
 
     const pre = container.querySelector('pre')
     expect(pre?.textContent).toContain('data-pubmed')
+    expect(pre?.textContent).not.toContain('data-pubmed-trusted')
     expect(container.textContent).not.toContain('needs the file below')
+  })
+})
+
+/**
+ * The snapshot is a tick box, unticked to begin with and recommended in its
+ * own label. The credit line is not part of it and must survive either way —
+ * `embed.js` can never put one back, so a snapshot that took the credit with it
+ * would be a link deleted silently and permanently.
+ */
+describe('the snapshot checkbox', () => {
+  it('is off to begin with, and says so as a recommendation', () => {
+    render(SIMPLE)
+    const box = checkbox('Include the list itself')
+    expect(box).toBeDefined()
+    expect(box?.checked).toBe(false)
+    const label = container.querySelector(`label[for="${box?.id}"]`)
+    expect(label?.textContent).toContain('recommended')
+  })
+
+  it('names all three things a missing snapshot costs, beside the box', () => {
+    render(SIMPLE)
+    const hint = checkbox('Include the list itself')?.closest('div')?.textContent ?? ''
+    expect(hint).toContain('search engines')
+    expect(hint).toContain('JavaScript')
+    expect(hint).toContain('once the fetch finishes')
+  })
+
+  it('leaves the list out of the snippet until it is ticked', () => {
+    render(SIMPLE)
+    const before = container.querySelector('pre')?.textContent ?? ''
+    expect(before).not.toContain('The PRISMA 2020 statement')
+    expect(before).toContain('publist-embed')
+
+    render(SIMPLE, '', true)
+    const after = container.querySelector('pre')?.textContent ?? ''
+    expect(after).toContain('The PRISMA 2020 statement')
+    expect(after.length).toBeGreaterThan(before.length)
+  })
+
+  it('keeps exactly one credit line whether or not it is ticked', () => {
+    for (const snapshot of [false, true]) {
+      render(SIMPLE, '', snapshot)
+      const snippet = container.querySelector('pre')?.textContent ?? ''
+      expect(snippet.split('publist-credit').length - 1).toBe(1)
+      expect(snippet.split('publist-disclaimer').length - 1).toBe(1)
+    }
   })
 })

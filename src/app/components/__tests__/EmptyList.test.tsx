@@ -127,9 +127,11 @@ function renderSnippet(m: ListModel) {
         model={m}
         credit
         disclaimer
+        snapshot={false}
         configUrl=""
         onCreditChange={() => {}}
         onDisclaimerChange={() => {}}
+        onSnapshotChange={() => {}}
         onConfigUrlChange={() => {}}
       />,
     )

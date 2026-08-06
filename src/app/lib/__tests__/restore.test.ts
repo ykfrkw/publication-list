@@ -56,14 +56,21 @@ function modelFor(config: ListConfig): ListModel {
   }
 }
 
-/** The script snippet a draft would produce in the wizard. */
-function snippetFor(draft: WizardDraft, credit = true): string {
+/**
+ * The script snippet a draft would produce in the wizard.
+ *
+ * `snapshot` defaults to *on* here, unlike in the wizard: most of these tests
+ * are about reading settings back out of a full snippet, and the snapshot is
+ * the thing the credit and disclaimer lines are read beside. The lightweight
+ * default has its own tests below.
+ */
+function snippetFor(draft: WizardDraft, credit = true, snapshot = true): string {
   const config = draftToConfig(draft)
   const model = modelFor({
     ...config,
     disclaimer: draft.disclaimer ? 'show' : 'hide',
   })
-  return buildEmbedSnippet(model, { credit })
+  return buildEmbedSnippet(model, { credit, snapshot })
 }
 
 /**
@@ -216,6 +223,62 @@ describe('the round trip, draft → snippet → draft', () => {
     const { draft } = await restoreFromPaste(snippetFor(PERSON_DRAFT))
     expect(draft.include).toEqual([])
     expect(draft.pins).toBe('pmid:33782057')
+  })
+
+  /**
+   * The tick that says "publish this query's hits without reviewing them".
+   *
+   * It is the one PubMed-seed field whose loss would not be cosmetic — a seed
+   * that comes back untrusted publishes a shorter list on the next load — so it
+   * has a transport of its own, `data-pubmed-trusted`, and this is the test
+   * that it survives the whole way round.
+   */
+  it('restores the review ticks onto the same queries', async () => {
+    const draftWithTicks: WizardDraft = {
+      ...emptyDraft('person'),
+      orcid: '0000-0003-1317-0220',
+      pubmed: 'a[au]\nb[au]\nc[au]',
+      pubmedTrusted: ['a[au]', 'c[au]'],
+    }
+    const { draft } = await restoreFromPaste(snippetFor(draftWithTicks))
+
+    expect(draft.pubmed).toBe('a[au]\nb[au]\nc[au]')
+    expect(draft.pubmedTrusted).toEqual(['a[au]', 'c[au]'])
+    expect(draftToConfig(draft).seeds.pubmed).toEqual([
+      { query: 'a[au]', trust: 'confirmed' },
+      { query: 'b[au]' },
+      { query: 'c[au]', trust: 'confirmed' },
+    ])
+  })
+
+  it('restores the ticks off the iframe snippet too', async () => {
+    const config = normalizeConfig({
+      seeds: { pubmed: [{ query: 'a[au]' }, { query: 'b[au]', trust: 'confirmed' }] },
+    })
+    const { draft } = await restoreFromPaste(buildIframeSnippet(config))
+    expect(draft.pubmedTrusted).toEqual(['b[au]'])
+  })
+
+  it('restores a snippet that carries no snapshot at all', async () => {
+    // The wizard's default snippet. Every setting is in the attributes, so
+    // nothing about the round trip depends on the rendered list being there.
+    const config = draftToConfig(PERSON_DRAFT)
+    const { draft, form } = await restoreFromPaste(
+      snippetFor(PERSON_DRAFT, true, false),
+    )
+    expect(form).toBe('embed')
+    expect(comparable(draftToConfig(draft))).toEqual(comparable(config))
+    // The credit line is still in the markup to be read, because it is not
+    // part of the snapshot.
+    expect(draft.credit).toBe(true)
+    expect(draft.disclaimer).toBe(true)
+    // …and the box that produced it comes back unticked.
+    expect(draft.snapshot).toBe(false)
+  })
+
+  it('remembers whether the pasted snippet had a snapshot', async () => {
+    const withSnapshot = await restoreFromPaste(snippetFor(PERSON_DRAFT, true, true))
+    expect(withSnapshot.draft.snapshot).toBe(true)
   })
 
   it('lists the excluded records so they can be undone', async () => {
@@ -478,11 +541,14 @@ describe('the credit and disclaimer checkboxes', () => {
 // ───────────────────────────────────────────────────────────── the losses ──
 
 describe('what it says could not be restored', () => {
-  it('names the review tick and the PubMed extras on the inline route', async () => {
+  it('names the PubMed extras on the inline route, but not the review tick', async () => {
     const { lost } = await restoreFromPaste(snippetFor(PERSON_DRAFT))
     const text = lost.join('\n')
-    expect(text).toContain('publish without review')
+    // The name and the dates on a PubMed seed still have nowhere to go.
     expect(text).toContain('grace period')
+    // The tick does travel now, in `data-pubmed-trusted`, so claiming it was
+    // lost would send the user to re-tick something that is already ticked.
+    expect(text).not.toContain('publish without review')
   })
 
   it('says nothing about PubMed when there are no PubMed seeds', async () => {

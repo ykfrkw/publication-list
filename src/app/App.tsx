@@ -372,9 +372,11 @@ export default function App() {
             model={outputModel}
             credit={draft.credit}
             disclaimer={draft.disclaimer}
+            snapshot={draft.snapshot}
             configUrl={draft.configUrl}
             onCreditChange={(credit) => update({ credit })}
             onDisclaimerChange={(disclaimer) => update({ disclaimer })}
+            onSnapshotChange={(snapshot) => update({ snapshot })}
             onConfigUrlChange={(configUrl) => update({ configUrl })}
           />
 

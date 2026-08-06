@@ -129,6 +129,14 @@ export interface WizardDraft {
   /** snippet options */
   credit: boolean
   /**
+   * "Include the list itself in the snippet" — the pre-rendered snapshot.
+   *
+   * Off by default, and recommended on: see `EmbedSnippetOptions.snapshot`.
+   * Like `credit`, it describes the snippet rather than the list, so it never
+   * reaches `draftToConfig` and never touches `configHash`.
+   */
+  snapshot: boolean
+  /**
    * "Say where the list came from" — the source disclaimer.
    *
    * Deliberately kept out of `draftToConfig`, even though `disclaimer` is a
@@ -188,6 +196,7 @@ export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
     exclude: [],
     removed: {},
     credit: true,
+    snapshot: false,
     disclaimer: true,
     configUrl: '',
   }
@@ -396,6 +405,13 @@ export interface ConfigToDraftOptions {
    * evidence than the attribute — the site owner may have deleted the line.
    */
   disclaimer?: boolean
+  /**
+   * Whether the pasted snippet carried a pre-rendered snapshot. Not a config
+   * field either — it is the presence of the rendered list in the markup — so
+   * the caller reads it off the paste and the wizard's own default (off)
+   * stands in when there was nothing to read.
+   */
+  snapshot?: boolean
   /** A hosted `pubs.json` URL the config was fetched from, to keep in the form. */
   configUrl?: string
 }
@@ -460,6 +476,7 @@ export function configToDraft(
   draft.limit = config.limit != null ? String(config.limit) : ''
 
   draft.credit = opts.credit ?? true
+  draft.snapshot = opts.snapshot ?? false
   draft.disclaimer = opts.disclaimer ?? config.disclaimer !== 'hide'
   draft.configUrl = opts.configUrl ?? ''
 
@@ -905,6 +922,10 @@ export function loadDraft(): WizardDraft | null {
       // A draft stored before this field existed has no ticks, which is the
       // same as every query being reviewed — the behaviour it was saved with.
       pubmedTrusted: Array.isArray(draft.pubmedTrusted) ? draft.pubmedTrusted : [],
+      // Same shape of guard: a draft stored before this field existed, or one
+      // with a non-boolean in it, gets the lightweight snippet the wizard
+      // offers by default rather than an unchecked box that behaves as ticked.
+      snapshot: typeof draft.snapshot === 'boolean' ? draft.snapshot : false,
       removed:
         draft.removed != null &&
         typeof draft.removed === 'object' &&

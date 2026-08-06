@@ -414,10 +414,22 @@ export interface RenderHtmlOptions {
   disclaimer?: boolean
 }
 
+/**
+ * Does this configuration ask for the source note?
+ *
+ * Exported for `buildEmbedSnippet`, which emits `DISCLAIMER_HTML` itself —
+ * outside the snapshot `<section>`, so the line survives a snippet built with
+ * no snapshot at all — and therefore has to answer the same question this
+ * renderer answers, from the same field and the same default.
+ */
+export function showsDisclaimer(config: ListModel['config']): boolean {
+  return (config.disclaimer ?? DEFAULT_DISCLAIMER) === 'show'
+}
+
 /** Does this render carry the source note? Explicit option first, else config. */
 function wantsDisclaimer(model: ListModel, opts: RenderHtmlOptions): boolean {
   if (opts.disclaimer != null) return opts.disclaimer
-  return (model.config.disclaimer ?? DEFAULT_DISCLAIMER) === 'show'
+  return showsDisclaimer(model.config)
 }
 
 function pmidHtml(pub: Publication): string {

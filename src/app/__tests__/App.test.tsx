@@ -157,6 +157,20 @@ function creditCount(text: string): number {
   return text.split('class="publist-credit"').length - 1
 }
 
+/**
+ * The snapshot box, ticked.
+ *
+ * The wizard leaves it unticked, so a test that wants to assert something
+ * about the rendered list inside the snippet has to ask for one first.
+ */
+function tickSnapshot(): void {
+  const box = byText('div', 'Include the list itself').querySelector<HTMLInputElement>(
+    'input[type="checkbox"]',
+  )
+  if (!box) throw new Error('no snapshot checkbox')
+  if (!box.checked) click(box)
+}
+
 function disclaimerCount(text: string): number {
   return text.split('class="publist-disclaimer"').length - 1
 }
@@ -272,11 +286,27 @@ describe('the credit checkbox on the generated snippet', () => {
     )!
     click(box)
     expect(box.checked).toBe(false)
+    tickSnapshot()
     const text = snippetText()
     expect(creditCount(text)).toBe(0)
     expect(text).not.toContain('yukifurukawa.jp')
     // Nothing else is withheld: the snapshot and the script tag are still there.
     expect(text).toContain('The PRISMA 2020 statement')
+    expect(text).toContain('embed.js')
+  })
+
+  /**
+   * The credit is emitted by `buildEmbedSnippet` rather than by the snapshot
+   * renderer precisely so this holds. If it ever moves back inside the
+   * `<section>`, leaving the snapshot out would delete the link silently —
+   * `embed.js` is forbidden from ever creating one.
+   */
+  it('survives with the snapshot left out, which is the default', async () => {
+    await renderWithResult()
+    const text = snippetText()
+    expect(text).not.toContain('The PRISMA 2020 statement')
+    expect(creditCount(text)).toBe(1)
+    expect(text).toContain('yukifurukawa.jp')
     expect(text).toContain('embed.js')
   })
 })
@@ -319,6 +349,7 @@ describe('the source-disclaimer checkbox on the generated snippet', () => {
     await renderWithResult()
     click(disclaimerBox())
     expect(disclaimerBox().checked).toBe(false)
+    tickSnapshot()
 
     const text = snippetText()
     expect(disclaimerCount(text)).toBe(0)

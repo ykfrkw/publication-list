@@ -201,28 +201,40 @@ function parseCreditParam(params: URLSearchParams): boolean {
 }
 
 /**
- * The credit and disclaimer checkboxes, read off the pasted snapshot.
+ * The three snippet checkboxes, read off the pasted markup.
  *
- * Neither is in the `data-*` set — they are presentational, and the disclaimer's
- * attribute only appears when it is *off* — so the snapshot is the evidence.
- * It is also the better evidence: the site owner may have deleted either line
- * from their own markup by hand, and what is in the paste is what is on the
- * page.
+ * None of them is in the `data-*` set — the two trailer lines are
+ * presentational, the snapshot is the rendered list itself, and the
+ * disclaimer's attribute only appears when it is *off* — so the markup is the
+ * evidence. It is also the better evidence: the site owner may have deleted
+ * any of it from their own page by hand, and what is in the paste is what is
+ * on the page.
  *
  * A container with no element children is an opening `<div>` pasted on its own.
- * That says nothing about either line, so nothing is claimed and the caller
+ * That says nothing about any of them, so nothing is claimed and the caller
  * falls back to the defaults.
  */
 function readSnapshotFlags(el: Element): {
   credit?: boolean
   disclaimer?: boolean
+  snapshot?: boolean
 } {
   if (el.children.length === 0) return {}
   return {
     credit: el.querySelector(CREDIT_SELECTOR) != null,
     disclaimer: el.querySelector(DISCLAIMER_SELECTOR) != null,
+    snapshot: el.querySelector(LIST_SELECTOR) != null,
   }
 }
+
+/**
+ * The rendered list inside a pasted snippet.
+ *
+ * `renderHtml`'s own wrapper, so its presence is exactly "this snippet was
+ * built with a snapshot" — and its absence, in a container that has *some*
+ * children, is exactly the lightweight snippet.
+ */
+const LIST_SELECTOR = 'section.publist'
 
 // ────────────────────────────────────────────── resolving a hosted config ──
 
@@ -284,6 +296,7 @@ async function fetchConfig(
 interface Flags {
   credit?: boolean
   disclaimer?: boolean
+  snapshot?: boolean
 }
 
 async function build(
@@ -394,18 +407,12 @@ function describeLosses(config: ListConfig, ctx: LossContext): string[] {
   const mode = pickMode(config)
 
   if (pubmed.length > 0 && !ctx.pubmedFromFile) {
-    // `data-pubmed` / `?pubmed=` carry the query text and nothing else — see
-    // `readConfig` in `core/config.ts`, which refuses to invent a syntax for
-    // the rest inside somebody else's search string.
-    lost.push(
-      `The “publish without review” tick on your PubMed ${
-        pubmed.length === 1 ? 'query' : 'queries'
-      }. A snippet carries the query text and nothing else, so ${plural(
-        pubmed.length,
-        'query has',
-        'queries have',
-      )} come back as needing review. Re-tick it if you had it on.`,
-    )
+    // `data-pubmed` / `?pubmed=` carry the query text, and `pubmed-trusted`
+    // beside it carries the “publish without review” ticks by position — so
+    // that one *is* restored, and is deliberately not listed here. What has
+    // nowhere to go is the rest: `readConfig` in `core/config.ts` refuses to
+    // invent a syntax for a name or a date range inside somebody else's search
+    // string.
     lost.push(
       'Any name, start date, end date or grace period you had set on a PubMed ' +
         'query. Those live only in a pubs.json, and the query box holds one ' +

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeConfig, parseConfigFromSearchParams } from '@/core/config'
-import { CREDIT_HTML } from '@/core/render'
+import { CREDIT_HTML, DISCLAIMER_HTML } from '@/core/render'
 import type { ListConfig, ListModel, Publication } from '@/core/types'
 import {
   EMBED_SCRIPT_URL,
@@ -8,7 +8,6 @@ import {
   buildIframeSnippet,
   configToDataAttributes,
   hasCommaHostileValues,
-  hasTrustedPubmedSeeds,
 } from '../snippet'
 
 const publication: Publication = {
@@ -97,8 +96,8 @@ describe('the credit link', () => {
 })
 
 describe('buildEmbedSnippet', () => {
-  it('carries a pre-rendered snapshot of the list', () => {
-    const snippet = buildEmbedSnippet(model(), { credit: false })
+  it('carries a pre-rendered snapshot of the list when asked for one', () => {
+    const snippet = buildEmbedSnippet(model(), { credit: false, snapshot: true })
     expect(snippet).toContain('<section class="publist">')
     expect(snippet).toContain('The PRISMA 2020 statement')
     expect(snippet).toContain('PMID: <a href="https://pubmed.ncbi.nlm.nih.gov/33782057"')
@@ -115,12 +114,83 @@ describe('buildEmbedSnippet', () => {
   it('collapses to a single data-config attribute when a hosted URL is given', () => {
     const snippet = buildEmbedSnippet(model(), {
       credit: true,
+      snapshot: true,
       configUrl: 'https://example.org/pubs.json',
     })
     expect(snippet).toContain('data-config="https://example.org/pubs.json"')
     expect(snippet).not.toContain('data-orcid=')
     // The snapshot is still there — that is the whole point of it.
     expect(snippet).toContain('The PRISMA 2020 statement')
+  })
+})
+
+/**
+ * The snapshot is optional, and the two trailer lines are not part of it.
+ *
+ * That separation is the load-bearing thing here. The lines used to be emitted
+ * by `renderHtml` *inside* the `<section>` that is the snapshot, so leaving the
+ * snapshot out would have deleted the credit link — permanently and without an
+ * error, since `src/embed/entry.ts` may never create one.
+ */
+describe('the optional snapshot', () => {
+  const hasSnapshot = (snippet: string) =>
+    snippet.includes('<section class="publist">')
+
+  it('is left out by default', () => {
+    const snippet = buildEmbedSnippet(model(), { credit: true })
+    expect(hasSnapshot(snippet)).toBe(false)
+    expect(snippet).not.toContain('The PRISMA 2020 statement')
+    expect(snippet).not.toContain('<!-- Snapshot')
+    // Everything else the snippet is for is still there.
+    expect(snippet).toContain('<div class="publist-embed"')
+    expect(snippet).toContain('data-orcid="0000-0003-1317-0220"')
+    expect(snippet).toContain(`<script src="${EMBED_SCRIPT_URL}" defer></script>`)
+  })
+
+  it('is added, comment and all, when the box is ticked', () => {
+    const snippet = buildEmbedSnippet(model(), { credit: true, snapshot: true })
+    expect(hasSnapshot(snippet)).toBe(true)
+    expect(snippet).toContain('The PRISMA 2020 statement')
+    expect(snippet).toContain('<!-- Snapshot generated 2026-08-05.')
+  })
+
+  it('keeps exactly one credit and one disclaimer either way', () => {
+    for (const snapshot of [false, true]) {
+      const snippet = buildEmbedSnippet(model(), { credit: true, snapshot })
+      expect(creditCount(snippet)).toBe(1)
+      expect(snippet.split('class="publist-disclaimer"').length - 1).toBe(1)
+      expect(snippet).toContain(CREDIT_HTML)
+      expect(snippet).toContain(DISCLAIMER_HTML)
+    }
+  })
+
+  it('puts both lines outside the snapshot section, so dropping it drops neither', () => {
+    const snippet = buildEmbedSnippet(model(), { credit: true, snapshot: true })
+    const sectionEnd = snippet.indexOf('</section>')
+    expect(sectionEnd).toBeGreaterThan(-1)
+    expect(snippet.indexOf(DISCLAIMER_HTML)).toBeGreaterThan(sectionEnd)
+    expect(snippet.indexOf(CREDIT_HTML)).toBeGreaterThan(sectionEnd)
+  })
+
+  it('honours the disclaimer switch with no snapshot to carry it', () => {
+    const hidden = model({
+      config: { ...model().config, disclaimer: 'hide' as const },
+    })
+    const snippet = buildEmbedSnippet(hidden, { credit: true })
+    expect(snippet).not.toContain('publist-disclaimer')
+    expect(creditCount(snippet)).toBe(1)
+  })
+
+  it('adds only the list — the rest of the snippet is unchanged', () => {
+    const off = buildEmbedSnippet(model(), { credit: true })
+    const on = buildEmbedSnippet(model(), { credit: true, snapshot: true })
+    // Cut from the snapshot comment to the end of the section it introduces.
+    const start = on.indexOf('  <!-- Snapshot')
+    const closing = '  </section>\n'
+    const end = on.indexOf(closing) + closing.length
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    expect(on.slice(0, start) + on.slice(end)).toBe(off)
   })
 })
 
@@ -239,33 +309,76 @@ describe('hasCommaHostileValues', () => {
   })
 })
 
-describe('hasTrustedPubmedSeeds', () => {
+/**
+ * `trust` is the one PubMed-seed field whose loss would not be cosmetic: a seed
+ * that comes back untrusted publishes a *shorter* list on the next page load,
+ * silently. It therefore travels — beside the query, never inside it.
+ */
+describe('a trusted PubMed seed in the inline transports', () => {
   const TRUSTED = normalizeConfig({
-    seeds: { pubmed: [{ query: '"SLEEPI"[cn]', trust: 'confirmed' }] },
+    seeds: {
+      pubmed: [
+        { query: '"SLEEPI"[cn]', trust: 'confirmed' },
+        { query: 'Furukawa Y[au]' },
+        { query: 'insomnia[ti]', trust: 'confirmed' },
+      ],
+    },
   })
 
-  it('flags a config whose flag the inline attributes would drop', () => {
-    expect(hasTrustedPubmedSeeds(TRUSTED)).toBe(true)
-    expect(
-      hasTrustedPubmedSeeds(
+  it('rides in a second attribute as line numbers, leaving the query untouched', () => {
+    const attrs = Object.fromEntries(configToDataAttributes(TRUSTED))
+    // The query text is exactly what the user typed — no marker smuggled in,
+    // which is the constraint that made a separate attribute necessary.
+    expect(attrs['data-pubmed']).toBe(
+      '"SLEEPI"[cn],Furukawa Y[au],insomnia[ti]',
+    )
+    expect(attrs['data-pubmed-trusted']).toBe('0,2')
+  })
+
+  it('says nothing at all when no query is trusted', () => {
+    const attrs = Object.fromEntries(
+      configToDataAttributes(
         normalizeConfig({ seeds: { pubmed: [{ query: '"SLEEPI"[cn]' }] } }),
       ),
-    ).toBe(false)
-    expect(hasTrustedPubmedSeeds(model().config)).toBe(false)
+    )
+    expect(attrs['data-pubmed-trusted']).toBeUndefined()
   })
 
-  it('is why the attribute projection may not be used for one', () => {
-    // Pinned here so the loss can never become accidental: `data-pubmed` does
-    // carry the query, and nothing carries the trust, so a snippet built from
-    // this projection would publish a *reduced* list on the next page load.
-    // `SnippetPanel` withholds it; this asserts what it is withholding.
+  it('comes back off the query string with the ticks on the same queries', () => {
     const attrs = Object.fromEntries(configToDataAttributes(TRUSTED))
-    expect(attrs['data-pubmed']).toBe('"SLEEPI"[cn]')
-    expect(
-      parseConfigFromSearchParams(
-        new URLSearchParams({ pubmed: attrs['data-pubmed'] }),
-      ).config.seeds?.pubmed,
-    ).toEqual([{ query: '"SLEEPI"[cn]' }])
+    const read = parseConfigFromSearchParams(
+      new URLSearchParams({
+        pubmed: attrs['data-pubmed'],
+        'pubmed-trusted': attrs['data-pubmed-trusted'],
+      }),
+    )
+    expect(read.config.seeds?.pubmed).toEqual([
+      { query: '"SLEEPI"[cn]', trust: 'confirmed' },
+      { query: 'Furukawa Y[au]' },
+      { query: 'insomnia[ti]', trust: 'confirmed' },
+    ])
+  })
+
+  it('produces both snippets rather than withholding them', () => {
+    // The regression this exists to stop: ticking the box used to leave the
+    // user with no snippet at all and a demand to host a pubs.json.
+    const m = model({ config: TRUSTED })
+    const script = buildEmbedSnippet(m, { credit: true })
+    expect(script).toContain('data-pubmed-trusted="0,2"')
+    expect(script).toContain(EMBED_SCRIPT_URL)
+
+    const iframe = buildIframeSnippet(TRUSTED)
+    expect(iframe).toContain('pubmed-trusted=0%2C2')
+  })
+
+  it('survives the iframe URL as a whole config', () => {
+    const url = buildIframeSnippet(TRUSTED).match(/src="([^"]+)"/)?.[1] ?? ''
+    const query = new URLSearchParams(
+      (url.split('?')[1] ?? '').replace(/&amp;/g, '&'),
+    )
+    expect(normalizeConfig(parseConfigFromSearchParams(query).config).seeds).toEqual(
+      TRUSTED.seeds,
+    )
   })
 })
 

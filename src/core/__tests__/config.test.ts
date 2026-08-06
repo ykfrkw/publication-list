@@ -465,20 +465,58 @@ describe('a PubMed seed marked trusted', () => {
 
     const json = serializeConfig(config)
     expect(JSON.parse(json).seeds.pubmed[0].trust).toBe('confirmed')
-    // Lossless, because the JSON route is the *only* route this flag has.
+    // Lossless, as it is on the inline routes tested below — this one carries
+    // the seed's `label` and window with it, which they cannot.
     expect(normalizeConfig(JSON.parse(json) as ListConfig)).toEqual(config)
   })
 
-  it('cannot travel in data-pubmed or in a query string', () => {
-    // Both transports carry the query alone. The flag is not smuggled into the
-    // query text, so a seed read back from either is untrusted — the safe
-    // direction. The wizard refuses to emit these snippets at all for a config
-    // that has one; see `hasTrustedPubmedSeeds` in app/lib/snippet.ts.
+  it('is never read out of the query text itself', () => {
+    // Both transports carry the query verbatim. The flag is not smuggled into
+    // it — it rides in the companion parameter tested below — so a query
+    // arriving on its own is untrusted, which is the safe direction.
     expect(fromAttributes({ 'data-pubmed': '"SLEEPI"[cn]' }).config.seeds?.pubmed)
       .toEqual([{ query: '"SLEEPI"[cn]' }])
     expect(fromQuery('pubmed=%22SLEEPI%22%5Bcn%5D').config.seeds?.pubmed).toEqual([
       { query: '"SLEEPI"[cn]' },
     ])
+  })
+
+  it('travels beside the query, as line numbers, on both transports', () => {
+    const expected = [
+      { query: 'a[au]', trust: 'confirmed' },
+      { query: 'b[au]' },
+      { query: 'c[au]', trust: 'confirmed' },
+    ]
+    expect(
+      fromAttributes({
+        'data-pubmed': 'a[au],b[au],c[au]',
+        'data-pubmed-trusted': '0,2',
+      }).config.seeds?.pubmed,
+    ).toEqual(expected)
+    expect(
+      fromQuery('pubmed=a%5Bau%5D,b%5Bau%5D,c%5Bau%5D&pubmed-trusted=0,2').config
+        .seeds?.pubmed,
+    ).toEqual(expected)
+    // camelCase too, the same courtesy every other hyphenated name gets.
+    expect(
+      fromQuery('pubmed=a%5Bau%5D&pubmedTrusted=0').config.seeds?.pubmed,
+    ).toEqual([{ query: 'a[au]', trust: 'confirmed' }])
+  })
+
+  it('ignores an index that is out of range or not a number', () => {
+    // A hand-edited snippet must fall back to "needs review" rather than throw
+    // or, worse, tick the wrong query.
+    const seeds = fromAttributes({
+      'data-pubmed': 'a[au],b[au]',
+      'data-pubmed-trusted': '1, 7, -1, x, 1.5, 01x, , 99999999999999999999',
+    }).config.seeds?.pubmed
+    expect(seeds).toEqual([{ query: 'a[au]' }, { query: 'b[au]', trust: 'confirmed' }])
+  })
+
+  it('does nothing at all with no queries to point at', () => {
+    expect(
+      fromAttributes({ 'data-pubmed-trusted': '0,1' }).config.seeds,
+    ).toBeUndefined()
   })
 
   it('drops a trust value that is not exactly "confirmed"', () => {

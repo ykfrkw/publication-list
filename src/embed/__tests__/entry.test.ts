@@ -84,7 +84,36 @@ function mountFlat(): HTMLElement {
   return document.querySelector<HTMLElement>('.publist-embed')!
 }
 
-/** The real shape: both trailer lines nested inside the rendered `<section>`. */
+/**
+ * The shape `buildEmbedSnippet` emits: the rendered `<section>` for the
+ * snapshot, and both trailer lines as siblings *outside* it.
+ *
+ * That split is what lets the wizard offer a snippet with no snapshot at all
+ * without the credit going with it — see the note on `buildEmbedSnippet`. This
+ * script has to leave both lines alone in this arrangement exactly as it does
+ * in the other two.
+ */
+function mountSnippetShape(): HTMLElement {
+  document.body.innerHTML =
+    `<div class="publist-embed" data-orcid="${ORCID}" data-style="vancouver">` +
+    `<section class="publist">${SNAPSHOT_LIST}</section>` +
+    DISCLAIMER_HTML +
+    CREDIT_HTML +
+    '</div>'
+  return document.querySelector<HTMLElement>('.publist-embed')!
+}
+
+/** The same snippet with the snapshot left out: trailer lines and nothing else. */
+function mountSnapshotless(): HTMLElement {
+  document.body.innerHTML =
+    `<div class="publist-embed" data-orcid="${ORCID}" data-style="vancouver">` +
+    DISCLAIMER_HTML +
+    CREDIT_HTML +
+    '</div>'
+  return document.querySelector<HTMLElement>('.publist-embed')!
+}
+
+/** The older shape: both trailer lines nested inside the rendered `<section>`. */
 function mountNested(): HTMLElement {
   document.body.innerHTML =
     `<div class="publist-embed" data-orcid="${ORCID}">` +
@@ -165,6 +194,49 @@ describe('the credit link is never touched', () => {
     await init()
 
     expect(el.querySelector(CREDIT_SELECTOR)).toBeNull()
+  })
+
+  it('keeps both nodes when they sit outside the section, as the snippet emits them', async () => {
+    const el = mountSnippetShape()
+    const credit = el.querySelector(CREDIT_SELECTOR)!
+    const anchor = credit.querySelector('a')!
+    const note = el.querySelector(DISCLAIMER_SELECTOR)!
+
+    mocks.readCache.mockReturnValue(model('Cached citation'))
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+
+    // By identity, across the cached render and the live one.
+    expect(el.querySelector(CREDIT_SELECTOR)).toBe(credit)
+    expect(credit.querySelector('a')).toBe(anchor)
+    expect(el.querySelector(DISCLAIMER_SELECTOR)).toBe(note)
+    expect(el.querySelectorAll(CREDIT_SELECTOR).length).toBe(1)
+    expect(el.querySelectorAll(DISCLAIMER_SELECTOR).length).toBe(1)
+    // The stale section went, and the new list landed above the trailer lines.
+    expect(el.textContent).toContain('Fresh citation')
+    expect(el.textContent).not.toContain('Snapshot citation')
+    const children = Array.from(el.children)
+    expect(children.indexOf(note)).toBeGreaterThan(0)
+    expect(children.indexOf(credit)).toBe(children.length - 1)
+  })
+
+  it('fills a snapshotless snippet without creating or losing a trailer line', async () => {
+    // The wizard's default snippet: no list in the markup at all, both trailer
+    // lines present. The list has to arrive; the two lines must be the same
+    // nodes afterwards, and there must still be exactly one of each.
+    const el = mountSnapshotless()
+    const credit = el.querySelector(CREDIT_SELECTOR)!
+    const note = el.querySelector(DISCLAIMER_SELECTOR)!
+
+    mocks.buildList.mockResolvedValue(model('Fresh citation'))
+    await init()
+
+    expect(el.querySelector(CREDIT_SELECTOR)).toBe(credit)
+    expect(el.querySelector(DISCLAIMER_SELECTOR)).toBe(note)
+    expect(el.querySelectorAll(CREDIT_SELECTOR).length).toBe(1)
+    expect(el.querySelectorAll(DISCLAIMER_SELECTOR).length).toBe(1)
+    expect(el.textContent).toContain('Fresh citation')
+    expect(el.querySelector('.publist-list')).not.toBeNull()
   })
 
   it('keeps the credit node across the cached render and the live render', async () => {

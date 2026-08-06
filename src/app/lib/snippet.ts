@@ -5,29 +5,39 @@
  * ──────────────────────────────────────────────────────────────────────────
  * THE CREDIT LINK
  *
- * This module never builds the credit anchor. It asks
- * `renderHtml(model, { credit })` for it, and `render.ts` owns the markup —
- * the anchor text and href are constants there, not parameters here, and
- * nothing in the UI may hand the user a way to edit them. Read the comment
- * above `CREDIT_HTML` in `src/core/render.ts` before changing anything below.
+ * This module never builds the credit anchor. `buildEmbedSnippet` writes out
+ * `CREDIT_HTML` verbatim, and `render.ts` owns that markup — the anchor text
+ * and href are constants there, not parameters here, and nothing in the UI may
+ * hand the user a way to edit them. Read the comment above `CREDIT_HTML` in
+ * `src/core/render.ts` before changing anything below.
+ *
+ * The line is written here rather than left to `renderHtml` because the
+ * snapshot it used to live inside is optional — see the note on
+ * `buildEmbedSnippet`. It is still static markup in the snippet the user
+ * copies, which is the property that matters: `src/embed/entry.ts` neither
+ * creates nor removes it at runtime.
  *
  * The checkbox controls exactly one thing, spelled two ways because the two
  * embed routes carry it differently: the script snippet gets the boolean
- * passed to `renderHtml`, and the iframe snippet gets `credit=0` in the
- * frame's URL, which `src/widget/main.ts` reads and honours. Off means zero
- * credit blocks either way, and no other difference whatsoever — no nag, no
- * watermark, no reduced output.
+ * read here, and the iframe snippet gets `credit=0` in the frame's URL, which
+ * `src/widget/main.ts` reads and honours. Off means zero credit blocks either
+ * way, and no other difference whatsoever — no nag, no watermark, no reduced
+ * output.
  *
- * THE SOURCE DISCLAIMER is a separate switch and needs no special handling
- * here at all: it is an ordinary `ListConfig` field, so it reaches the script
- * snippet through `renderHtml` reading `model.config` and through the
- * `data-disclaimer` attribute below, and the iframe snippet through the same
- * attribute projected onto the query string. Turning one off never affects the
- * other.
+ * THE SOURCE DISCLAIMER is a separate switch: it is an ordinary `ListConfig`
+ * field, so it reaches the script snippet through `showsDisclaimer(model.config)`
+ * beside the credit and through the `data-disclaimer` attribute below, and the
+ * iframe snippet through the same attribute projected onto the query string.
+ * Turning one off never affects the other.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
-import { renderHtml } from '@/core/render'
+import {
+  CREDIT_HTML,
+  DISCLAIMER_HTML,
+  renderHtml,
+  showsDisclaimer,
+} from '@/core/render'
 import { DEFAULT_DISCLAIMER, DEFAULT_GROUP_BY } from '@/core/config'
 import { encodeSeed } from '@/core/seeds'
 import { escapeHtml } from '@/core/format'
@@ -76,16 +86,25 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
   // `encodeSeed` writes a bare id unchanged and a time-bounded one as
   // `id@from:to:grace`, which `decodeSeed` reads back — so a member window
   // survives the inline-attribute route as well as the JSON one. What cannot
-  // travel here is anything hung on a *PubMed* seed, because that seed's value
-  // is a free-text query: its `label`, its window, and its `trust`. See
-  // `readConfig` in `core/config.ts`.
+  // travel here is the `label` and the window hung on a *PubMed* seed, because
+  // that seed's value is a free-text query with nowhere in it to write them.
+  // See `readConfig` in `core/config.ts`.
   //
-  // `trust` is the one whose loss would be silent and would matter, so it is
-  // not left to this function to lose: `hasTrustedPubmedSeeds` below is what
-  // the UI checks before offering an inline snippet at all.
+  // `trust` is the one whose loss would be silent and would matter, so it does
+  // travel — beside the query rather than inside it. `data-pubmed-trusted`
+  // holds the zero-based positions of the trusted queries within
+  // `data-pubmed`, and the two attributes are written here together, in one
+  // pass over one array, which is what makes the positions trustworthy.
   push('data-orcid', config.seeds.orcid?.map(encodeSeed).join(','))
   push('data-researchmap', config.seeds.researchmap?.map(encodeSeed).join(','))
   push('data-pubmed', config.seeds.pubmed?.map((s) => s.query).join(','))
+  push(
+    'data-pubmed-trusted',
+    (config.seeds.pubmed ?? [])
+      .map((seed, index) => (seed.trust === 'confirmed' ? index : null))
+      .filter((index): index is number => index != null)
+      .join(','),
+  )
   push('data-include', config.include?.join(','))
   push('data-exclude', config.exclude?.join(','))
   push('data-bold-names', config.boldNames?.join(','))
@@ -133,26 +152,6 @@ export function hasCommaHostileValues(config: ListConfig): boolean {
   return lists.some((list) => (list ?? []).some((v) => v.includes(',')))
 }
 
-/**
- * Does this configuration trust a PubMed seed, and therefore need the hosted
- * `pubs.json` route?
- *
- * `PubmedSeed.trust` has no `data-*` spelling and no query-string spelling —
- * see the comment in `configToDataAttributes` and `readConfig` in
- * `core/config.ts`. An inline snippet would carry the query and drop the flag,
- * so the embed would re-fetch the same search, get `candidate` records, and
- * render a list shorter than the snapshot the snippet was pasted with. That is
- * the failure mode this whole tool is most careful about: a page that looks
- * right when it is pasted and is wrong for ever afterwards, with nothing on
- * screen to say so.
- *
- * So the UI treats this like `hasCommaHostileValues`, only harder: not a
- * preference for the hosted route but a requirement for it.
- */
-export function hasTrustedPubmedSeeds(config: ListConfig): boolean {
-  return (config.seeds.pubmed ?? []).some((seed) => seed.trust === 'confirmed')
-}
-
 function renderAttributes(attrs: readonly DataAttribute[]): string {
   return attrs.map(([name, value]) => `\n  ${name}="${attrEscape(value)}"`).join('')
 }
@@ -168,6 +167,22 @@ export interface EmbedSnippetOptions {
   /** Emit the credit block. Default ON in the UI; nothing else depends on it. */
   credit: boolean
   /**
+   * Include the pre-rendered list in the snippet.
+   *
+   * **Default false.** What the snapshot buys is real — the list is in the host
+   * page's HTML, so crawlers read it, a visitor with JavaScript off sees it,
+   * and the first paint does not wait on the fetch — but it is also the bulk of
+   * the snippet, and a wall of markup is what stops someone pasting it at all.
+   * So the wizard offers it as a recommended tick rather than imposing it, and
+   * this default is the small snippet.
+   *
+   * Nothing else in the snippet depends on it: the container, its `data-*`
+   * attributes, the two trailer lines and the `<script>` are emitted either
+   * way. `embed.js` fills an empty container on load (see `hasContent` in
+   * `src/embed/entry.ts`, which shows a spinner for exactly this case).
+   */
+  snapshot?: boolean
+  /**
    * When set, the config travels in a hosted `pubs.json` and the container
    * carries a single `data-config` attribute instead of the inline set.
    */
@@ -175,12 +190,29 @@ export interface EmbedSnippetOptions {
 }
 
 /**
- * The JS embed snippet, with a pre-rendered snapshot of the current list.
+ * The JS embed snippet: the container, the two trailer lines, the script tag,
+ * and — when asked for — a pre-rendered snapshot of the current list.
  *
- * The snapshot is the point. It means the list is in the host page's HTML:
- * visible to crawlers, visible with JS disabled, and visible instantly on a
- * slow connection. `embed.js` replaces it with a freshly fetched list on load
- * and leaves any `.publist-credit` node alone while doing so.
+ * ──────────────────────────────────────────────────────────────────────────
+ * WHY THE TRAILER LINES ARE EMITTED HERE AND NOT BY `renderHtml`
+ *
+ * `renderHtml` puts the disclaimer and the credit *inside* its
+ * `<section class="publist">`, which is exactly right for its other callers —
+ * the static HTML export, the preview and the iframe widget all hand over that
+ * section as the whole output, and the lines belong in it.
+ *
+ * For this snippet that section is the snapshot, and the snapshot is optional.
+ * Emitting the credit inside it would mean an unticked snapshot box silently
+ * deleted the attribution — and `src/embed/entry.ts` is forbidden from ever
+ * creating either line, so nothing would put it back and nothing would report
+ * it. So this function renders the list with both suppressed and writes the two
+ * lines itself, as direct children of `.publist-embed` and outside the section.
+ *
+ * `entry.ts` preserves them by identity wherever in the container they sit —
+ * `replaceListContent` treats a preserved node that *is* a direct child as the
+ * simple case — and `restore.ts` reads them off the container, so both keep
+ * working unchanged.
+ * ──────────────────────────────────────────────────────────────────────────
  */
 export function buildEmbedSnippet(
   model: ListModel,
@@ -191,16 +223,25 @@ export function buildEmbedSnippet(
       ? [['data-config', opts.configUrl.trim()] as const]
       : configToDataAttributes(model.config)
 
-  const snapshot = renderHtml(model, { credit: opts.credit })
   const stamp = (model.generatedAt || '').slice(0, 10)
+  const lines: string[] = [`<div class="publist-embed"${renderAttributes(attrs)}>`]
 
-  return [
-    `<div class="publist-embed"${renderAttributes(attrs)}>`,
-    `  <!-- Snapshot${stamp ? ` generated ${stamp}` : ''}. embed.js replaces it with a live list on load. -->`,
-    indent(snapshot),
-    '</div>',
-    `<script src="${EMBED_SCRIPT_URL}" defer></script>`,
-  ].join('\n')
+  if (opts.snapshot) {
+    lines.push(
+      `  <!-- Snapshot${stamp ? ` generated ${stamp}` : ''}. embed.js replaces it with a live list on load. -->`,
+      // Both suppressed: the two lines below are the only ones in the snippet,
+      // whether or not this branch ran.
+      indent(renderHtml(model, { credit: false, disclaimer: false })),
+    )
+  }
+
+  // Same order as `renderHtml` puts them in, for the same reason: the note
+  // about where the list came from reads before the note about what built it.
+  if (showsDisclaimer(model.config)) lines.push(indent(DISCLAIMER_HTML))
+  if (opts.credit) lines.push(indent(CREDIT_HTML))
+
+  lines.push('</div>', `<script src="${EMBED_SCRIPT_URL}" defer></script>`)
+  return lines.join('\n')
 }
 
 /** `data-*` names → the query-string names `widget.html` reads. */

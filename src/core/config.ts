@@ -120,6 +120,7 @@ export const CONFIG_PARAM_NAMES = [
   'orcid',
   'researchmap',
   'pubmed',
+  'pubmed-trusted',
   'include',
   'exclude',
   'bold-names',
@@ -171,18 +172,31 @@ function readConfig(read: ConfigReader): DatasetConfig {
   // else's search syntax. `from` / `to` / `grace` on a PubMed seed travel in a
   // `pubs.json`, exactly as `label` already does.
   //
-  // **`trust` cannot travel here either, and that is on purpose.** It is the
-  // one field whose loss is not cosmetic: a seed the owner marked confirmed,
-  // arriving as a plain query, silently reverts to `'candidate'` and its
-  // records vanish from the page. A marker smuggled into the query text could
-  // be mangled by the comma split this transport already suffers from, so
-  // rather than carry it unreliably the wizard refuses to emit an inline
-  // snippet for a config that has one and steers to `data-config` instead —
-  // see `hasTrustedPubmedSeeds` in `src/app/lib/snippet.ts`. A seed read back
-  // from a `data-pubmed` attribute is therefore always untrusted, which is the
-  // safe direction to fail in.
+  // **`trust` is the exception, and it travels beside the query rather than
+  // inside it.** Its loss is the one that is not cosmetic: a seed the owner
+  // marked confirmed, arriving as a plain query, silently reverts to
+  // `'candidate'` and its records vanish from the page. But a marker smuggled
+  // into the query text would be indistinguishable from the user's own search
+  // syntax and could be mangled by the comma split this transport already
+  // suffers from — so the query string stays exactly what the user typed, and
+  // the flag rides in a second parameter, `pubmed-trusted`, as the zero-based
+  // positions of the trusted queries within `pubmed`. Positions are safe here
+  // because both parameters are written in one go by
+  // `configToDataAttributes`; they are never edited apart.
+  //
+  // Anything unusable in that list — a non-integer, a negative number, an index
+  // past the end of the query list — is ignored rather than raised. A snippet
+  // someone has hand-edited then falls back to "needs review", which is the
+  // safe direction: an unreviewed record stays off the page.
+  const trustedLines = new Set<number>()
+  for (const raw of splitList(read('pubmed-trusted', true)) ?? []) {
+    if (!/^\d+$/.test(raw)) continue
+    const index = Number.parseInt(raw, 10)
+    if (Number.isSafeInteger(index)) trustedLines.add(index)
+  }
   const pubmed: PubmedSeed[] | undefined = splitList(read('pubmed', true))?.map(
-    (query) => ({ query }),
+    (query, index) =>
+      trustedLines.has(index) ? { query, trust: 'confirmed' as const } : { query },
   )
 
   if (orcid || researchmap || pubmed) {
@@ -236,7 +250,8 @@ function readConfig(read: ConfigReader): DatasetConfig {
 /**
  * Read a `ListConfig` out of an embed container's `data-*` attributes.
  *
- * Recognized: data-orcid, data-researchmap, data-pubmed, data-include,
+ * Recognized: data-orcid, data-researchmap, data-pubmed, data-pubmed-trusted,
+ * data-include,
  * data-exclude, data-style, data-from, data-to, data-group-by, data-preprints,
  * data-japanese, data-review-policy, data-disclaimer, data-limit,
  * data-bold-names (comma-separated where plural), plus the remote-config
@@ -258,6 +273,7 @@ export function parseConfigFromDataset(el: HTMLElement): DatasetConfig {
 const SEARCH_PARAM_ALIASES: Readonly<Record<string, readonly string[]>> = {
   'bold-names': ['bold-names', 'boldNames', 'boldnames'],
   'group-by': ['group-by', 'groupBy', 'groupby'],
+  'pubmed-trusted': ['pubmed-trusted', 'pubmedTrusted', 'pubmedtrusted'],
   'review-policy': ['review-policy', 'reviewPolicy', 'reviewpolicy'],
 }
 

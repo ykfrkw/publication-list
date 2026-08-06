@@ -155,7 +155,11 @@ export function ResultsPanel({
             confirm them in the review queue.
           </p>
         ) : (
-          <div className="publist-preview text-sm leading-relaxed [&_.publist-disclaimer]:mt-4 [&_.publist-disclaimer]:text-xs [&_.publist-disclaimer]:text-muted-foreground [&_.publist-heading]:mt-4 [&_.publist-heading]:mb-1.5 [&_.publist-heading]:font-medium [&_.publist-heading:first-child]:mt-0 [&_.publist-subheading]:mt-3 [&_.publist-subheading]:mb-1 [&_.publist-subheading]:text-xs [&_.publist-subheading]:font-medium [&_.publist-subheading]:text-muted-foreground [&_a]:underline [&_li]:mb-2 [&_ol]:list-decimal [&_ol]:ps-5">
+          // The disclaimer gets spacing here and nothing else: its size and its
+          // muting arrive on the element itself, from the same constants the
+          // copied output carries, so the preview cannot show one treatment
+          // while the snippet pastes another.
+          <div className="publist-preview text-sm leading-relaxed [&_.publist-disclaimer]:mt-4 [&_.publist-heading]:mt-4 [&_.publist-heading]:mb-1.5 [&_.publist-heading]:font-medium [&_.publist-heading:first-child]:mt-0 [&_.publist-subheading]:mt-3 [&_.publist-subheading]:mb-1 [&_.publist-subheading]:text-xs [&_.publist-subheading]:font-medium [&_.publist-subheading]:text-muted-foreground [&_a]:underline [&_li]:mb-2 [&_ol]:list-decimal [&_ol]:ps-5">
             <PreviewList model={model} onRemove={onRemove} />
           </div>
         )}

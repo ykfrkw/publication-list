@@ -76,10 +76,11 @@ Style it from your own stylesheet. The markup is unstyled and every class is nam
 .publist-subheading { font-size: 0.9rem; margin-top: 1em; opacity: 0.75; }
 .publist-item       { margin-bottom: 0.6em; }
 .publist-pmid       { color: #666; font-size: 0.9em; }
-.publist-disclaimer { color: #666; font-size: 0.85em; }
 ```
 
 `.publist-heading` is the publication-type heading; `.publist-subheading` is the year divider inside it.
+
+The last two lines are the exception: the source line and the credit line come with `style="font-size:0.8em;opacity:0.75"` already on them, so they look like small print on your page whether or not you style anything. An inline style beats your stylesheet, so to change them, edit that attribute in the snippet — it is sitting in your own markup — or add `!important` to your rule.
 
 ## Step 5 — Keep the configuration
 

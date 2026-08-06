@@ -4,6 +4,8 @@ import {
   CREDIT_SELECTOR,
   DISCLAIMER_HTML,
   DISCLAIMER_SELECTOR,
+  TRAILER_STYLE,
+  TRAILER_STYLE_PROPS,
   buildGroups,
   renderBibtex,
   renderClipboard,
@@ -416,15 +418,59 @@ describe('renderHtml', () => {
   })
 })
 
+// ────────────────────────────────────────────────────── trailer styling ──
+
+describe('the trailer small print', () => {
+  it('is carried inline, so no stylesheet of ours has to reach the host page', () => {
+    const html = renderHtml(model([pub()]), { credit: true })
+    // Both lines, styled where they stand. Nothing here may ship a <style>
+    // block or depend on one: this markup gets pasted into pages we do not own.
+    expect(html).toContain(`class="publist-disclaimer" style="${TRAILER_STYLE}"`)
+    expect(html).toContain(`class="publist-credit" style="${TRAILER_STYLE}"`)
+    expect(html).not.toContain('<style')
+  })
+
+  it('sizes in em and mutes with opacity, never in px and never in a fixed grey', () => {
+    // `em` so a 14px host and an 18px host each get small print in proportion
+    // to their own body text; `opacity` so the line stays legible on a dark
+    // page, where a hardcoded grey would disappear.
+    expect(TRAILER_STYLE_PROPS.fontSize).toMatch(/^0\.\d+em$/)
+    expect(Number(TRAILER_STYLE_PROPS.opacity)).toBeGreaterThan(0.5)
+    expect(Number(TRAILER_STYLE_PROPS.opacity)).toBeLessThan(1)
+    expect(TRAILER_STYLE).not.toMatch(/px|#|rgb|!important/)
+  })
+
+  it('is the same treatment on both lines, and smaller than a citation', () => {
+    // One block of small print, not two sizes of it.
+    const styles = [
+      ...renderHtml(model([pub()]), { credit: true }).matchAll(
+        /class="publist-(?:disclaimer|credit)" style="([^"]+)"/g,
+      ),
+    ].map((m) => m[1])
+    expect(styles).toEqual([TRAILER_STYLE, TRAILER_STYLE])
+    // The citation stays at the host's own size, so `em` below 1 is the whole
+    // of the difference between the two.
+    expect(Number.parseFloat(TRAILER_STYLE_PROPS.fontSize)).toBeLessThan(0.9)
+    expect(renderHtml(model([pub()]), { credit: true })).toContain(
+      '<li class="publist-item">',
+    )
+  })
+})
+
 // ─────────────────────────────────────────────────────────── credit link ──
 
 describe('the credit link', () => {
   it('is exactly the agreed markup, dofollow, with a hardcoded anchor', () => {
     expect(CREDIT_HTML).toBe(
-      '<p class="publist-credit">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>',
+      '<p class="publist-credit" style="font-size:0.8em;opacity:0.75">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>',
     )
     expect(CREDIT_HTML).not.toContain('rel=')
     expect(CREDIT_SELECTOR).toBe('.publist-credit')
+    // The anchor is hardcoded: the small-print styling above may change, the
+    // text and the href may not.
+    expect(CREDIT_HTML).toContain(
+      '<a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a>',
+    )
   })
 
   it('is absent entirely with credit: false', () => {
@@ -476,7 +522,7 @@ describe('the source disclaimer', () => {
   it('is one short line naming the sources, in a publist- class', () => {
     expect(DISCLAIMER_SELECTOR).toBe('.publist-disclaimer')
     expect(DISCLAIMER_HTML).toBe(
-      '<p class="publist-disclaimer">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>',
+      '<p class="publist-disclaimer" style="font-size:0.8em;opacity:0.75">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>',
     )
     // One sentence: this lands on every embedded page, and small print nobody
     // reads is worse than none.

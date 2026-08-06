@@ -117,26 +117,26 @@
         white-space: nowrap;
       }
 
-      /* The two trailer lines: same small, muted treatment for both. */
-      .publist-disclaimer {
-        margin: 1.8em 0 0;
-        color: #6e7781;
-        font-size: 0.8125rem;
-      }
+      /*
+        The two trailer lines.
 
+        Spacing only. Their size and their muting come from the inline `style`
+        attribute `renderHtml` puts on both — see the `TRAILER_STYLE` note in
+        src/core/render.ts — because those two lines also get pasted into pages
+        that have no stylesheet of ours. Restating `font-size` or `color` here
+        would either be overridden by that attribute or, worse, drift from it,
+        so this frame deliberately styles neither and looks like the same lines
+        pasted anywhere else. The credit's anchor is left at the page's link
+        colour for the same reason.
+      */
+      .publist-disclaimer,
       .publist-credit {
         margin: 1.8em 0 0;
-        color: #6e7781;
-        font-size: 0.8125rem;
       }
 
       /* Together they are one block, not two paragraphs with a gap between. */
       .publist-disclaimer + .publist-credit {
         margin-top: 0.4em;
-      }
-
-      .publist-credit a {
-        color: #6e7781;
       }
 
       /* Loading and failure states — the frame is never left blank. */

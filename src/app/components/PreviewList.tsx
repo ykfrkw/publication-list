@@ -38,6 +38,7 @@ import { formatCitation } from '@/core/format'
 import {
   DISCLAIMER_TEXT,
   PUBMED_BASE,
+  TRAILER_STYLE_PROPS,
   buildGroups,
   pmidOf,
 } from '@/core/render'
@@ -180,7 +181,12 @@ export function PreviewList({
         )
       })}
       {(model.config.disclaimer ?? DEFAULT_DISCLAIMER) === 'show' ? (
-        <p className="publist-disclaimer">{DISCLAIMER_TEXT}</p>
+        // Same inline treatment the string renderers put on this line, from the
+        // same constants, so the preview shows the size the user will paste
+        // rather than a preview-only approximation of it.
+        <p className="publist-disclaimer" style={TRAILER_STYLE_PROPS}>
+          {DISCLAIMER_TEXT}
+        </p>
       ) : null}
     </section>
   )

@@ -27,8 +27,8 @@ Generate a snippet in the [wizard](https://ykfrkw.github.io/publication-list/), 
   <li class="publist-item"><b>Furukawa Y</b>, Salahuddin NH, Wei Y, et al. Next-step treatment for schizophrenia non-responsive to antipsychotics: a systematic review and network meta-analysis. <em>eClinicalMedicine</em>. 2026.</li>
   <li class="publist-item">Fares-Otero NE, <b>Furukawa Y</b>, Sijbrandij M, et al. Efficacy of MDMA-assisted therapy for posttraumatic stress disorder: a systematic review and meta-analysis. <em>European Neuropsychopharmacology</em>. 2026.</li>
   </ol>
-  <p class="publist-disclaimer">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>
-  <p class="publist-credit">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>
+  <p class="publist-disclaimer" style="font-size:0.8em;opacity:0.75">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>
+  <p class="publist-credit" style="font-size:0.8em;opacity:0.75">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>
   </section>
 </div>
 <script src="https://ykfrkw.github.io/publication-list/embed.js" defer></script>
@@ -52,9 +52,10 @@ Every class is namespaced `publist-`, and the markup is unstyled `<section>` / `
 .publist-subheading { font-size: 0.9rem; margin-top: 1em; opacity: 0.75; }
 .publist-item       { margin-bottom: 0.6em; }
 .publist-pmid       { color: #666; font-size: 0.9em; }
-.publist-disclaimer { color: #666; font-size: 0.85em; }
 [data-publist-state="loading"] .publist { opacity: 0.7; }
 ```
+
+Two elements are the exception. The last two lines — `.publist-disclaimer` and `.publist-credit` — arrive with `style="font-size:0.8em;opacity:0.75"` on them, so they read as small print on your page without needing any stylesheet of ours. `em` and `opacity` rather than a pixel size and a grey, so they stay in proportion to your body text and stay legible on a dark background. An inline style outranks your stylesheet, so if you want them to look like something else, edit the `style` attribute in the snippet — it is in your markup — or override it with `!important`.
 
 ### Pinned script URL
 
@@ -177,8 +178,8 @@ Some pages should not run anything at all: a personal CV page you maintain by ha
 <ol class="publist-list">
 <li class="publist-item"><b>Furukawa Y</b>, Salahuddin NH, Wei Y, et al. Next-step treatment for schizophrenia non-responsive to antipsychotics: a systematic review and network meta-analysis. <em>eClinicalMedicine</em>. 2026.</li>
 </ol>
-<p class="publist-disclaimer">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>
-<p class="publist-credit">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>
+<p class="publist-disclaimer" style="font-size:0.8em;opacity:0.75">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>
+<p class="publist-credit" style="font-size:0.8em;opacity:0.75">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>
 </section>
 ```
 

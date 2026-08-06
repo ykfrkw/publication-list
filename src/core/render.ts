@@ -31,6 +31,65 @@ import {
   formatCitationPlain,
 } from './format'
 
+// ────────────────────────────────────────────────────── trailer styling ──
+
+/*
+ * THE TWO TRAILER LINES ARE STYLED INLINE, ON PURPOSE
+ *
+ * The source disclaimer and the credit are small print. Everything else this
+ * renderer emits is deliberately unstyled — it inherits the host page's
+ * typography and is styled from the host's own stylesheet — and these two are
+ * the one exception, for a reason that does not apply to the list itself:
+ *
+ *   - **There is no stylesheet of ours anywhere they land.** The static HTML
+ *     export, the WordPress block output and the pasted snippet all end up in
+ *     someone else's page with nothing of ours loaded. A rule in a stylesheet
+ *     we do not ship cannot style them, and a `<style>` block inside the
+ *     snippet is the first thing a CMS sanitiser removes.
+ *   - **Injecting the CSS at runtime is not available either.** `embed.js` may
+ *     not go near these nodes at all (see below), and the static export runs no
+ *     script by definition. Whatever they look like has to be in the markup the
+ *     site owner pasted.
+ *   - **A host `p { font-size: 1.1rem }` would otherwise win.** Lab pages set
+ *     paragraph type all the time. An inline `style` attribute outranks any
+ *     selector in the host's stylesheet, so the small print stays small print
+ *     on a page that knows nothing about us. It does not outrank `!important`,
+ *     which is the deliberate escape hatch: a site owner who wants these lines
+ *     to look like something else can still say so, and can always just delete
+ *     the attribute, because it is sitting in their own markup where they can
+ *     see it.
+ *
+ * The two declarations are chosen to survive being pasted anywhere:
+ *
+ *   - `font-size` in `em`, not `px`, so the line is a fixed proportion of
+ *     whatever the host sets. A site at 14px base and one at 18px both get
+ *     small print, rather than one getting small print and the other getting
+ *     something bigger than its own body text.
+ *   - `opacity` rather than a grey. A hardcoded `#666` is invisible on a dark
+ *     page; opacity mutes the line towards whatever the background actually is,
+ *     in either direction, and it mutes the credit's anchor along with the text
+ *     so the link does not sit at full strength inside a dimmed line.
+ */
+
+const TRAILER_FONT_SIZE = '0.8em'
+const TRAILER_OPACITY = '0.75'
+
+/**
+ * The inline style both trailer lines carry, as a `style` attribute value.
+ *
+ * Exported for the wizard's preview, which composes the disclaimer in React and
+ * needs the same two numbers rather than the string — hence `TRAILER_STYLE_PROPS`
+ * beside it. Both are built from the constants above, so there is one place to
+ * change the treatment and no way for the preview to drift from the output.
+ */
+export const TRAILER_STYLE = `font-size:${TRAILER_FONT_SIZE};opacity:${TRAILER_OPACITY}`
+
+/** The same two declarations as a React `style` object. */
+export const TRAILER_STYLE_PROPS = {
+  fontSize: TRAILER_FONT_SIZE,
+  opacity: TRAILER_OPACITY,
+} as const
+
 // ───────────────────────────────────────────────────────── credit link ──
 
 /*
@@ -63,9 +122,15 @@ import {
  *     that it never went near it.
  */
 
-/** The exact credit markup. Never build this string anywhere else. */
+/**
+ * The exact credit markup. Never build this string anywhere else.
+ *
+ * The `style` attribute is the shared small-print treatment — see the note
+ * above `TRAILER_STYLE`. It changes how the line looks and nothing else: the
+ * class, the anchor text and the href are the same constants they always were.
+ */
 export const CREDIT_HTML =
-  '<p class="publist-credit">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>'
+  `<p class="publist-credit" style="${TRAILER_STYLE}">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>`
 
 /** Selector the embed bundle must treat as untouchable. */
 export const CREDIT_SELECTOR = '.publist-credit'
@@ -113,8 +178,13 @@ export const CREDIT_SELECTOR = '.publist-credit'
 export const DISCLAIMER_TEXT =
   'Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.'
 
-/** The exact disclaimer markup. Never build this string anywhere else. */
-export const DISCLAIMER_HTML = `<p class="publist-disclaimer">${DISCLAIMER_TEXT}</p>`
+/**
+ * The exact disclaimer markup. Never build this string anywhere else.
+ *
+ * Same inline treatment as the credit beside it, from the same constant, so the
+ * two lines are one block of small print rather than two sizes of it.
+ */
+export const DISCLAIMER_HTML = `<p class="publist-disclaimer" style="${TRAILER_STYLE}">${DISCLAIMER_TEXT}</p>`
 
 /** Selector the embed bundle must treat as untouchable. */
 export const DISCLAIMER_SELECTOR = '.publist-disclaimer'

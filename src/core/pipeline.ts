@@ -568,9 +568,23 @@ export async function buildList(
   // PubMed runs serially: `sources/pubmed.ts` already funnels every request
   // through one rate limiter, so parallelism here would only queue.
   for (const seed of config.seeds.pubmed ?? []) {
-    // `[auid]` is an ORCID identifier search — essentially free of same-name
-    // contamination. Every other query is a name search and stays a candidate.
-    const trust: Trust = isAuidQuery(seed.query) ? 'confirmed' : 'candidate'
+    // Two ways a PubMed query's hits skip the review queue, and they are not
+    // the same kind of thing:
+    //
+    //   - `[auid]` is an ORCID identifier search — essentially free of
+    //     same-name contamination, so it is promoted automatically.
+    //   - `trust: 'confirmed'` is the site owner saying so. Every other field
+    //     PubMed offers is a *name*, including `[cn]` (Author – Corporate),
+    //     and a name can be shared: nothing here can tell one group's acronym
+    //     from another's. So this one is asserted per seed and never inferred
+    //     from the query text. See `PubmedSeed.trust`.
+    //
+    // Anything else stays a candidate, which is what every PubMed query has
+    // always been.
+    const trust: Trust =
+      isAuidQuery(seed.query) || seed.trust === 'confirmed'
+        ? 'confirmed'
+        : 'candidate'
     const search = await searchPubmedWithWarnings(seed.query, {}, signal)
     warnings.push(...search.warnings)
     if (search.pmids.length === 0) continue

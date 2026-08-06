@@ -170,6 +170,17 @@ function readConfig(read: ConfigReader): DatasetConfig {
   // reinterpreting part of one as a date range would be a guess about somebody
   // else's search syntax. `from` / `to` / `grace` on a PubMed seed travel in a
   // `pubs.json`, exactly as `label` already does.
+  //
+  // **`trust` cannot travel here either, and that is on purpose.** It is the
+  // one field whose loss is not cosmetic: a seed the owner marked confirmed,
+  // arriving as a plain query, silently reverts to `'candidate'` and its
+  // records vanish from the page. A marker smuggled into the query text could
+  // be mangled by the comma split this transport already suffers from, so
+  // rather than carry it unreliably the wizard refuses to emit an inline
+  // snippet for a config that has one and steers to `data-config` instead —
+  // see `hasTrustedPubmedSeeds` in `src/app/lib/snippet.ts`. A seed read back
+  // from a `data-pubmed` attribute is therefore always untrusted, which is the
+  // safe direction to fail in.
   const pubmed: PubmedSeed[] | undefined = splitList(read('pubmed', true))?.map(
     (query) => ({ query }),
   )
@@ -282,6 +293,36 @@ export function parseConfigFromSearchParams(
   })
 }
 
+/**
+ * Rebuild the PubMed seed list from known fields only.
+ *
+ * Same shape of rule as `normalizeSeedList`: drop a seed with no query, and
+ * drop redundancy rather than write it out — a seed with no `trust` and one
+ * marked `'candidate'` are the same seed, so only `'confirmed'` survives.
+ *
+ * The narrowing is what matters for `trust`: **anything that is not exactly
+ * `'confirmed'` is dropped**, so a typo (`"trusted"`, `true`, `"yes"`) in a
+ * hand-edited `pubs.json` falls back to the reviewed default rather than
+ * publishing unreviewed hits. Same direction as `review-policy` above.
+ */
+function normalizePubmedSeeds(
+  seeds: readonly PubmedSeed[] | undefined,
+): PubmedSeed[] {
+  const out: PubmedSeed[] = []
+  for (const seed of seeds ?? []) {
+    const query = (seed.query ?? '').trim()
+    if (query === '') continue
+    const next: PubmedSeed = { query }
+    if (seed.label != null && seed.label !== '') next.label = seed.label
+    if (seed.trust === 'confirmed') next.trust = 'confirmed'
+    if (seed.from != null) next.from = seed.from
+    if (seed.to != null) next.to = seed.to
+    if (seed.grace != null) next.grace = seed.grace
+    out.push(next)
+  }
+  return out
+}
+
 /** Canonicalize an include/exclude reference string; drops unusable entries. */
 function normalizeRefs(refs: string[] | undefined): string[] | undefined {
   if (!refs) return undefined
@@ -305,12 +346,13 @@ export function normalizeConfig(partial: Partial<ListConfig>): ListConfig {
   // object. Nothing downstream has to know which form it was given.
   const orcid = normalizeSeedList(seeds.orcid, normalizeOrcid)
   const researchmap = normalizeSeedList(seeds.researchmap, normalizeResearchmapId)
+  const pubmed = normalizePubmedSeeds(seeds.pubmed)
   const config: ListConfig = {
     v: 1,
     seeds: {
       ...(orcid.length ? { orcid } : {}),
       ...(researchmap.length ? { researchmap } : {}),
-      ...(seeds.pubmed?.length ? { pubmed: seeds.pubmed } : {}),
+      ...(pubmed.length ? { pubmed } : {}),
     },
     style: partial.style ?? DEFAULT_STYLE,
     groupBy: partial.groupBy ?? DEFAULT_GROUP_BY,

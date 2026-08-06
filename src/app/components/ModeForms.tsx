@@ -11,16 +11,21 @@
 import { useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Field } from './Field'
+import { CheckboxField, Field } from './Field'
 import { MemberRows } from './MemberRows'
 import {
+  detectCollectiveAuthorQueries,
   detectPmidQueries,
   parseIdList,
   parseMemberLines,
   parsePubmedQueries,
 } from '../lib/parse'
-import type { PmidQueryHint as PmidQuery } from '../lib/parse'
+import type {
+  CollectiveAuthorHint,
+  PmidQueryHint as PmidQuery,
+} from '../lib/parse'
 import type { WizardDraft } from '../lib/wizard'
+import { isAuidQuery } from '@/core/sources/pubmed'
 import type { ListModel } from '@/core/types'
 
 type Update = (patch: Partial<WizardDraft>) => void
@@ -69,6 +74,135 @@ function PmidQueryNote({ hints }: { hints: PmidQuery[] }) {
       queue, so a candidate never reaches it. Moving them is left to you; this
       box is not edited for you.
     </span>
+  )
+}
+
+/**
+ * "You are searching for a group in the field that only holds people."
+ *
+ * Same contract as `PmidQueryNote`: a hint beside the field, no rewriting.
+ *
+ * It exists because the failure it describes is silent and self-confirming. A
+ * researcher types `"SLEEPI Study Group"[au]`, gets nothing, and reasonably
+ * concludes PubMed does not know their group — when PubMed may well hold it in
+ * the *collective* author field, which `[au]` does not search and `[cn]` does.
+ * Measured against the live API: `"RECOVERY Collaborative Group"[au]` returns
+ * 0 records, `[cn]` returns 18, translated as `[Author - Corporate]`.
+ *
+ * So the note says both halves. Not only "try `[cn]`", but that a zero from
+ * `[au]` is not evidence of absence — that is the inference the wording has to
+ * stop, because it is the one that ends the search.
+ */
+function CollectiveAuthorNote({ hints }: { hints: CollectiveAuthorHint[] }) {
+  if (hints.length === 0) return null
+
+  const names: string[] = []
+  for (const hint of hints) {
+    for (const name of hint.names) if (!names.includes(name)) names.push(name)
+  }
+  const example = names[0] ?? ''
+
+  return (
+    <span className="text-amber-700 dark:text-amber-500">
+      {' '}
+      <strong className="font-medium">
+        {names.length === 1
+          ? 'That looks like a group name searched in the personal-author field.'
+          : 'Those look like group names searched in the personal-author field.'}
+      </strong>{' '}
+      PubMed files a collective author — a study group, a trial consortium — in
+      its own field, and <code>[au]</code> does not search it. Use{' '}
+      <code>{`"${example}"[cn]`}</code> instead; PubMed calls that field{' '}
+      <em>Author – Corporate</em>.{' '}
+      <strong className="font-medium">
+        An <code>[au]</code> search returning nothing does not mean the group is
+        not in PubMed
+      </strong>{' '}
+      — check <code>[cn]</code> before concluding that. If <code>[cn]</code> is
+      empty too, the records really do carry no collective author, and pinning
+      the papers below is the answer. Rewriting the query is left to you; this
+      box is not edited for you.
+    </span>
+  )
+}
+
+/**
+ * The per-query "publish without review" opt-in.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
+ * This is the only control in the wizard that lets a *search* put records on a
+ * published page unseen, so the label says what it costs rather than what it
+ * does. Three things it has to make unmistakable:
+ *
+ *   - ticking it is an assertion the user is making, not a setting they are
+ *     choosing — that they have run this query on PubMed and read the results;
+ *   - it applies to hits the query has not made yet, which they will never be
+ *     shown;
+ *   - it is recoverable: Remove on a publication's own line outranks it, as it
+ *     outranks a pin.
+ *
+ * It is off for every query, always: `WizardDraft.pubmedTrusted` starts empty
+ * and nothing writes to it but this control.
+ *
+ * An `[auid]` query is left out entirely. It is already confirmed by the
+ * pipeline, so a tick box beside it would be inert, and an inert box next to a
+ * live one teaches the wrong thing about both.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+function PubmedTrustRows({
+  draft,
+  update,
+}: {
+  draft: WizardDraft
+  update: Update
+}) {
+  const queries = useMemo(() => parsePubmedQueries(draft.pubmed), [draft.pubmed])
+  const reviewable = queries.filter((seed) => !isAuidQuery(seed.query))
+  if (reviewable.length === 0) return null
+
+  const trusted = new Set(draft.pubmedTrusted)
+  const toggle = (query: string, checked: boolean) => {
+    // Also drops ticks belonging to queries that are no longer in the box, so
+    // deleting a trusted line and typing it again does not silently restore
+    // the assertion that was made about the old one.
+    const live = new Set(queries.map((seed) => seed.query))
+    const next = draft.pubmedTrusted.filter((q) => q !== query && live.has(q))
+    if (checked) next.push(query)
+    update({ pubmedTrusted: next })
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+      <div className="flex flex-col gap-1">
+        <h4 className="text-sm font-medium">
+          Publish a query’s results without reviewing them
+        </h4>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Leave these unticked unless you are sure. Ticking one means:{' '}
+          <em>
+            I have run this query on PubMed and every record it returns is my
+            group’s work.
+          </em>{' '}
+          Its hits then go straight onto the published list and into the
+          embedded page with no review step — including papers it finds in
+          future, which you will not see first. Untick it and they go back to
+          the review queue. If a trusted query does bring in something wrong,
+          press <strong className="font-medium">Remove</strong> on that paper’s
+          own line in the list below; removing outranks this, exactly as it
+          outranks a pinned paper.
+        </p>
+      </div>
+      {reviewable.map((seed) => (
+        <CheckboxField
+          key={seed.query}
+          checked={trusted.has(seed.query)}
+          onChange={(checked) => toggle(seed.query, checked)}
+          label={
+            <span className="font-mono text-xs break-all">{seed.query}</span>
+          }
+        />
+      ))}
+    </div>
   )
 }
 
@@ -138,6 +272,10 @@ export function PersonModeForm({
 }) {
   const queries = useMemo(() => parsePubmedQueries(draft.pubmed), [draft.pubmed])
   const pmidQueries = useMemo(() => detectPmidQueries(draft.pubmed), [draft.pubmed])
+  const collective = useMemo(
+    () => detectCollectiveAuthorQueries(draft.pubmed),
+    [draft.pubmed],
+  )
   const pins = useMemo(() => parseIdList(draft.pins), [draft.pins])
 
   return (
@@ -181,8 +319,9 @@ export function PersonModeForm({
             {queries.length} quer{queries.length === 1 ? 'y' : 'ies'}. An{' '}
             <code>[auid]</code> search on your ORCID iD is trusted; an{' '}
             <code>[au]</code> name search is not, and its hits go to the review
-            queue below.
+            queue below unless you tick it as trusted underneath.
             <PmidQueryNote hints={pmidQueries} />
+            <CollectiveAuthorNote hints={collective} />
           </>
         }
       >
@@ -197,6 +336,8 @@ export function PersonModeForm({
           />
         )}
       </Field>
+
+      <PubmedTrustRows draft={draft} update={update} />
 
       <Field
         label="Pin extra papers (PMIDs and DOIs)"
@@ -233,6 +374,10 @@ export function LabModeForm({
   const members = useMemo(() => parseMemberLines(draft.members), [draft.members])
   const queries = useMemo(() => parsePubmedQueries(draft.pubmed), [draft.pubmed])
   const pmidQueries = useMemo(() => detectPmidQueries(draft.pubmed), [draft.pubmed])
+  const collective = useMemo(
+    () => detectCollectiveAuthorQueries(draft.pubmed),
+    [draft.pubmed],
+  )
   const pins = useMemo(() => parseIdList(draft.pins), [draft.pins])
 
   const withOrcid = members.members.filter((m) => m.orcid).length
@@ -289,10 +434,14 @@ export function LabModeForm({
             {queries.length} quer{queries.length === 1 ? 'y' : 'ies'}. Useful for
             a member with no ORCID iD, narrowed by affiliation — e.g.{' '}
             <code>Tanaka H[au] AND (&quot;Univ Tokyo&quot;[ad])</code>. Name
-            searches feed the review queue rather than the published list. Most
-            groups are not registered in PubMed as an author at all, so a bare
-            group tag usually returns nothing; pin those papers instead.
+            searches feed the review queue rather than the published list,
+            unless you tick one as trusted underneath. Searching for the group
+            itself takes a different field: a collective author lives in{' '}
+            <code>&quot;Your Group&quot;[cn]</code>, never in <code>[au]</code>,
+            and if <code>[cn]</code> is empty too then the records carry no
+            collective author and pinning them is the answer.
             <PmidQueryNote hints={pmidQueries} />
+            <CollectiveAuthorNote hints={collective} />
           </>
         }
       >
@@ -303,10 +452,12 @@ export function LabModeForm({
             spellCheck={false}
             value={draft.pubmed}
             onChange={(e) => update({ pubmed: e.currentTarget.value })}
-            placeholder={'Tanaka H[au] AND ("Univ Tokyo"[ad])\nFurukawa Y[au] AND (Tokyo[ad])'}
+            placeholder={'Tanaka H[au] AND ("Univ Tokyo"[ad])\n"RECOVERY Collaborative Group"[cn]'}
           />
         )}
       </Field>
+
+      <PubmedTrustRows draft={draft} update={update} />
 
       <Field
         label="Pinned papers (PMIDs and DOIs)"

@@ -445,3 +445,80 @@ describe('seed time windows', () => {
     expect(config.seeds?.pubmed).toEqual([{ query: 'Tanaka H[au]@2019:2023' }])
   })
 })
+
+describe('a PubMed seed marked trusted', () => {
+  const TRUSTED: Partial<ListConfig> = {
+    seeds: {
+      pubmed: [
+        { query: '"SLEEPI"[cn]', label: 'SLEEPI', trust: 'confirmed' },
+        { query: 'Furukawa Y[au]' },
+      ],
+    },
+  }
+
+  it('survives a pubs.json round trip', () => {
+    const config = normalizeConfig(TRUSTED)
+    expect(config.seeds.pubmed).toEqual([
+      { query: '"SLEEPI"[cn]', label: 'SLEEPI', trust: 'confirmed' },
+      { query: 'Furukawa Y[au]' },
+    ])
+
+    const json = serializeConfig(config)
+    expect(JSON.parse(json).seeds.pubmed[0].trust).toBe('confirmed')
+    // Lossless, because the JSON route is the *only* route this flag has.
+    expect(normalizeConfig(JSON.parse(json) as ListConfig)).toEqual(config)
+  })
+
+  it('cannot travel in data-pubmed or in a query string', () => {
+    // Both transports carry the query alone. The flag is not smuggled into the
+    // query text, so a seed read back from either is untrusted — the safe
+    // direction. The wizard refuses to emit these snippets at all for a config
+    // that has one; see `hasTrustedPubmedSeeds` in app/lib/snippet.ts.
+    expect(fromAttributes({ 'data-pubmed': '"SLEEPI"[cn]' }).config.seeds?.pubmed)
+      .toEqual([{ query: '"SLEEPI"[cn]' }])
+    expect(fromQuery('pubmed=%22SLEEPI%22%5Bcn%5D').config.seeds?.pubmed).toEqual([
+      { query: '"SLEEPI"[cn]' },
+    ])
+  })
+
+  it('drops a trust value that is not exactly "confirmed"', () => {
+    // A hand-edited pubs.json is where this comes from, and an unrecognized
+    // value must fall back to reviewing rather than to publishing.
+    const config = normalizeConfig({
+      seeds: {
+        pubmed: [
+          { query: 'a[au]', trust: 'candidate' },
+          { query: 'b[au]', trust: 'yes' as unknown as 'confirmed' },
+        ],
+      },
+    })
+    expect(config.seeds.pubmed).toEqual([{ query: 'a[au]' }, { query: 'b[au]' }])
+  })
+
+  it('keeps the seed window and label alongside it', () => {
+    const config = normalizeConfig({
+      seeds: {
+        pubmed: [
+          {
+            query: '"SLEEPI"[cn]',
+            label: 'SLEEPI',
+            trust: 'confirmed',
+            from: '2023-04',
+            to: '2026-03',
+            grace: 12,
+          },
+        ],
+      },
+    })
+    expect(config.seeds.pubmed).toEqual([
+      {
+        query: '"SLEEPI"[cn]',
+        label: 'SLEEPI',
+        trust: 'confirmed',
+        from: '2023-04',
+        to: '2026-03',
+        grace: 12,
+      },
+    ])
+  })
+})

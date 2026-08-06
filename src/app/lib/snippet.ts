@@ -75,9 +75,14 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
 
   // `encodeSeed` writes a bare id unchanged and a time-bounded one as
   // `id@from:to:grace`, which `decodeSeed` reads back — so a member window
-  // survives the inline-attribute route as well as the JSON one. The one thing
-  // that cannot travel here is a window on a *PubMed* seed, because that seed's
-  // value is a free-text query; see `readConfig` in `core/config.ts`.
+  // survives the inline-attribute route as well as the JSON one. What cannot
+  // travel here is anything hung on a *PubMed* seed, because that seed's value
+  // is a free-text query: its `label`, its window, and its `trust`. See
+  // `readConfig` in `core/config.ts`.
+  //
+  // `trust` is the one whose loss would be silent and would matter, so it is
+  // not left to this function to lose: `hasTrustedPubmedSeeds` below is what
+  // the UI checks before offering an inline snippet at all.
   push('data-orcid', config.seeds.orcid?.map(encodeSeed).join(','))
   push('data-researchmap', config.seeds.researchmap?.map(encodeSeed).join(','))
   push('data-pubmed', config.seeds.pubmed?.map((s) => s.query).join(','))
@@ -126,6 +131,26 @@ export function hasCommaHostileValues(config: ListConfig): boolean {
     config.seeds.pubmed?.map((s) => s.query),
   ]
   return lists.some((list) => (list ?? []).some((v) => v.includes(',')))
+}
+
+/**
+ * Does this configuration trust a PubMed seed, and therefore need the hosted
+ * `pubs.json` route?
+ *
+ * `PubmedSeed.trust` has no `data-*` spelling and no query-string spelling —
+ * see the comment in `configToDataAttributes` and `readConfig` in
+ * `core/config.ts`. An inline snippet would carry the query and drop the flag,
+ * so the embed would re-fetch the same search, get `candidate` records, and
+ * render a list shorter than the snapshot the snippet was pasted with. That is
+ * the failure mode this whole tool is most careful about: a page that looks
+ * right when it is pasted and is wrong for ever afterwards, with nothing on
+ * screen to say so.
+ *
+ * So the UI treats this like `hasCommaHostileValues`, only harder: not a
+ * preference for the hosted route but a requirement for it.
+ */
+export function hasTrustedPubmedSeeds(config: ListConfig): boolean {
+  return (config.seeds.pubmed ?? []).some((seed) => seed.trust === 'confirmed')
 }
 
 function renderAttributes(attrs: readonly DataAttribute[]): string {

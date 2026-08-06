@@ -8,6 +8,7 @@ import {
   buildIframeSnippet,
   configToDataAttributes,
   hasCommaHostileValues,
+  hasTrustedPubmedSeeds,
 } from '../snippet'
 
 const publication: Publication = {
@@ -235,6 +236,36 @@ describe('hasCommaHostileValues', () => {
 
   it('is quiet about an ordinary config', () => {
     expect(hasCommaHostileValues(model().config)).toBe(false)
+  })
+})
+
+describe('hasTrustedPubmedSeeds', () => {
+  const TRUSTED = normalizeConfig({
+    seeds: { pubmed: [{ query: '"SLEEPI"[cn]', trust: 'confirmed' }] },
+  })
+
+  it('flags a config whose flag the inline attributes would drop', () => {
+    expect(hasTrustedPubmedSeeds(TRUSTED)).toBe(true)
+    expect(
+      hasTrustedPubmedSeeds(
+        normalizeConfig({ seeds: { pubmed: [{ query: '"SLEEPI"[cn]' }] } }),
+      ),
+    ).toBe(false)
+    expect(hasTrustedPubmedSeeds(model().config)).toBe(false)
+  })
+
+  it('is why the attribute projection may not be used for one', () => {
+    // Pinned here so the loss can never become accidental: `data-pubmed` does
+    // carry the query, and nothing carries the trust, so a snippet built from
+    // this projection would publish a *reduced* list on the next page load.
+    // `SnippetPanel` withholds it; this asserts what it is withholding.
+    const attrs = Object.fromEntries(configToDataAttributes(TRUSTED))
+    expect(attrs['data-pubmed']).toBe('"SLEEPI"[cn]')
+    expect(
+      parseConfigFromSearchParams(
+        new URLSearchParams({ pubmed: attrs['data-pubmed'] }),
+      ).config.seeds?.pubmed,
+    ).toEqual([{ query: '"SLEEPI"[cn]' }])
   })
 })
 

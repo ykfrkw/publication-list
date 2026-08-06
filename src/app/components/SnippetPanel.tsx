@@ -56,6 +56,7 @@ import {
   buildEmbedSnippet,
   buildIframeSnippet,
   hasCommaHostileValues,
+  hasTrustedPubmedSeeds,
   inlineAttributeLength,
 } from '../lib/snippet'
 import { candidatesMissingFromEmbed, diagnoseEmptyList } from '../lib/diagnose'
@@ -213,17 +214,34 @@ function SnippetPanelForList({
 }: SnippetPanelProps) {
   const hosted = configUrl.trim() !== ''
 
+  /**
+   * A trusted PubMed seed cannot travel in `data-*` or in a query string, so
+   * until a hosted URL is given there is no snippet to hand over — see
+   * `hasTrustedPubmedSeeds`. The snippets are not merely hidden but not built:
+   * same reasoning as `NoSnippet` above, there is nothing on the page to copy
+   * and nothing for a later edit to re-expose.
+   */
+  const inlineBlocked = hasTrustedPubmedSeeds(model.config) && !hosted
+
   const snippet = useMemo(
-    () => buildEmbedSnippet(model, { credit, configUrl: hosted ? configUrl : undefined }),
-    [model, credit, configUrl, hosted],
+    () =>
+      inlineBlocked
+        ? null
+        : buildEmbedSnippet(model, {
+            credit,
+            configUrl: hosted ? configUrl : undefined,
+          }),
+    [model, credit, configUrl, hosted, inlineBlocked],
   )
   const iframeSnippet = useMemo(
     () =>
-      buildIframeSnippet(model.config, {
-        configUrl: hosted ? configUrl : undefined,
-        credit,
-      }),
-    [model.config, credit, configUrl, hosted],
+      inlineBlocked
+        ? null
+        : buildIframeSnippet(model.config, {
+            configUrl: hosted ? configUrl : undefined,
+            credit,
+          }),
+    [model.config, credit, configUrl, hosted, inlineBlocked],
   )
   const configJson = useMemo(() => serializeConfig(model.config), [model.config])
 
@@ -240,7 +258,7 @@ function SnippetPanelForList({
    * For the common case, one ORCID iD and a style, none of that applies and
    * the route is noise.
    */
-  const needsHosted = bulky || commaHostile || hosted
+  const needsHosted = bulky || commaHostile || inlineBlocked || hosted
 
   /**
    * How much smaller the embedded list will be than the one on screen.
@@ -307,13 +325,46 @@ function SnippetPanelForList({
           </Alert>
         ) : null}
 
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-medium">Script snippet</h3>
-            <CopyButton value={snippet} label="Copy snippet" />
+        {snippet == null ? (
+          <Alert variant="destructive" aria-live="polite">
+            <TriangleAlertIcon />
+            <AlertTitle>
+              This list trusts a PubMed query, so it needs the file below
+            </AlertTitle>
+            <AlertDescription>
+              <p>
+                You have ticked <em>publish without review</em> on a PubMed
+                query. That setting has no <code>data-</code> attribute and no
+                URL parameter — a PubMed seed travels as a raw query string,
+                and there is nowhere in one to put a flag that could not be
+                mistaken for part of the search.
+              </p>
+              <p>
+                A snippet written anyway would carry the query and lose the
+                tick. The page would show this list when you pasted it, then
+                replace it on the next load with a shorter one, because the
+                embed would treat the query’s hits as candidates and{' '}
+                <strong className="font-medium">
+                  a candidate never appears in an embed
+                </strong>
+                . It is withheld rather than handed over with a warning on it.
+              </p>
+              <p>
+                Put <code>{CONFIG_FILENAME}</code> somewhere it can be fetched
+                and paste its URL below. The file carries the setting, and the
+                snippet appears here.
+              </p>
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-medium">Script snippet</h3>
+              <CopyButton value={snippet} label="Copy snippet" />
+            </div>
+            <SnippetBlock value={snippet} />
           </div>
-          <SnippetBlock value={snippet} />
-        </div>
+        )}
 
         {/*
           The hosted-config route earns its place only when the inline
@@ -323,7 +374,7 @@ function SnippetPanelForList({
         */}
         {needsHosted ? (
           <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
-            {bulky || commaHostile ? (
+            {!inlineBlocked && (bulky || commaHostile) ? (
               <Alert>
                 <InfoIcon />
                 <AlertTitle>
@@ -367,26 +418,33 @@ function SnippetPanelForList({
           strips scripts, not the route to recommend. Same disclosure pattern
           as "Formatting and filters" in App.tsx.
         */}
-        <details className="rounded-lg border border-border p-3">
-          <summary className="cursor-pointer text-sm font-medium">
-            iframe snippet{' '}
-            <span className="font-normal text-muted-foreground">
-              — if your CMS strips <code>&lt;script&gt;</code> tags
-            </span>
-          </summary>
-          <div className="flex flex-col gap-2 pt-4">
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Same list, built the same way, in a frame served from this site.
-              The trade is that the list is not in your page’s HTML, so search
-              engines do not index it as part of your page. Use the script
-              snippet above unless it does not survive your CMS.
-            </p>
-            <div className="flex justify-end">
-              <CopyButton value={iframeSnippet} label="Copy iframe" />
+        {/*
+          Withheld along with the script snippet when a trusted PubMed seed
+          cannot travel: the iframe carries the same configuration as a query
+          string, so it would drop the same flag.
+        */}
+        {iframeSnippet == null ? null : (
+          <details className="rounded-lg border border-border p-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              iframe snippet{' '}
+              <span className="font-normal text-muted-foreground">
+                — if your CMS strips <code>&lt;script&gt;</code> tags
+              </span>
+            </summary>
+            <div className="flex flex-col gap-2 pt-4">
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Same list, built the same way, in a frame served from this site.
+                The trade is that the list is not in your page’s HTML, so search
+                engines do not index it as part of your page. Use the script
+                snippet above unless it does not survive your CMS.
+              </p>
+              <div className="flex justify-end">
+                <CopyButton value={iframeSnippet} label="Copy iframe" />
+              </div>
+              <SnippetBlock value={iframeSnippet} />
             </div>
-            <SnippetBlock value={iframeSnippet} />
-          </div>
-        </details>
+          </details>
+        )}
       </CardContent>
     </Card>
   )

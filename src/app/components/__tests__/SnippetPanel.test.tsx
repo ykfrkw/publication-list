@@ -67,6 +67,11 @@ const COMMA_HOSTILE = normalizeConfig({
   seeds: { pubmed: [{ query: 'Furukawa Y[au] AND (Tokyo, Japan[ad])' }] },
 })
 
+/** A trusted PubMed seed — a flag neither inline transport can carry. */
+const TRUSTED_SEED = normalizeConfig({
+  seeds: { pubmed: [{ query: '"SLEEPI"[cn]', trust: 'confirmed' }] },
+})
+
 let container: HTMLDivElement
 let root: Root
 
@@ -178,5 +183,48 @@ describe('the script snippet', () => {
     const pre = container.querySelector('pre')
     expect(pre?.textContent).toContain('publist-embed')
     expect(pre?.closest('details')).toBeNull()
+  })
+})
+
+/**
+ * A trusted PubMed seed has no `data-*` and no query-string spelling, so an
+ * inline snippet would carry the query and drop the trust. The embed would
+ * then re-run the search, get candidates, and render a list shorter than the
+ * snapshot that was pasted — silently, on the second page load.
+ *
+ * So there is no snippet to copy until the configuration travels as a file.
+ * Same stance as the empty-list case above it, for the same reason: what is
+ * being withheld is a page that looks right once and is wrong afterwards.
+ */
+describe('a list that trusts a PubMed query', () => {
+  it('withholds both snippets until a hosted URL is given', () => {
+    render(TRUSTED_SEED)
+
+    expect(container.querySelector('pre')).toBeNull()
+    expect(disclosure('iframe snippet')).toBeUndefined()
+    expect(container.textContent).toContain('needs the file below')
+    expect(container.textContent).toContain('a candidate never appears in an embed')
+    // …and the way out is on screen, not behind a disclosure.
+    expect(disclosure('Keep the settings in a file')).toBeUndefined()
+    expect(hostedUrlInput()).not.toBeNull()
+  })
+
+  it('emits a data-config snippet once the URL is there', () => {
+    render(TRUSTED_SEED, 'https://example.org/pubs.json')
+
+    const pre = container.querySelector('pre')
+    expect(pre?.textContent).toContain('data-config="https://example.org/pubs.json"')
+    // The query is not also inlined — the file is the whole configuration.
+    expect(pre?.textContent).not.toContain('data-pubmed')
+    expect(container.textContent).not.toContain('needs the file below')
+    expect(disclosure('iframe snippet')).toBeDefined()
+  })
+
+  it('leaves an untrusted version of the same query alone', () => {
+    render(normalizeConfig({ seeds: { pubmed: [{ query: '"SLEEPI"[cn]' }] } }))
+
+    const pre = container.querySelector('pre')
+    expect(pre?.textContent).toContain('data-pubmed')
+    expect(container.textContent).not.toContain('needs the file below')
   })
 })

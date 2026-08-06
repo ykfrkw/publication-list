@@ -37,7 +37,7 @@ If you would rather not host a file at all, put the configuration straight into 
 | File | Owner | Status |
 | --- | --- | --- |
 | `furukawa.json` | Yuki Furukawa (ORCID `0000-0003-1317-0220`, researchmap `yk_frkw`) | Working — 34 publications as of 2026-08-05 |
-| `sleepi.json` | SLEEPI research group | **Incomplete** — produces an empty list; see the `_comment` field in the file |
+| `sleepi.json` | SLEEPI research group | Working — 5 pinned records. No PubMed seed: the group has no collective author in its records yet. The `_comment` field records the `"SLEEPI"[cn]` query and the `trust` flag to switch to once it does |
 
 ## File format
 

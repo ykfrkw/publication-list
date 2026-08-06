@@ -130,12 +130,36 @@ export interface PubmedSeed {
   query: string
   label?: string
   /**
+   * Whether this query's hits are published without review.
+   *
+   * **Defaults to `'candidate'`**, which is what every PubMed query that is not
+   * an `[auid]` search has always been: its records go to the wizard's review
+   * queue and reach no page until someone confirms them. `'confirmed'` is an
+   * explicit assertion by the person who wrote the query — *I have run this
+   * search and it returns my group's work and nobody else's* — and it puts
+   * every hit, including hits the query has not made yet, straight onto the
+   * published list and into an embed with no review step.
+   *
+   * It is deliberately not inferred from the query text. `[auid]` is promoted
+   * automatically (`pipeline.ts` stage 2) because an ORCID iD is a globally
+   * unique identifier; every other field is a *name*. A collective-author
+   * search — `"SLEEPI"[cn]` — looks identical in shape and is not: two groups
+   * can share an acronym, and a free-text `SLEEPI` search on PubMed already
+   * returns an unrelated SLEEP-I trial. So the trust is asserted, never
+   * guessed.
+   *
+   * A record from a trusted seed is still removable: `config.exclude` outranks
+   * everything, including this (`pipeline.ts` stage 3).
+   */
+  trust?: Trust
+  /**
    * Same time window as `SeedWindow`, flattened onto the seed this source
    * already spells as an object. The seed id a window is matched against is
    * `label ?? query`.
    *
-   * These three fields travel in a `pubs.json` only: `data-pubmed` and
-   * `?pubmed=` carry the query string alone, as they already do for `label`.
+   * These three fields travel in a `pubs.json` only — and so does `trust`:
+   * `data-pubmed` and `?pubmed=` carry the query string alone, as they already
+   * do for `label`.
    */
   from?: string
   to?: string

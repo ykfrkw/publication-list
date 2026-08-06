@@ -165,6 +165,93 @@ describe('buildList — trust assignment', () => {
   )
 })
 
+/**
+ * `PubmedSeed.trust` — the per-seed opt-in.
+ *
+ * The setting exists for the group whose collective-author search is genuinely
+ * theirs: `"SLEEPI"[cn]` will one day return only this group's papers, and
+ * without this every one of them would arrive as a candidate and therefore
+ * never reach an embed. What must stay true is that the opt-in is *opt-in*: a
+ * seed that does not say so is reviewed, exactly as before.
+ */
+describe('buildList — a trusted PubMed seed', () => {
+  it(
+    'publishes a trusted query’s hits without review',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({
+          seeds: {
+            pubmed: [{ query: '"SLEEPI"[cn]', trust: 'confirmed' }],
+          },
+        }),
+      )
+
+      expect(model.publications.length).toBe(3)
+      expect(model.publications.every((p) => p.trust === 'confirmed')).toBe(true)
+      // Nothing to review: these are on the page, so an embed carries them.
+      expect(model.candidates).toEqual([])
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'leaves the same query as candidates when it is not trusted',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({ seeds: { pubmed: [{ query: '"SLEEPI"[cn]' }] } }),
+      )
+
+      expect(model.candidates.length).toBe(3)
+      expect(model.publications).toEqual([])
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'defaults to untrusted — an absent `trust` is a candidate',
+    async () => {
+      const config = normalizeConfig({
+        seeds: { pubmed: [{ query: '"SLEEPI"[cn]' }] },
+      })
+      // Not written out as `'candidate'` either: the absence *is* the default,
+      // and two spellings of it would be two things to keep in step.
+      expect(config.seeds.pubmed).toEqual([{ query: '"SLEEPI"[cn]' }])
+
+      useRoutes()
+      const model = await buildList(config)
+      expect(model.publications).toEqual([])
+      expect(model.candidates.length).toBe(3)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'still lets an exclude take a trusted query’s record off the list',
+    async () => {
+      // The remedy when a trusted query brings in something wrong: exclude
+      // outranks include, and it has to outrank this too — otherwise a
+      // mistaken tick would be unfixable from the wizard's Remove control.
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({
+          seeds: {
+            pubmed: [{ query: '"SLEEPI"[cn]', trust: 'confirmed' }],
+          },
+          exclude: ['pmid:39199005'],
+        }),
+      )
+
+      expect(model.publications.length).toBe(2)
+      expect(model.publications.some((p) => p.pmid === '39199005')).toBe(false)
+      expect(model.candidates.some((p) => p.pmid === '39199005')).toBe(false)
+      expect(model.dropped?.excluded).toBe(1)
+    },
+    TIMEOUT,
+  )
+})
+
 describe('buildList — seed profiles and author-name order', () => {
   it(
     'uses the ORCID name split to read a researchmap author list',

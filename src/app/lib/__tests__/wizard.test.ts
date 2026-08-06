@@ -211,6 +211,56 @@ describe('hasNameQuery', () => {
     expect(hasNameQuery(auid)).toBe(false)
     expect(hasNameQuery(name)).toBe(true)
   })
+
+  it('counts a trusted query as producing no queue', () => {
+    // Nothing it finds is a candidate, so an empty review panel must not open.
+    const trusted = draftToConfig({
+      ...emptyDraft('lab'),
+      pubmed: '"SLEEPI"[cn]',
+      pubmedTrusted: ['"SLEEPI"[cn]'],
+    })
+    expect(hasNameQuery(trusted)).toBe(false)
+  })
+})
+
+describe('draftToConfig — trusting a PubMed query', () => {
+  const draft = {
+    ...emptyDraft('lab'),
+    pubmed: '"SLEEPI"[cn]\nFurukawa Y[au]',
+  }
+
+  it('defaults to untrusted', () => {
+    expect(emptyDraft('lab').pubmedTrusted).toEqual([])
+    expect(draftToConfig(draft).seeds.pubmed).toEqual([
+      { query: '"SLEEPI"[cn]' },
+      { query: 'Furukawa Y[au]' },
+    ])
+  })
+
+  it('marks only the ticked query', () => {
+    const config = draftToConfig({ ...draft, pubmedTrusted: ['"SLEEPI"[cn]'] })
+    expect(config.seeds.pubmed).toEqual([
+      { query: '"SLEEPI"[cn]', trust: 'confirmed' },
+      { query: 'Furukawa Y[au]' },
+    ])
+  })
+
+  it('ignores a tick left behind by a query that is no longer in the box', () => {
+    // The box is the source of truth for which searches exist; a stale tick
+    // must not resurrect one, and must not attach itself to another line.
+    const config = draftToConfig({
+      ...draft,
+      pubmed: 'Furukawa Y[au]',
+      pubmedTrusted: ['"SLEEPI"[cn]'],
+    })
+    expect(config.seeds.pubmed).toEqual([{ query: 'Furukawa Y[au]' }])
+  })
+
+  it('changes the config hash, so a tick rebuilds rather than reusing a cache', () => {
+    const off = configHash(draftToConfig(draft))
+    const on = configHash(draftToConfig({ ...draft, pubmedTrusted: ['"SLEEPI"[cn]'] }))
+    expect(on).not.toBe(off)
+  })
 })
 
 // ─────────────────────────────────────────────────── the review queue ──

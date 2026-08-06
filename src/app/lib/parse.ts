@@ -139,6 +139,126 @@ export function detectPmidQueries(text: string): PmidQueryHint[] {
   return hints
 }
 
+// ──────────────────────────────────── a group name searched against [au] ──
+
+/**
+ * A term written against PubMed's personal-author field.
+ *
+ * Both spellings of the field: `[au]` and its long form `[author]`. The value
+ * is either a quoted phrase or a run of bare words immediately before the tag.
+ */
+const AUTHOR_TERM =
+  /(?:"([^"]+)"|([A-Za-z0-9À-ɏ'’.\-一-鿿぀-ヿ]+(?:[ \t]+[A-Za-z0-9À-ɏ'’.\-一-鿿぀-ヿ]+)*))[ \t]*\[\s*(?:au|author)\s*\]/gi
+
+/** `[cn]`, and the long form PubMed prints it as. */
+const CORPORATE_TAG = /\[\s*(?:cn|corporate\s+author)\s*\]/i
+
+/**
+ * Words that only ever appear in the name of a body, never in a person's name.
+ *
+ * Deliberately short. Every entry here is one that cannot be a surname or a
+ * given name in any of the naming systems this tool sees.
+ */
+const COLLECTIVE_WORDS =
+  /\b(group|collaborative|collaboration|collaborators|consortium|consortia|investigators|network|trial|initiative|committee|taskforce|task force)\b/i
+
+/** `Furukawa Y`, `van der Berg AB` — a trailing run of initials. */
+function endsWithInitials(words: readonly string[]): boolean {
+  const last = words[words.length - 1] ?? ''
+  return last.length <= 3 && last.length >= 1 && !/[a-z]/.test(last)
+}
+
+/** `SLEEPI`, `RECOVERY`, `SLEEP-I` — one bare token with no lowercase in it. */
+function isAcronym(word: string): boolean {
+  return word.length >= 2 && /^[A-Z0-9]/.test(word) && !/[a-z]/.test(word)
+}
+
+export type CollectiveAuthorReason = 'collective-word' | 'acronym' | 'phrase'
+
+export interface CollectiveAuthorHint {
+  /** the query verbatim, so the UI can point at the line it means */
+  query: string
+  /** the `[au]` values that read as a group name, in order, de-duplicated */
+  names: string[]
+  /** what made the first of them look like one */
+  reason: CollectiveAuthorReason
+}
+
+/**
+ * Does this query search for a *group* in the field that only holds *people*?
+ *
+ * PubMed keeps a collective author — a study group, a trial consortium — in a
+ * separate field from the personal authors. `"RECOVERY Collaborative
+ * Group"[au]` returns 0; the same phrase against `[cn]` returns 18 records,
+ * which PubMed translates as `[Author - Corporate]` (measured against the live
+ * E-utilities API, 2026-08-06). Someone who tries `[au]`, gets nothing, and
+ * concludes their group is not in PubMed has been misled by a field name.
+ *
+ * The rule, over each `[au]` / `[author]` term's value:
+ *
+ *   1. it contains a word that only names a body — `group`, `collaborative`,
+ *      `consortium`, `investigators`, `network`, `trial` … — quoted or not; or
+ *   2. it is a single bare token of two or more characters with no lowercase
+ *      letter in it, i.e. an acronym (`SLEEPI`, `RECOVERY`, `SLEEP-I`); or
+ *   3. it is a **quoted** phrase of three or more words that does not end in a
+ *      run of initials.
+ *
+ * A query that already mentions `[cn]` is left alone — the user knows.
+ *
+ * What the thresholds are for: personal names in PubMed are written `Family I`
+ * or `Family Initials`, which is two words ending in initials, so rule 3 skips
+ * both `Furukawa Y[au]` (unquoted anyway) and `"Yuki Furukawa"[au]`, and the
+ * initials test additionally spares `"van der Berg AB"[au]`. Rule 2 cannot fire
+ * on `Furukawa Y` because that is two tokens. A false hint costs a sentence of
+ * reading; a missed one costs a list that is empty for a reason nobody can see,
+ * so the rules lean towards firing.
+ */
+export function detectCollectiveAuthorQuery(
+  query: string,
+): CollectiveAuthorHint | null {
+  if (CORPORATE_TAG.test(query)) return null
+
+  const names: string[] = []
+  let reason: CollectiveAuthorReason | null = null
+
+  for (const match of query.matchAll(AUTHOR_TERM)) {
+    const quoted = match[1] != null
+    // An unquoted run of words can reach back across a boolean operator
+    // (`hospital AND Tanaka H[au]`); only the last clause is the author value.
+    const raw = (match[1] ?? match[2] ?? '')
+      .split(/\b(?:AND|OR|NOT)\b/)
+      .pop() as string
+    const value = raw.trim()
+    if (value === '') continue
+    const words = value.split(/\s+/).filter((w) => w !== '')
+    if (words.length === 0) continue
+
+    let hit: CollectiveAuthorReason | null = null
+    if (COLLECTIVE_WORDS.test(value)) hit = 'collective-word'
+    else if (words.length === 1 && isAcronym(words[0])) hit = 'acronym'
+    else if (quoted && words.length >= 3 && !endsWithInitials(words)) hit = 'phrase'
+    if (hit == null) continue
+
+    reason ??= hit
+    if (!names.includes(value)) names.push(value)
+  }
+
+  if (reason == null || names.length === 0) return null
+  return { query, names, reason }
+}
+
+/** `detectCollectiveAuthorQuery` over the whole textarea, one entry per query. */
+export function detectCollectiveAuthorQueries(
+  text: string,
+): CollectiveAuthorHint[] {
+  const hints: CollectiveAuthorHint[] = []
+  for (const seed of parsePubmedQueries(text)) {
+    const hint = detectCollectiveAuthorQuery(seed.query)
+    if (hint) hints.push(hint)
+  }
+  return hints
+}
+
 export interface ParsedMember {
   /** the input line, verbatim — shown back to the user */
   raw: string

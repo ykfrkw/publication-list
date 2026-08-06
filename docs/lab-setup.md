@@ -54,6 +54,8 @@ A rejection is the stronger of the two. If a paper somehow ends up in both lists
 
 Records that come from ORCID, from researchmap, from a pinned PMID/DOI, or from a PubMed `[auid]` (ORCID-identifier) search never enter the queue. They are trusted outright.
 
+A query you have ticked as trusted does not enter the queue either — see [that section](#a-cn-search-does-find-our-group--how-do-i-get-those-papers-onto-the-page). The difference is who is vouching for it: `[auid]` is an identifier and the tool can tell on its own, whereas ticking a box is you saying so.
+
 **Do this before you copy the snippet, because the embedded page cannot do it.** The review queue exists only in the wizard — there is nobody at the far end of a page load to tick anything — so a candidate you leave undecided is missing from your site permanently, not until the next refresh. The wizard tells you the count next to the snippet, and if *every* record is an undecided candidate it declines to generate a snippet at all, because that snippet would render an empty list on your page and go on doing so for ever.
 
 **If you already know which papers you want, pin them instead of searching for them.** Identifiers typed into the **Pinned papers** box are confirmed outright: they go straight onto the list and into the embed, with no queue in between. A PubMed query is a *search*, and unless it is an `[auid]` one everything it finds is a candidate. Papers with a known PMID or DOI belong in the pinned box; queries are for finding work you have not enumerated. If you paste `[pmid]` terms into the query box, the wizard notices and says so — it will not move them for you.
@@ -71,7 +73,7 @@ A few things worth knowing about what you just pasted:
 - **The credit link is one line and it is optional.** Untick "Include a credit link" before copying, or delete the `<p class="publist-credit">…</p>` line afterwards. Nothing else changes either way, and the checkbox applies to the iframe snippet too — see [that section](#my-cms-strips-script-tags).
 - **The list ends with a second line saying where it came from**, and that has its own checkbox: "Say where the list came from". It is on by default because it tells your readers that a missing paper is a gap in ORCID rather than a claim about your group. Untick it, or delete the `<p class="publist-disclaimer">…</p>` line, if you would rather word the caveat yourself elsewhere on the page. Turning the credit off does not turn this off, and the other way round.
 - **If the page cannot run JavaScript at all** — or your CMS eats the `<script>` tag — copy **Static HTML (no auto-update)** from the results panel instead and paste that. You lose the automatic updating; see [that section](#my-cms-strips-script-tags).
-- **If the snippet is unwieldy**, use the hosted-configuration route instead. Open **Keep the settings in a file instead of in the snippet** (the wizard opens it for you when the attributes get too long for a CMS field, or when a PubMed query contains a comma), press **Download `pubs.json`**, put that file anywhere that serves it publicly — your own server, or a GitHub Gist raw URL, which needs no setup — and paste the URL into the field. The snippet collapses to a single `data-config` attribute, and editing that one file then changes the list on every page it is embedded in, with nothing to re-paste. This is the right choice for a lab that will keep adjusting the list.
+- **If the snippet is unwieldy**, use the hosted-configuration route instead. Open **Keep the settings in a file instead of in the snippet** (the wizard opens it for you when the attributes get too long for a CMS field, when a PubMed query contains a comma, or when a query is [ticked as trusted](#a-cn-search-does-find-our-group--how-do-i-get-those-papers-onto-the-page), which the inline attributes cannot carry at all), press **Download `pubs.json`**, put that file anywhere that serves it publicly — your own server, or a GitHub Gist raw URL, which needs no setup — and paste the URL into the field. The snippet collapses to a single `data-config` attribute, and editing that one file then changes the list on every page it is embedded in, with nothing to re-paste. This is the right choice for a lab that will keep adjusting the list.
 
 Style it from your own stylesheet. The markup is unstyled and every class is namespaced `publist-`:
 
@@ -156,14 +158,39 @@ You can also just pin their papers by PMID or DOI. For a member with a handful o
 
 ### Our group has a name, but a PubMed search for it finds nothing
 
-Expect this. PubMed records a *collective* author — a study group, a consortium — only when the journal supplied one in the `CollectiveName` or investigator fields, and most journals do not. If your group is not in those fields, no author query can reach it: `YOURGROUP[au]`, `[cn]` and `[ir]` will all return zero, and a free-text search for the name returns whatever unrelated papers happen to contain the word.
+**First, check you are searching the right field.** PubMed keeps a *collective* author — a study group, a trial consortium — in a field of its own, and `[au]` does not search it. `[au]` holds people. So:
 
-There is no query that fixes this, so do not go looking for one. Two things work:
+```
+"RECOVERY Collaborative Group"[au]     → 0 records
+"RECOVERY Collaborative Group"[cn]     → 18 records
+```
+
+Both measured against the live API on 2026-08-06. PubMed translates the second as `[Author - Corporate]`, which is what the field is called in its own interface. Write your group's name the way the journal printed it, in quotes, against `[cn]`.
+
+**An `[au]` search returning nothing does not mean your group is absent from PubMed.** That inference is the trap, because it ends the search. Try `[cn]` before you conclude anything.
+
+If `[cn]` is empty too, then the records genuinely carry no collective author — a journal only supplies one when it chooses to, and many do not — and no rewording will reach it. Two things work then:
 
 - **Pin the papers.** Put their PMIDs or DOIs in the **Pinned papers** box. Pinned records are confirmed outright, so they are on the list and in the embed immediately, with no review queue in between. For a group with a defined output this is the complete answer and takes a minute.
 - **Seed the members' ORCID iDs.** That gets you the auto-updating behaviour the pins do not have, at the cost of also collecting work the members did elsewhere — which is what the [Joined / Left dates and the Freeze button](#when-someone-joins-or-leaves) are for.
 
 The two combine: seed the members, pin anything credited to the group rather than to an individual.
+
+### A `[cn]` search does find our group — how do I get those papers onto the page?
+
+A `[cn]` query is still a *search*, so by default everything it finds is a candidate and waits in the review queue. That is deliberate: `[cn]` matches a **name**, not an identifier, and two groups can pick the same acronym. This tool has already met one — a free-text search for `SLEEPI` returns an unrelated SLEEP-I trial.
+
+So the trust is something you assert, once, per query:
+
+1. Run the query on [pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/) and read the results. Every record has to be your group's work.
+2. Paste it into the **PubMed queries** box in the wizard.
+3. Tick it under **Publish a query's results without reviewing them**.
+
+From then on its hits go straight onto the published list and into the embed with no review step — including papers it finds in future, which you will not see first. That is the whole point, and the whole risk. If it ever brings in something that is not yours, press **Remove** on that paper's line: removing outranks this, exactly as it outranks a pinned paper.
+
+**A trusted query needs the hosted `pubs.json` route.** The tick has no `data-` attribute and no URL parameter — a PubMed seed travels as a raw query string, and there is nowhere in one to put a flag that could not be mistaken for part of the search. Rather than hand you a snippet that quietly loses it, the wizard withholds the snippet until you give it a URL for the file, then writes a one-attribute `data-config` snippet that carries everything. The last bullet of [Step 4](#step-4--paste-it-into-your-site) describes that route.
+
+Leave the box unticked for a `[au]` name search. Those are exactly the queries the review queue exists for.
 
 ### A member has a very common surname
 

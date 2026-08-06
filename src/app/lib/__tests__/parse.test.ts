@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   commentOutLine,
+  detectCollectiveAuthorQueries,
+  detectCollectiveAuthorQuery,
   detectPmidQueries,
   detectPmidQuery,
   formatMemberWindow,
@@ -327,5 +329,79 @@ describe('detectPmidQuery', () => {
     expect(hints).toHaveLength(2)
     expect(hints[0].refs).toHaveLength(5)
     expect(hints[1].refs).toEqual(['pmid:38231522'])
+  })
+})
+
+/**
+ * A group name searched in the personal-author field.
+ *
+ * Measured against the live E-utilities API on 2026-08-06:
+ * `"RECOVERY Collaborative Group"[au]` returns 0 records, and the identical
+ * phrase against `[cn]` returns 18, which PubMed translates as
+ * `[Author - Corporate]`. So `[au]` returning nothing is not evidence that a
+ * group is absent from PubMed — it is evidence that the wrong field was
+ * searched, and the hint exists to stop that inference.
+ *
+ * The rule leans towards firing: a false hint costs a sentence of reading, a
+ * missed one costs a list that stays empty for a reason nobody can see. What it
+ * must not do is fire on ordinary personal-name searches, which is what the
+ * second block below pins.
+ */
+describe('detectCollectiveAuthorQuery', () => {
+  it('fires on a quoted multi-word group name against [au]', () => {
+    const hint = detectCollectiveAuthorQuery('"RECOVERY Collaborative Group"[au]')
+    expect(hint).not.toBeNull()
+    expect(hint?.names).toEqual(['RECOVERY Collaborative Group'])
+    expect(hint?.reason).toBe('collective-word')
+  })
+
+  it('fires on a bare acronym against [au]', () => {
+    expect(detectCollectiveAuthorQuery('SLEEPI[au]')?.reason).toBe('acronym')
+    expect(detectCollectiveAuthorQuery('SLEEP-I[au]')?.reason).toBe('acronym')
+    // The owner's own query, verbatim: quoted acronym, long-form field name.
+    expect(detectCollectiveAuthorQuery('("SLEEPI"[author])')?.names).toEqual([
+      'SLEEPI',
+    ])
+  })
+
+  it('fires on a three-word quoted phrase that is not a personal name', () => {
+    const hint = detectCollectiveAuthorQuery('"Tokyo Sleep Initiative"[au]')
+    expect(hint?.reason).toBe('collective-word')
+    expect(detectCollectiveAuthorQuery('"Kanto Regional Sleep Board"[au]')?.reason)
+      .toBe('phrase')
+  })
+
+  it('does not fire on Furukawa Y[au]', () => {
+    // The single most common shape in this tool, and the one a false positive
+    // would nag every user of the wizard about.
+    expect(detectCollectiveAuthorQuery('Furukawa Y[au]')).toBeNull()
+    expect(detectCollectiveAuthorQuery('Furukawa Y[au] AND (Tokyo[ad])')).toBeNull()
+    expect(
+      detectCollectiveAuthorQuery('Tanaka H[au] AND ("Univ Tokyo"[ad]) AND 2019:2026[dp]'),
+    ).toBeNull()
+  })
+
+  it('does not fire on other personal-name spellings', () => {
+    expect(detectCollectiveAuthorQuery('"Yuki Furukawa"[au]')).toBeNull()
+    // Three words, but ending in initials: a surname with particles.
+    expect(detectCollectiveAuthorQuery('"van der Berg AB"[au]')).toBeNull()
+    expect(detectCollectiveAuthorQuery('0000-0003-1317-0220[auid]')).toBeNull()
+    expect(detectCollectiveAuthorQuery('"Univ Tokyo"[ad]')).toBeNull()
+  })
+
+  it('leaves a query that already uses [cn] alone', () => {
+    expect(detectCollectiveAuthorQuery('"RECOVERY Collaborative Group"[cn]')).toBeNull()
+    // Someone covering both fields has understood the distinction already.
+    expect(
+      detectCollectiveAuthorQuery('"SLEEPI"[au] OR "SLEEPI"[cn]'),
+    ).toBeNull()
+  })
+
+  it('reads the whole textarea, one hint per offending line', () => {
+    const hints = detectCollectiveAuthorQueries(
+      'Furukawa Y[au] AND (Tokyo[ad])\n# a comment\nSLEEPI[au]\n"RECOVERY Collaborative Group"[cn]',
+    )
+    expect(hints).toHaveLength(1)
+    expect(hints[0].names).toEqual(['SLEEPI'])
   })
 })

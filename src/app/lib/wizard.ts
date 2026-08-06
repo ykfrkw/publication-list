@@ -73,6 +73,19 @@ export interface WizardDraft {
   researchmap: string
   /** modes 2 and 3: one PubMed query per line */
   pubmed: string
+  /**
+   * The queries in `pubmed` whose hits the user has asserted are all theirs.
+   *
+   * Held as the query strings themselves rather than as line numbers, so
+   * editing an unrelated line cannot move the assertion onto a different
+   * search. `parsePubmedQueries` de-duplicates, so a query string identifies
+   * one seed. A query that is edited loses its tick, which is the right way
+   * round: the assertion was about the search as it was written.
+   *
+   * Projects onto `PubmedSeed.trust`. Default empty — nothing is trusted
+   * unless it is ticked.
+   */
+  pubmedTrusted: string[]
   /** mode 3: pasted member list */
   members: string
 
@@ -153,6 +166,7 @@ export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
     orcid: '',
     researchmap: '',
     pubmed: '',
+    pubmedTrusted: [],
     members: '',
     style: 'vancouver',
     from: '',
@@ -235,7 +249,15 @@ export function draftToConfig(draft: WizardDraft): ListConfig {
   }
 
   if (draft.mode !== 'article') {
-    const pubmed = parsePubmedQueries(draft.pubmed)
+    // The tick box projects onto `PubmedSeed.trust`. Only `'confirmed'` is
+    // ever written: a seed with no `trust` already means "review its hits",
+    // and saying so twice would only make two spellings of one default.
+    const trusted = new Set(draft.pubmedTrusted)
+    const pubmed = parsePubmedQueries(draft.pubmed).map((seed) =>
+      trusted.has(seed.query)
+        ? { ...seed, trust: 'confirmed' as const }
+        : seed,
+    )
     if (pubmed.length > 0) partial.seeds!.pubmed = pubmed
   }
 
@@ -280,11 +302,14 @@ export function isRunnable(draft: WizardDraft): boolean {
  * Does this configuration produce a review queue at all?
  *
  * Only a PubMed *name* query can: every other seed is trusted outright by
- * `pipeline.ts`, and an `[auid]` query is an identifier search.
+ * `pipeline.ts`, an `[auid]` query is an identifier search, and a seed the
+ * user has ticked as trusted is confirmed by assertion. A query that cannot
+ * produce a candidate must not put an empty review panel on screen.
  */
 export function hasNameQuery(config: ListConfig): boolean {
   return (config.seeds.pubmed ?? []).some(
-    (seed) => !/\[\s*auid\s*\]/i.test(seed.query),
+    (seed) =>
+      seed.trust !== 'confirmed' && !/\[\s*auid\s*\]/i.test(seed.query),
   )
 }
 
@@ -721,6 +746,9 @@ export function loadDraft(): WizardDraft | null {
       ...draft,
       include: Array.isArray(draft.include) ? draft.include : [],
       exclude: Array.isArray(draft.exclude) ? draft.exclude : [],
+      // A draft stored before this field existed has no ticks, which is the
+      // same as every query being reviewed — the behaviour it was saved with.
+      pubmedTrusted: Array.isArray(draft.pubmedTrusted) ? draft.pubmedTrusted : [],
       removed:
         draft.removed != null &&
         typeof draft.removed === 'object' &&

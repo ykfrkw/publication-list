@@ -29,6 +29,19 @@ import type { ParsedMember } from './parse'
 
 export type WizardMode = 'article' | 'person' | 'lab'
 
+/** What one entry in the removed list carries. See `WizardDraft.removed`. */
+export interface RemovedRecord {
+  /** the record's title as it read when it was removed */
+  label?: string
+  /**
+   * The removal took this reference out of `include`, so undoing it has to put
+   * the pin back. Without this an undo after a freeze would drop the exclude
+   * and the pin together, and the record — whose seed the freeze removed —
+   * would not return: an "undo" that undid nothing visible.
+   */
+  pinned?: boolean
+}
+
 export const MODES: { value: WizardMode; label: string; blurb: string }[] = [
   {
     value: 'article',
@@ -77,6 +90,21 @@ export interface WizardDraft {
   /** decisions taken in the review queue — canonical `"pmid:…"` / `"doi:…"` */
   include: string[]
   exclude: string[]
+  /**
+   * What each ref in `exclude` needs remembered about it, keyed by ref.
+   *
+   * Two things, both of which exist because the effect of an exclude is that
+   * the record is no longer in the built model to be looked up in: the name to
+   * show in the "N removed" list, and whether the removal took a pin out of
+   * `include` — which is the difference between an undo that puts the record
+   * back and one that quietly leaves it gone.
+   *
+   * Never reaches `ListConfig` — `draftToConfig` does not read it — so it
+   * changes no `configHash`, no `pubs.json` and no snippet. It is kept in step
+   * with `exclude` by `syncRemoved`, which also prunes it, so undoing a removal
+   * drops its entry with it and the map cannot grow without bound.
+   */
+  removed: Record<string, RemovedRecord>
 
   /** snippet options */
   credit: boolean
@@ -137,6 +165,7 @@ export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
     limit: '',
     include: [],
     exclude: [],
+    removed: {},
     credit: true,
     disclaimer: true,
     configUrl: '',
@@ -383,6 +412,139 @@ export function forgetRef(draft: WizardDraft, ref: string): WizardDraft {
   }
 }
 
+// ────────────────────────────────────────────── removing a publication ──
+
+/**
+ * What to call a record in the removed list. The title, or the dedupe key when
+ * a source gave us a record with no title at all.
+ */
+function removalLabel(pub: Publication): string {
+  const title = (pub.title ?? '').trim()
+  return title === '' ? pub.key : title
+}
+
+/**
+ * Bring `removed` back in step with `exclude`.
+ *
+ * Two jobs, both of them pruning-shaped:
+ *   - learn a name for any excluded ref that appears in `pubs` (the records
+ *     that were on screen when the decision was taken);
+ *   - drop the entry for anything no longer excluded, so undoing a removal
+ *     leaves nothing behind and the map cannot outgrow the list it describes.
+ *
+ * Call it after every edit to `exclude`. It is idempotent.
+ */
+export function syncRemoved(
+  draft: WizardDraft,
+  pubs: readonly Publication[] = [],
+): WizardDraft {
+  const found = new Map<string, string>()
+  for (const pub of pubs) {
+    const ref = formatIdRef(pub)
+    if (ref != null && !found.has(ref)) found.set(ref, removalLabel(pub))
+  }
+
+  const next: Record<string, RemovedRecord> = {}
+  for (const ref of draft.exclude) {
+    const previous = draft.removed[ref]
+    const label = previous?.label ?? found.get(ref)
+    const entry: RemovedRecord = {}
+    if (label != null) entry.label = label
+    if (previous?.pinned) entry.pinned = true
+    next[ref] = entry
+  }
+  return { ...draft, removed: next }
+}
+
+/**
+ * Take one publication off the built list.
+ *
+ * `exclude` is what does the work — it outranks `include` at pipeline stage 3,
+ * which is the only reason this can remove a record that a freeze pinned or
+ * that the user typed into the **Pinned papers** box. Dropping the ref from
+ * `include` as well keeps the saved configuration honest (no list that pins and
+ * excludes the same paper), but it is not what makes the removal stick, and it
+ * deliberately does not touch the free-text pins box: that is the user's own
+ * typing, and rewriting it under them to enact a removal the `exclude` entry
+ * already enacts would be a surprise for no gain.
+ *
+ * A record with neither a DOI nor a PMID has no reference to exclude by, so
+ * there is nothing to write; the draft comes back untouched and the caller's
+ * control is disabled. See `PreviewList.tsx`.
+ */
+export function removePublication(
+  draft: WizardDraft,
+  pub: Publication,
+): WizardDraft {
+  const ref = formatIdRef(pub)
+  if (ref == null) return draft
+
+  const pinned = draft.include.includes(ref)
+  const exclude = draft.exclude.includes(ref)
+    ? [...draft.exclude]
+    : [...draft.exclude, ref]
+
+  const next = syncRemoved(
+    {
+      ...draft,
+      include: draft.include.filter((r) => r !== ref),
+      exclude,
+    },
+    [pub],
+  )
+  // Remembered *after* the sync, which rebuilds the map from `exclude`.
+  return pinned
+    ? { ...next, removed: { ...next.removed, [ref]: { ...next.removed[ref], pinned: true } } }
+    : next
+}
+
+/**
+ * Undo one removal.
+ *
+ * `forgetRef` is the existing transition and does the substance of it: the ref
+ * leaves both decision lists, so the record returns by whatever route was
+ * carrying it. The one thing it cannot know is that this removal *took* the ref
+ * out of `include` — after a freeze that pin is the only thing holding the
+ * record on the list, and forgetting it too would leave the paper gone with
+ * nothing on screen to say so. So a pinned removal is re-pinned here.
+ *
+ * It goes back on the end of `include` rather than at its old index. The list
+ * is a set as far as the pipeline is concerned; only the cache key notices.
+ */
+export function restoreRef(draft: WizardDraft, ref: string): WizardDraft {
+  const wasPinned = draft.removed[ref]?.pinned === true
+  const forgotten = forgetRef(draft, ref)
+  const include =
+    wasPinned && !forgotten.include.includes(ref)
+      ? [...forgotten.include, ref]
+      : forgotten.include
+  return syncRemoved({ ...forgotten, include })
+}
+
+/** One row of the "N removed" list. */
+export interface RemovedEntry {
+  /** canonical `"pmid:…"` / `"doi:…"` */
+  ref: string
+  /** the remembered title, or the ref itself when nothing remembered one */
+  label: string
+}
+
+/**
+ * Everything currently being kept off the list, in the order it was excluded.
+ *
+ * Reads `exclude` rather than a separate "removed" list on purpose: `exclude`
+ * *is* the set of records that will not appear, however they got there — the
+ * Remove control, a rejection in the review queue, or a hand-edited config. A
+ * removal the user cannot see is a paper quietly missing from a CV, so all of
+ * them are shown and all of them are undoable.
+ */
+export function removedEntries(draft: WizardDraft): RemovedEntry[] {
+  return draft.exclude.map((ref) => ({
+    ref,
+    label: draft.removed[ref]?.label ?? ref,
+  }))
+}
+
 /** Turn a typed identifier into its canonical form, or `null` if unusable. */
 export function canonicalRef(input: string): string | null {
   const ref = parseIdRef(input)
@@ -559,6 +721,12 @@ export function loadDraft(): WizardDraft | null {
       ...draft,
       include: Array.isArray(draft.include) ? draft.include : [],
       exclude: Array.isArray(draft.exclude) ? draft.exclude : [],
+      removed:
+        draft.removed != null &&
+        typeof draft.removed === 'object' &&
+        !Array.isArray(draft.removed)
+          ? draft.removed
+          : {},
     }
   } catch {
     return null

@@ -5,9 +5,15 @@
  * citation formatting, grouping or escaping — the whole point of that module
  * is that the wizard's Markdown and the embed script's HTML are the same list.
  *
- * The preview is rendered with `credit: false`: this is a preview inside the
- * tool, not a page anyone publishes. The credit block belongs to the copyable
- * output, and only there.
+ * The preview carries no credit block: this is a preview inside the tool, not a
+ * page anyone publishes. The credit belongs to the copyable output, and only
+ * there.
+ *
+ * The preview itself is `PreviewList` — the same groups and citations as every
+ * other output, composed in JSX so each publication can carry a Remove control.
+ * See the header of that file for why it is not `renderHtml`. Everything the
+ * buttons in this panel copy or download still comes from `core/render.ts` and
+ * has no idea the controls exist.
  *
  * The source disclaimer is different and *does* appear in the preview: it is a
  * `ListConfig` field rather than a snippet option, so it is part of the list
@@ -31,6 +37,7 @@
  */
 
 import { useMemo } from 'react'
+import { Undo2Icon } from 'lucide-react'
 import {
   Card,
   CardContent,
@@ -39,6 +46,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { serializeConfig } from '@/core/config'
 import {
@@ -49,20 +57,30 @@ import {
   renderRis,
   renderWordpressBlocks,
 } from '@/core/render'
-import type { ListModel } from '@/core/types'
+import type { ListModel, Publication } from '@/core/types'
 import { CopyButton, DownloadButton } from './CopyButton'
+import { PreviewList } from './PreviewList'
 import { copyRich } from '../lib/clipboard'
 import { CONFIG_FILENAME } from '../lib/snippet'
+import type { RemovedEntry } from '../lib/wizard'
 
 export function ResultsPanel({
   model,
   credit,
+  onRemove,
+  removed = [],
+  onRestore,
 }: {
   model: ListModel
   /** The "Include a credit link" checkbox, shared with the embed snippets. */
   credit: boolean
+  /** Take one publication off the list. Omit to render a read-only preview. */
+  onRemove?: (pub: Publication) => void
+  /** Everything currently excluded, so a removal is never invisible. */
+  removed?: RemovedEntry[]
+  /** Undo one removal. */
+  onRestore?: (ref: string) => void
 }) {
-  const previewHtml = useMemo(() => renderHtml(model, { credit: false }), [model])
   const staticHtml = useMemo(() => renderHtml(model, { credit }), [model, credit])
   const count = model.publications.length
 
@@ -128,6 +146,8 @@ export function ResultsPanel({
 
         <Separator />
 
+        <RemovedList entries={removed} onRestore={onRestore} />
+
         {count === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nothing came back. Check the warnings above — with the default review
@@ -135,15 +155,75 @@ export function ResultsPanel({
             confirm them in the review queue.
           </p>
         ) : (
-          <div
-            className="publist-preview text-sm leading-relaxed [&_.publist-disclaimer]:mt-4 [&_.publist-disclaimer]:text-xs [&_.publist-disclaimer]:text-muted-foreground [&_.publist-heading]:mt-4 [&_.publist-heading]:mb-1.5 [&_.publist-heading]:font-medium [&_.publist-heading:first-child]:mt-0 [&_.publist-subheading]:mt-3 [&_.publist-subheading]:mb-1 [&_.publist-subheading]:text-xs [&_.publist-subheading]:font-medium [&_.publist-subheading]:text-muted-foreground [&_a]:underline [&_li]:mb-2 [&_ol]:list-decimal [&_ol]:ps-5"
-            // Escaped upstream by `format.ts`; the only markup in here is
-            // <section>/<h3>/<h4>/<ol>/<li>/<p>, <b>, <em> and doi.org /
-            // PubMed links.
-            dangerouslySetInnerHTML={{ __html: previewHtml }}
-          />
+          <div className="publist-preview text-sm leading-relaxed [&_.publist-disclaimer]:mt-4 [&_.publist-disclaimer]:text-xs [&_.publist-disclaimer]:text-muted-foreground [&_.publist-heading]:mt-4 [&_.publist-heading]:mb-1.5 [&_.publist-heading]:font-medium [&_.publist-heading:first-child]:mt-0 [&_.publist-subheading]:mt-3 [&_.publist-subheading]:mb-1 [&_.publist-subheading]:text-xs [&_.publist-subheading]:font-medium [&_.publist-subheading]:text-muted-foreground [&_a]:underline [&_li]:mb-2 [&_ol]:list-decimal [&_ol]:ps-5">
+            <PreviewList model={model} onRemove={onRemove} />
+          </div>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * What has been taken off the list, and how to put it back.
+ *
+ * This exists because the alternative is a paper silently missing from
+ * somebody's CV. A removal is one click and its effect is invisible — the
+ * record is simply not there any more — so the count is stated in words, every
+ * entry is named, and each one has an undo. The `<details>` is closed by
+ * default but its summary is not: "3 removed" is on screen whether or not
+ * anyone opens it.
+ *
+ * It lists everything in `exclude`, not only what the Remove button put there,
+ * because `exclude` is the whole set of records being kept off the page —
+ * rejections from the review queue and hand-edited config entries included. See
+ * `removedEntries` in `../lib/wizard.ts`.
+ */
+function RemovedList({
+  entries,
+  onRestore,
+}: {
+  entries: RemovedEntry[]
+  onRestore?: (ref: string) => void
+}) {
+  if (entries.length === 0 || onRestore == null) return null
+
+  return (
+    <details className="rounded-lg border border-border p-3">
+      <summary className="cursor-pointer text-sm font-medium">
+        {entries.length} removed
+      </summary>
+      <div className="flex flex-col gap-2 pt-3">
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          These are kept off the list and out of everything you copy or embed,
+          whatever else pins them. Undo puts one back where it was.
+        </p>
+        <ul className="flex flex-col gap-1.5">
+          {entries.map((entry) => (
+            <li
+              key={entry.ref}
+              className="flex items-start gap-2 rounded-md border border-border p-2"
+            >
+              <div className="flex min-w-0 grow flex-col">
+                <span className="text-sm leading-snug">{entry.label}</span>
+                <span className="truncate font-mono text-xs text-muted-foreground">
+                  {entry.ref}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`Undo removing “${entry.label}”`}
+                onClick={() => onRestore(entry.ref)}
+              >
+                <Undo2Icon />
+                Undo
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
   )
 }

@@ -100,9 +100,21 @@ export const CREDIT_SELECTOR = '.publist-credit'
  * header of that file.
  */
 
+/**
+ * The sentence itself, without markup.
+ *
+ * Split out of `DISCLAIMER_HTML` for one caller: the wizard's preview composes
+ * the list in React rather than as a string (see `PreviewList.tsx`), and a
+ * React component wants the text, not a `<p>` to inject. Both constants are
+ * still defined here, from one another, so there is exactly one wording — the
+ * point of the note below is that nobody *retypes* the line, not that it can
+ * only ever appear as HTML.
+ */
+export const DISCLAIMER_TEXT =
+  'Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.'
+
 /** The exact disclaimer markup. Never build this string anywhere else. */
-export const DISCLAIMER_HTML =
-  '<p class="publist-disclaimer">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>'
+export const DISCLAIMER_HTML = `<p class="publist-disclaimer">${DISCLAIMER_TEXT}</p>`
 
 /** Selector the embed bundle must treat as untouchable. */
 export const DISCLAIMER_SELECTOR = '.publist-disclaimer'
@@ -115,7 +127,11 @@ export const JAPANESE_GROUP_LABEL = 'Japanese-language publications'
 /** Heading used when a publication carries no usable year under `groupBy: 'year'`. */
 const UNDATED_LABEL = 'Undated'
 
-const PUBMED_BASE = 'https://pubmed.ncbi.nlm.nih.gov/'
+/**
+ * Exported for the wizard's preview, which builds the same PMID link in JSX
+ * instead of in a string. Nothing else should be constructing PubMed URLs.
+ */
+export const PUBMED_BASE = 'https://pubmed.ncbi.nlm.nih.gov/'
 
 /** A year divider inside a category group under `groupBy: 'category-year'`. */
 export interface RenderSection {
@@ -296,8 +312,14 @@ function boldNamesOf(model: ListModel): readonly string[] {
   return model.config.boldNames ?? []
 }
 
-/** PubMed ids are numeric; anything else is not linked. */
-function pmidOf(pub: Publication): string | null {
+/**
+ * PubMed ids are numeric; anything else is not linked.
+ *
+ * Exported for the same reason as `PUBMED_BASE`: the wizard's preview has to
+ * decide "link this PMID or not" identically to every string renderer here, and
+ * a second copy of the test is a second thing to get wrong.
+ */
+export function pmidOf(pub: Publication): string | null {
   const pmid = (pub.pmid ?? '').trim()
   return /^\d+$/.test(pmid) ? pmid : null
 }

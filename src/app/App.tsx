@@ -33,6 +33,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { configHash } from '@/core/config'
+import type { Publication } from '@/core/types'
 import { parseNameList } from './lib/parse'
 import {
   EXAMPLE_ORCID,
@@ -47,7 +48,11 @@ import {
   hasNameQuery,
   isRunnable,
   loadDraft,
+  removePublication,
+  removedEntries,
+  restoreRef,
   saveDraft,
+  syncRemoved,
 } from './lib/wizard'
 import { useBuildList } from './hooks/useBuildList'
 import {
@@ -124,10 +129,11 @@ export default function App() {
   /**
    * Adopt a draft produced by one of the panels and rebuild from it.
    *
-   * Shared by the review queue and by freezing a member: both write decisions
-   * into `include` / `exclude`, and in both cases the point of the action is
-   * the list that comes out of it, so waiting for the user to press Generate
-   * again would just leave a stale list on screen.
+   * Shared by the review queue, by freezing a member, and by removing a single
+   * publication: all three write decisions into `include` / `exclude`, and in
+   * every case the point of the action is the list that comes out of it, so
+   * waiting for the user to press Generate again would just leave a stale list
+   * on screen. There is one rebuild path and this is it.
    */
   const rerunWith = useCallback(
     (next: WizardDraft) => {
@@ -137,6 +143,29 @@ export default function App() {
       void run(nextConfig)
     },
     [run],
+  )
+
+  /**
+   * Take one publication off the list.
+   *
+   * `removePublication` writes the `exclude` entry that does the work — it
+   * outranks a pin, which is what makes this reach a record a freeze pinned —
+   * and remembers the title so the removal can be named and undone afterwards.
+   */
+  const removeOne = useCallback(
+    (pub: Publication) => {
+      const next = removePublication(draft, pub)
+      // A record with no DOI and no PMID cannot be referenced, so nothing
+      // changed; the control for one is disabled and this is belt and braces.
+      if (next === draft) return
+      rerunWith(next)
+    },
+    [draft, rerunWith],
+  )
+
+  const restoreOne = useCallback(
+    (ref: string) => rerunWith(restoreRef(draft, ref)),
+    [draft, rerunWith],
   )
 
   const startOver = useCallback(() => {
@@ -287,7 +316,15 @@ export default function App() {
               include={draft.include}
               exclude={draft.exclude}
               onApply={({ include, exclude }) =>
-                rerunWith({ ...draft, include, exclude })
+                // A rejection here is a removal too, and lands in the same
+                // `exclude` list the removed panel below reads, so it is
+                // labelled from the candidates that were on screen.
+                rerunWith(
+                  syncRemoved(
+                    { ...draft, include, exclude },
+                    model.candidates,
+                  ),
+                )
               }
             />
           ) : null}
@@ -299,7 +336,13 @@ export default function App() {
             panels through `outputModel.config`, not as a prop, because it is a
             config field; see the comment on `outputModel`.
           */}
-          <ResultsPanel model={outputModel} credit={draft.credit} />
+          <ResultsPanel
+            model={outputModel}
+            credit={draft.credit}
+            onRemove={removeOne}
+            removed={removedEntries(draft)}
+            onRestore={restoreOne}
+          />
 
           <SnippetPanel
             model={outputModel}

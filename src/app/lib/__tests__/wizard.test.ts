@@ -15,6 +15,10 @@ import {
   initialChecked,
   isRunnable,
   planFreeze,
+  removePublication,
+  removedEntries,
+  restoreRef,
+  syncRemoved,
   unreviewedCount,
 } from '../wizard'
 
@@ -598,4 +602,172 @@ describe('applyReviewDecisions → buildList', () => {
     },
     20_000,
   )
+})
+
+describe('removePublication — taking one record off the list', () => {
+  const prisma = pub({
+    key: 'doi:10.1136/bmj.n71',
+    title: 'The PRISMA 2020 statement',
+    doi: '10.1136/bmj.n71',
+    pmid: '33782057',
+    trust: 'confirmed',
+  })
+
+  it('adds the ref to exclude and drops it from include', () => {
+    const draft = {
+      ...emptyDraft('lab'),
+      include: ['doi:10.1136/bmj.n71', 'pmid:99999999'],
+    }
+    const next = removePublication(draft, prisma)
+
+    expect(next.exclude).toEqual(['doi:10.1136/bmj.n71'])
+    expect(next.include).toEqual(['pmid:99999999'])
+  })
+
+  it('takes the DOI in preference to the PMID, as every other ref does', () => {
+    const next = removePublication(emptyDraft('lab'), prisma)
+    expect(next.exclude).toEqual(['doi:10.1136/bmj.n71'])
+  })
+
+  it('is what actually removes a frozen pin, which is why it writes exclude', () => {
+    // The motivating story: a freeze pinned 22 papers, one of them wrong. The
+    // pin may also live in the free-text box, out of reach — the exclude entry
+    // is what the pipeline honours either way.
+    const frozen = {
+      ...emptyDraft('lab'),
+      pins: '10.1136/bmj.n71',
+      include: ['doi:10.1136/bmj.n71'],
+    }
+    const next = removePublication(frozen, prisma)
+
+    expect(draftToConfig(next).exclude).toEqual(['doi:10.1136/bmj.n71'])
+    // The user's own typing is left exactly as they wrote it.
+    expect(next.pins).toBe(frozen.pins)
+  })
+
+  it('is idempotent — removing twice does not duplicate the entry', () => {
+    const once = removePublication(emptyDraft('lab'), prisma)
+    expect(removePublication(once, prisma).exclude).toEqual([
+      'doi:10.1136/bmj.n71',
+    ])
+  })
+
+  it('leaves a record with neither a DOI nor a PMID untouched', () => {
+    const draft = emptyDraft('lab')
+    const orphan = pub({ key: 'title:noidentifiers', title: 'No identifiers' })
+
+    // There is no reference to write, so nothing is written and the caller can
+    // tell: the control for one of these is disabled.
+    expect(removePublication(draft, orphan)).toBe(draft)
+    expect(candidateRef(orphan)).toBeNull()
+  })
+
+  it('remembers a name for the removed record', () => {
+    const next = removePublication(emptyDraft('lab'), prisma)
+    expect(removedEntries(next)).toEqual([
+      { ref: 'doi:10.1136/bmj.n71', label: 'The PRISMA 2020 statement' },
+    ])
+  })
+
+  it('falls back to the ref when nothing ever named the record', () => {
+    // An exclude that arrived from a hand-edited config or an earlier version.
+    const draft = { ...emptyDraft('lab'), exclude: ['pmid:33782057'] }
+    expect(removedEntries(draft)).toEqual([
+      { ref: 'pmid:33782057', label: 'pmid:33782057' },
+    ])
+  })
+
+  it('never reaches the config', () => {
+    const removed = removePublication(emptyDraft('lab'), prisma)
+    const byHand = { ...emptyDraft('lab'), exclude: ['doi:10.1136/bmj.n71'] }
+    // The label cache is a UI convenience; two drafts that differ only by it
+    // must build the same list from the same cache entry.
+    expect(configHash(draftToConfig(removed))).toBe(
+      configHash(draftToConfig(byHand)),
+    )
+    expect('removed' in draftToConfig(removed)).toBe(false)
+  })
+
+  describe('undo', () => {
+    it('forgets the decision and the label with it', () => {
+      const removed = removePublication(emptyDraft('lab'), prisma)
+      const restored = restoreRef(removed, 'doi:10.1136/bmj.n71')
+
+      expect(restored.exclude).toEqual([])
+      expect(restored.include).toEqual([])
+      expect(removedEntries(restored)).toEqual([])
+      expect(restored.removed).toEqual({})
+    })
+
+    it('puts a pin back when the removal was what took it out', () => {
+      // The freeze story. The member's seed is gone, so the pin is the only
+      // thing holding the record on the list: an undo that dropped the exclude
+      // and the pin together would leave the paper gone and say it came back.
+      const frozen = {
+        ...emptyDraft('lab'),
+        members: '# frozen 2026-08-06 — 1 paper(s) pinned\tYuki\t0000-0003-1317-0220',
+        include: ['doi:10.1136/bmj.n71'],
+      }
+      const removed = removePublication(frozen, prisma)
+      expect(removed.include).toEqual([])
+
+      const restored = restoreRef(removed, 'doi:10.1136/bmj.n71')
+      expect(restored.include).toEqual(['doi:10.1136/bmj.n71'])
+      expect(restored.exclude).toEqual([])
+      expect(draftToConfig(restored).include).toEqual(['doi:10.1136/bmj.n71'])
+    })
+
+    it('does not invent a pin for a record that never had one', () => {
+      // A record on the list because a seed found it comes back on that seed.
+      // Pinning it here would force-confirm something nobody confirmed.
+      const removed = removePublication(emptyDraft('lab'), prisma)
+      expect(restoreRef(removed, 'doi:10.1136/bmj.n71').include).toEqual([])
+    })
+
+    it('leaves other removals alone', () => {
+      const other = pub({ key: 'pmid:1', title: 'Another paper', pmid: '1' })
+      const both = removePublication(
+        removePublication(emptyDraft('lab'), prisma),
+        other,
+      )
+      const restored = restoreRef(both, 'doi:10.1136/bmj.n71')
+
+      expect(removedEntries(restored)).toEqual([
+        { ref: 'pmid:1', label: 'Another paper' },
+      ])
+    })
+  })
+
+  describe('syncRemoved', () => {
+    it('names a rejection made in the review queue', () => {
+      const candidate = pub({ key: 'pmid:1', title: 'A namesake’s paper', pmid: '1' })
+      const decided = applyReviewDecisions([], [], [candidate], new Set())
+      const draft = syncRemoved(
+        { ...emptyDraft('lab'), ...decided },
+        [candidate],
+      )
+
+      expect(removedEntries(draft)).toEqual([
+        { ref: 'pmid:1', label: 'A namesake’s paper' },
+      ])
+    })
+
+    it('prunes entries for refs that are no longer excluded', () => {
+      const stale = {
+        ...emptyDraft('lab'),
+        exclude: [],
+        removed: { 'pmid:1': { label: 'Gone' } },
+      }
+      expect(syncRemoved(stale).removed).toEqual({})
+    })
+
+    it('keeps the pinned flag across later syncs', () => {
+      const frozen = { ...emptyDraft('lab'), include: ['doi:10.1136/bmj.n71'] }
+      const removed = removePublication(frozen, prisma)
+      expect(syncRemoved(removed).removed['doi:10.1136/bmj.n71']).toEqual({
+        label: 'The PRISMA 2020 statement',
+        pinned: true,
+      })
+    })
+  })
 })

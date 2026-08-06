@@ -35,13 +35,46 @@ export function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch])
 }
 
+/** Schemes an `href` may carry. Everything else is refused. */
+const SAFE_SCHEMES = new Set(['http', 'https'])
+
+/**
+ * The scheme of `url`, lowercased, or `null` when it has none (a relative or
+ * scheme-relative URL).
+ *
+ * Normalized the way a browser does before parsing, because the classic
+ * evasions live in that gap: tabs and newlines are stripped from *anywhere*
+ * in a URL, so a tab inside "java<TAB>script:" leaves `javascript:`; and a
+ * leading C0 control or space is ignored, so U+0001 followed by
+ * `javascript:` is also `javascript:`. Checking the raw string would let
+ * both through.
+ */
+function schemeOf(url: string): string | null {
+  // eslint-disable-next-line no-control-regex -- C0 controls are what this strips
+  const normalized = url.replace(/[\t\n\r]/g, '').replace(/^[\u0000-\u0020]+/, '')
+  const match = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(normalized)
+  return match === null ? null : match[1].toLowerCase()
+}
+
 /**
  * Escape a URL for use in an `href`.
  *
  * Percent-encoding first means a quote or angle bracket smuggled into a DOI
  * can never terminate the attribute, even before `escapeHtml` runs.
+ *
+ * The scheme allowlist is defense in depth, not a live fix. Both call sites
+ * today (`formatCitation`'s DOI link and `render.ts`'s PMID link) prepend a
+ * hardcoded `https://` constant, so a `javascript:` payload arriving in a DOI
+ * is already inert — it becomes a broken `https://doi.org/javascript:…` link.
+ * But this function is exported, and a future call site that passes an
+ * upstream URL through verbatim would be a live XSS hole. Anything that is
+ * not `http:`, `https:`, scheme-relative or relative returns the empty
+ * string, which renders as `href=""` — inert everywhere.
  */
 export function escapeUrl(url: string): string {
+  const scheme = schemeOf(url)
+  if (scheme !== null && !SAFE_SCHEMES.has(scheme)) return ''
+
   let encoded: string
   try {
     encoded = encodeURI(url)

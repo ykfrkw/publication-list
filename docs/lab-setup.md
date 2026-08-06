@@ -139,6 +139,16 @@ What you give up is in the name: it is a snapshot of today and it will not refre
 
 The credit line follows the same checkbox here as everywhere else: untick it before copying, or delete the `<p class="publist-credit">…</p>` line afterwards.
 
+### Our web team asks what the page contacts
+
+A fair question, and the answer is short enough to forward.
+
+The list is built in each visitor's own browser, which means the visitor's browser — not a server of ours — is what talks to the sources. On a page carrying the script snippet it requests `embed.js` from `ykfrkw.github.io` (GitHub Pages), and then, depending on which seeds you configured, `pub.orcid.org`, `eutils.ncbi.nlm.nih.gov` and `api.researchmap.jp`, plus `api.openalex.org` for author names and work types and `api.crossref.org` for peer-review status. Those hosts see the visitor's IP address and User-Agent, and your page's origin in the `Referer` header, exactly as an embedded font or image would.
+
+They see nothing else. The embed sets no cookies and sends none; the only identifiers in any request are the ORCID iDs, permalinks and queries you put in the configuration, which are public and are the point of the list; and nothing in this project reports anything back to its author — there is no backend, no analytics and no telemetry, only static files on GitHub Pages.
+
+If that is a problem, there are two answers. The [iframe snippet](#my-cms-strips-script-tags) moves the requests into a separate document, so no script of ours runs in your page — though the upstream APIs still see the visitor's IP, because the requests still have to be made by somebody's browser. The **Static HTML** output makes no external requests at all: it is inert markup, so nothing loads when the page renders. The full version of this is in the [README](../README.md#what-your-visitors-browsers-contact).
+
 ### Publications are missing
 
 Almost always this is a gap in the source, not in the tool. In order of likelihood:

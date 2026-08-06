@@ -272,6 +272,36 @@ Everything happens in the visitor's browser. There is no backend to this tool.
 - No contact email or API key is sent to OpenAlex, Crossref or PubMed. Embedding one in a public bundle would leak it and invite spam, and the "polite pool" it would buy is meaningless when every request comes from a different visitor's IP. PubMed receives only `tool=publication-list-generator`, and PubMed requests are serialized with a ≥350 ms gap to stay inside NCBI's 3 requests/second limit.
 - Built lists are cached in the visitor's own `localStorage` under the `publist:` prefix, capped at 200 KB per entry with a 24-hour TTL. Nothing outside that namespace is ever touched, and a storage failure degrades to "no cache" rather than to a broken page.
 
+### What your visitors' browsers contact
+
+Worth stating plainly, because it is what an institutional web team will want to know and because "it all runs in the browser" is only half an answer. Running in the browser is precisely what makes the visitor, rather than a server of ours, the party talking to the upstream APIs.
+
+When someone loads a page carrying the script snippet, their browser makes requests to hosts that are not yours. There is no proxy in front of any of them:
+
+| Host | When | For |
+| --- | --- | --- |
+| `ykfrkw.github.io` | always | `embed.js` itself, plus `lists/<id>.json` if you used `data-list` |
+| `pub.orcid.org` | if you seeded an ORCID iD | the works record |
+| `eutils.ncbi.nlm.nih.gov` | if you seeded a PubMed query, or pinned a PMID | PMIDs, journals, dates, publication types |
+| `api.researchmap.jp` | if you seeded a researchmap permalink | Japanese-language records |
+| `api.openalex.org` | for any non-empty list | author names, work types, missing metadata |
+| `api.crossref.org` | for F1000-family DOIs, and records OpenAlex left without authors | peer-review status, author names |
+
+Plus whatever host you pointed `data-config` at, if you used one.
+
+Each of those receives what any third-party resource on a web page receives: the visitor's **IP address** and **User-Agent**, and — under browsers' default referrer policy — your page's origin, not its full URL, in the `Referer` header. It is the same exposure as an embedded font, a hotlinked image or an analytics tag. The difference is that here it is the entire story, so here is the rest of it.
+
+What those hosts do **not** receive:
+
+- **No cookies.** The embed sets none. Every upstream call is a plain `fetch` left at the default `credentials: 'same-origin'`, so no cookies travel to any of these hosts even if a visitor has some. The list cache is `localStorage` on your own origin, under the `publist:` prefix.
+- **No identifier of the visitor.** The query strings carry only what you configured — ORCID iDs, researchmap permalinks, PubMed queries, DOIs, PMIDs. Those identify the researchers whose list this is, which is the point of the list and already public. Nothing in any request identifies the person reading the page. PubMed additionally receives `tool=publication-list-generator`, a fixed string that is the same for every installation; there is no `email=` and no `api_key=` (see the note above about why).
+- **Nothing reaches us.** There is no backend, no analytics, no telemetry and no error reporting anywhere in this project — not a beacon, not a pixel, not a logging endpoint. One honest caveat: `embed.js` is a static file on GitHub Pages, so GitHub serves it and sees that request the way any CDN sees a request for a script. GitHub Pages gives a repository owner no access to those logs, and we add nothing of our own. If that is still more trust than you want to place, the file is self-contained — host your own copy and the `ykfrkw.github.io` row disappears.
+
+Two ways to narrow the exposure, both already supported:
+
+- **The [iframe route](#the-iframe-fallback) confines the requests to a separate document.** They still happen and the upstream APIs still see the visitor's IP — an iframe is not a privacy boundary against the hosts being called — but they are issued by the widget document rather than by your page, and no script of ours runs in your page's context. The only code of ours you paste alongside it is the optional inline resize listener, which does nothing but read a height number out of a `postMessage` from the frame.
+- **[Static HTML](#static-html--paste-once-no-javascript) makes no external requests at all.** No script, no frame, no image, no stylesheet — nothing in that markup causes the browser to contact anything when the page renders, including us. The DOI and PMID links inside the citations are ordinary links: they lead somewhere only when a visitor decides to click one. If your page must not talk to third parties, this is the route, and it is the reason the button exists.
+
 ---
 
 ## Limitations
@@ -349,6 +379,14 @@ npm run build    # dist/ — wizard, widget page, lists/, embed.js and v1/embed.
 ```
 
 `src/core/` is framework-free and shared by the React wizard and the embed bundle; nothing in it may import React or touch the DOM outside `parseConfigFromDataset`. `npm run build` runs two Vite builds: the app, then the embed bundle as a single self-contained IIFE with no hashed filenames. The app build also copies `lists/*.json` into `dist/lists/`, which is what makes `data-list` / `?list=` resolve on the deployed site; the dev server does not, so test a registry entry against `npm run preview`. CI fails the deploy if `dist/embed.js` exceeds 20 KB gzipped.
+
+## Deploying your own copy
+
+`.github/workflows/deploy.yml` builds and publishes on every push to `main`, but GitHub Pages has to be switched on once before that works: **Settings → Pages → Source: GitHub Actions**. Without it the workflow builds and then fails at the deploy step.
+
+The site lands at `https://ykfrkw.github.io/publication-list/` — on a fork, at `https://<your-user>.github.io/<your-repo>/`, which is also the origin your snippets' `embed.js` URL has to point at.
+
+The same workflow fails the build if `dist/embed.js` exceeds 20 KB gzipped. That gate is deliberate: the script goes into other people's pages, so its transfer size is a promise rather than an implementation detail.
 
 ## Citing
 

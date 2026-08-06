@@ -51,6 +51,58 @@ describe('escapeUrl', () => {
     expect(out).not.toContain('"')
     expect(out).toContain('%22')
   })
+
+  // The scheme allowlist is defense in depth: no current call site can reach
+  // it with an attacker-controlled scheme (both prepend a hardcoded
+  // `https://`). These pin the guard so a future one cannot.
+  it('passes http and https through', () => {
+    expect(escapeUrl('https://doi.org/10.1136/bmj.n71')).toBe(
+      'https://doi.org/10.1136/bmj.n71',
+    )
+    expect(escapeUrl('http://example.ac.uk/pubs')).toBe(
+      'http://example.ac.uk/pubs',
+    )
+  })
+
+  it('passes scheme-relative and relative URLs through', () => {
+    expect(escapeUrl('//example.ac.uk/pubs')).toBe('//example.ac.uk/pubs')
+    expect(escapeUrl('/publications')).toBe('/publications')
+    expect(escapeUrl('10.1136/bmj.n71')).toBe('10.1136/bmj.n71')
+    expect(escapeUrl('')).toBe('')
+  })
+
+  it('refuses javascript:, data: and vbscript:', () => {
+    expect(escapeUrl('javascript:alert(1)')).toBe('')
+    expect(escapeUrl('data:text/html,<script>alert(1)</script>')).toBe('')
+    expect(escapeUrl('vbscript:msgbox(1)')).toBe('')
+  })
+
+  it('refuses a mixed-case scheme', () => {
+    expect(escapeUrl('JaVaScRiPt:alert(1)')).toBe('')
+    expect(escapeUrl('DATA:text/html,x')).toBe('')
+  })
+
+  it('refuses leading whitespace and control-character evasion', () => {
+    expect(escapeUrl('  javascript:alert(1)')).toBe('')
+    expect(escapeUrl('\u0001javascript:alert(1)')).toBe('')
+    expect(escapeUrl('\njavascript:alert(1)')).toBe('')
+    expect(escapeUrl('\u0000javascript:alert(1)')).toBe('')
+  })
+
+  it('refuses a scheme split by an embedded tab or newline', () => {
+    expect(escapeUrl('java\tscript:alert(1)')).toBe('')
+    expect(escapeUrl('java\nscript:alert(1)')).toBe('')
+    expect(escapeUrl('java\r\nscript:alert(1)')).toBe('')
+    expect(escapeUrl('jav\u0009ascript:alert(1)')).toBe('')
+  })
+
+  it('leaves the two current call sites untouched', () => {
+    // Whatever a malicious DOI contains, the hardcoded prefix makes the
+    // result an ordinary https URL — allowed, and inert.
+    expect(escapeUrl('https://doi.org/' + 'javascript:alert(1)')).toBe(
+      'https://doi.org/javascript:alert(1)',
+    )
+  })
 })
 
 // ─────────────────────────────────────────────── golden strings per style ──

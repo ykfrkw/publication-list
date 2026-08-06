@@ -15,11 +15,13 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_GROUP_BY,
   DEFAULT_JAPANESE,
+  DEFAULT_PREPRINTS,
   DEFAULT_REVIEW_POLICY,
   DEFAULT_STYLE,
   normalizeConfig,
   parseConfigFromDataset,
   parseConfigFromSearchParams,
+  serializeConfig,
   type DatasetConfig,
 } from '../config'
 
@@ -79,6 +81,11 @@ describe('parseConfigFromSearchParams — every parameter', () => {
     expect(config.groupBy).toBe('year')
     expect(config.japanese).toBe('merge')
     expect(config.reviewPolicy).toBe('auto')
+  })
+
+  it('reads preprints', () => {
+    expect(fromQuery('preprints=include').config.preprints).toBe('include')
+    expect(fromQuery('preprints=exclude').config.preprints).toBe('exclude')
   })
 
   it('accepts the camelCase spellings of the hyphenated names', () => {
@@ -155,6 +162,12 @@ describe('parseConfigFromSearchParams — unusable values', () => {
     expect(normalizeConfig(config).reviewPolicy).toBe(DEFAULT_REVIEW_POLICY)
   })
 
+  it('ignores an unrecognized preprints value so the exclude default survives', () => {
+    const { config } = fromQuery('preprints=maybe')
+    expect(config.preprints).toBeUndefined()
+    expect(normalizeConfig(config).preprints).toBe(DEFAULT_PREPRINTS)
+  })
+
   it('ignores a malformed date and a non-positive limit', () => {
     const { config } = fromQuery('from=January%202020&to=2020-1&limit=0')
     expect(config.from).toBeUndefined()
@@ -168,6 +181,8 @@ describe('parseConfigFromSearchParams — unusable values', () => {
     expect(config.groupBy).toBe(DEFAULT_GROUP_BY)
     expect(config.japanese).toBe(DEFAULT_JAPANESE)
     expect(config.reviewPolicy).toBe(DEFAULT_REVIEW_POLICY)
+    // Preprints are opt-in: absent means excluded, on every transport.
+    expect(config.preprints).toBe('exclude')
     expect(config.seeds).toEqual({})
   })
 })
@@ -186,6 +201,7 @@ describe('parseConfigFromSearchParams agrees with parseConfigFromDataset', () =>
         'data-bold-names': 'Furukawa Y,Furukawa TA',
         'data-style': 'apa',
         'data-group-by': 'year',
+        'data-preprints': 'include',
         'data-japanese': 'merge',
         'data-review-policy': 'auto',
         'data-from': '2015-04',
@@ -203,6 +219,7 @@ describe('parseConfigFromSearchParams agrees with parseConfigFromDataset', () =>
         'bold-names=Furukawa Y,Furukawa TA',
         'style=apa',
         'group-by=year',
+        'preprints=include',
         'japanese=merge',
         'review-policy=auto',
         'from=2015-04',
@@ -254,4 +271,27 @@ describe('parseConfigFromSearchParams agrees with parseConfigFromDataset', () =>
       )
     })
   }
+})
+
+/**
+ * The third transport: a hosted `pubs.json`, which reaches `normalizeConfig`
+ * as a plain object rather than through either string parser.
+ */
+describe('normalizeConfig — preprints', () => {
+  it('excludes preprints when a pubs.json says nothing about them', () => {
+    const config = normalizeConfig({
+      v: 1,
+      seeds: { orcid: ['0000-0003-1317-0220'] },
+    })
+    expect(config.preprints).toBe('exclude')
+    expect(DEFAULT_PREPRINTS).toBe('exclude')
+  })
+
+  it('keeps an explicit include', () => {
+    expect(normalizeConfig({ preprints: 'include' }).preprints).toBe('include')
+  })
+
+  it('serializes the setting, so a downloaded pubs.json is explicit about it', () => {
+    expect(serializeConfig(normalizeConfig({}))).toContain('"preprints": "exclude"')
+  })
 })

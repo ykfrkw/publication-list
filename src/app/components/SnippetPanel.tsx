@@ -35,6 +35,58 @@ import {
   inlineAttributeLength,
 } from '../lib/snippet'
 
+/**
+ * The hosted-`pubs.json` route, explained where it is used.
+ *
+ * Two sentences, because the concept is not guessable from a URL field: what
+ * the file is, where it can live, and the thing that makes it worth the
+ * trouble — one file to edit instead of one snippet to re-paste per page.
+ */
+function HostedConfig({
+  configUrl,
+  configJson,
+  onConfigUrlChange,
+}: {
+  configUrl: string
+  configJson: string
+  onConfigUrlChange: (url: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        <code>{CONFIG_FILENAME}</code> is this list’s settings as a file. Put it
+        anywhere that serves a URL — your own web server, or a GitHub Gist raw
+        URL, which needs no setup — and paste that URL below: the snippet
+        shrinks to a single <code>data-config</code> attribute that reads the
+        file. After that, editing the one file changes the list on every page it
+        is embedded in, with nothing to re-paste.
+      </p>
+      <Field
+        label="Hosted pubs.json URL"
+        hint="Leave this blank to keep the settings inline in the snippet."
+      >
+        {(id) => (
+          <Input
+            id={id}
+            value={configUrl}
+            spellCheck={false}
+            placeholder="https://gist.githubusercontent.com/…/pubs.json"
+            onChange={(e) => onConfigUrlChange(e.currentTarget.value)}
+          />
+        )}
+      </Field>
+      <div>
+        <DownloadButton
+          filename={CONFIG_FILENAME}
+          value={configJson}
+          label={`Download ${CONFIG_FILENAME}`}
+          mime="application/json;charset=utf-8"
+        />
+      </div>
+    </div>
+  )
+}
+
 function SnippetBlock({ value }: { value: string }) {
   return (
     <pre className="max-h-72 overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-xs leading-relaxed whitespace-pre-wrap break-all">
@@ -75,6 +127,17 @@ export function SnippetPanel({
   const attrLength = inlineAttributeLength(model.config)
   const bulky = attrLength > INLINE_ATTR_BUDGET
   const commaHostile = hasCommaHostileValues(model.config)
+  /**
+   * Show the hosted-config route up front only when the inline attributes
+   * genuinely cannot carry the configuration: too long to paste and read back
+   * (`INLINE_ATTR_BUDGET`), or containing a comma, which a comma-joined
+   * attribute would split. A URL the user has already pasted counts too —
+   * hiding the field that produced the snippet on screen would be baffling.
+   *
+   * For the common case, one ORCID iD and a style, none of that applies and
+   * the route is noise.
+   */
+  const needsHosted = bulky || commaHostile || hosted
 
   return (
     <Card>
@@ -95,66 +158,86 @@ export function SnippetPanel({
           hint="Adds one line under the list: “Auto-updated with Publication List Generator”. It becomes part of your own HTML, so you can edit or delete it at any time. Everything works exactly the same with this turned off."
         />
 
-        {bulky || commaHostile ? (
-          <Alert>
-            <InfoIcon />
-            <AlertTitle>This configuration is large for inline attributes</AlertTitle>
-            <AlertDescription>
-              <p>
-                {commaHostile
-                  ? 'One of your values contains a comma, which the comma-separated data attributes cannot carry.'
-                  : `The inline attributes come to about ${attrLength} characters.`}{' '}
-                Download <code>{CONFIG_FILENAME}</code> below, host it anywhere
-                that serves it publicly — a GitHub Gist raw URL works — and paste
-                the URL here to get a one-attribute snippet instead.
-              </p>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        <Field
-          label="Hosted pubs.json URL (optional)"
-          hint="With a URL here the snippet carries a single data-config attribute and reads everything else from that file, so you can change the list later without touching the page."
-        >
-          {(id) => (
-            <Input
-              id={id}
-              value={configUrl}
-              spellCheck={false}
-              placeholder="https://gist.githubusercontent.com/…/pubs.json"
-              onChange={(e) => onConfigUrlChange(e.currentTarget.value)}
-            />
-          )}
-        </Field>
-
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-medium">Script snippet</h3>
-            <div className="flex flex-wrap gap-2">
-              <CopyButton value={snippet} label="Copy snippet" />
-              <DownloadButton
-                filename={CONFIG_FILENAME}
-                value={configJson}
-                label="pubs.json"
-                mime="application/json;charset=utf-8"
-              />
-            </div>
+            <CopyButton value={snippet} label="Copy snippet" />
           </div>
           <SnippetBlock value={snippet} />
         </div>
 
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-medium">
-              iframe snippet{' '}
-              <span className="font-normal text-muted-foreground">
-                — for a CMS that strips scripts
-              </span>
-            </h3>
-            <CopyButton value={iframeSnippet} label="Copy iframe" />
+        {/*
+          The hosted-config route earns its place only when the inline
+          attributes cannot do the job — see `needsHosted`. Otherwise it sits
+          behind a disclosure: still one click away, not competing with the
+          snippet the visitor actually came for.
+        */}
+        {needsHosted ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+            {bulky || commaHostile ? (
+              <Alert>
+                <InfoIcon />
+                <AlertTitle>
+                  {commaHostile
+                    ? 'One of your values cannot travel in an inline attribute'
+                    : 'This configuration is large for inline attributes'}
+                </AlertTitle>
+                <AlertDescription>
+                  <p>
+                    {commaHostile
+                      ? 'A value here contains a comma, and the data attributes are comma-separated, so the snippet above would split it in two.'
+                      : `The inline attributes come to about ${attrLength} characters, which is more than anyone can read back in a CMS field.`}{' '}
+                    Use the hosted file below instead.
+                  </p>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <HostedConfig
+              configUrl={configUrl}
+              configJson={configJson}
+              onConfigUrlChange={onConfigUrlChange}
+            />
           </div>
-          <SnippetBlock value={iframeSnippet} />
-        </div>
+        ) : (
+          <details className="rounded-lg border border-border p-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              Keep the settings in a file instead of in the snippet
+            </summary>
+            <div className="pt-4">
+              <HostedConfig
+                configUrl={configUrl}
+                configJson={configJson}
+                onConfigUrlChange={onConfigUrlChange}
+              />
+            </div>
+          </details>
+        )}
+
+        {/*
+          Collapsed by default: the iframe is the fallback for a CMS that
+          strips scripts, not the route to recommend. Same disclosure pattern
+          as "Formatting and filters" in App.tsx.
+        */}
+        <details className="rounded-lg border border-border p-3">
+          <summary className="cursor-pointer text-sm font-medium">
+            iframe snippet{' '}
+            <span className="font-normal text-muted-foreground">
+              — if your CMS strips <code>&lt;script&gt;</code> tags
+            </span>
+          </summary>
+          <div className="flex flex-col gap-2 pt-4">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Same list, built the same way, in a frame served from this site.
+              The trade is that the list is not in your page’s HTML, so search
+              engines do not index it as part of your page. Use the script
+              snippet above unless it does not survive your CMS.
+            </p>
+            <div className="flex justify-end">
+              <CopyButton value={iframeSnippet} label="Copy iframe" />
+            </div>
+            <SnippetBlock value={iframeSnippet} />
+          </div>
+        </details>
       </CardContent>
     </Card>
   )

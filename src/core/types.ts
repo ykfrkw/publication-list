@@ -118,6 +118,21 @@ export interface ListConfig {
   /** "YYYY-MM" */
   to?: string
   groupBy?: 'category' | 'year' | 'none'
+  /**
+   * Whether records categorized `preprint` reach the list. Defaults to
+   * `'exclude'`: a publication list is normally a list of published work, and a
+   * not-yet-peer-reviewed manuscript sitting unlabelled among journal articles
+   * misrepresents it.
+   *
+   * The exclusion is applied in `pipeline.ts`, not in the renderer, so
+   * `ListModel.publications` is exactly what gets displayed, and it is always
+   * reported in `ListModel.warnings` — a preprint that vanished without a word
+   * from its own author's page would be a bug they could not see.
+   *
+   * Note this also hides an F1000-family article whose referees have not
+   * approved it yet: `categorize.ts` files those as `preprint`.
+   */
+  preprints?: 'include' | 'exclude'
   /** how to treat Japanese-language journals coming from researchmap */
   japanese?: 'separate' | 'merge' | 'hide'
   reviewPolicy?: 'strict' | 'auto'

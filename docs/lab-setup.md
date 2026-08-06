@@ -36,11 +36,11 @@ Open the wizard: <https://ykfrkw.github.io/publication-list/>
 2. Paste your member list into the members box. One member per line. It accepts a bare ORCID iD, an `https://orcid.org/…` URL, a researchmap permalink, or a row copied out of Excel in either column order — identifiers are found by shape, so `Name<TAB>ORCID` and `ORCID<TAB>Name` both work. Lines starting with `#` are ignored, and a header row is discarded.
 3. Optionally add **pinned papers**: PMIDs and DOIs, pasted in any mixture of lines, commas and spaces. Use this for anything that predates a member's ORCID record, or for a paper credited to the group rather than to an individual.
 4. Optionally add a **PubMed query** for a member who has no ORCID iD. See [that troubleshooting entry](#a-member-has-no-orcid-id) for how to write one that does not drown you in strangers.
-5. Set the options you care about: citation style, grouping (by category or by year), a `from` year if you only want recent work, whether Japanese-language records get their own section.
+5. Set the options you care about: citation style, grouping (by category or by year), a `from` year if you only want recent work, whether Japanese-language records get their own section, and whether to **include preprints** — that box is unticked, so preprints stay off the page unless you ask for them.
 6. Put the members' names in **bold names** so their own names are bolded in each citation. Spell them out in full — `Yuki Furukawa`, not `Furukawa Y`. Short forms cannot distinguish Yuki from Yuri, and the tool will warn you when a bold name lands on two different people.
 7. Press **Generate**.
 
-Read the warnings panel. It tells you which sources failed, which pinned identifiers could not be retrieved, and which records were dropped as errata.
+Read the warnings panel. It tells you which sources failed, which pinned identifiers could not be retrieved, which records were dropped as errata, and which preprints were held back — named, so you can see at a glance whether anything you expected to publish is on that list rather than on the page.
 
 ## Step 3 — Review the candidates
 
@@ -64,7 +64,7 @@ A few things worth knowing about what you just pasted:
 - **It fails safe.** If the script cannot load, or an upstream API is down, the snapshot stays on the page. Your publication list never goes blank.
 - **The credit link is one line and it is optional.** Untick "Include a credit link" before copying, or delete the `<p class="publist-credit">…</p>` line afterwards. Nothing else changes either way, and the checkbox applies to the iframe snippet too — see [that section](#my-cms-strips-script-tags).
 - **If the page cannot run JavaScript at all** — or your CMS eats the `<script>` tag — copy **Static HTML (no auto-update)** from the results panel instead and paste that. You lose the automatic updating; see [that section](#my-cms-strips-script-tags).
-- **If the snippet is unwieldy**, use the hosted-configuration route instead: press **Download `pubs.json`**, put that file anywhere that serves it publicly (your own server, or a GitHub Gist raw URL), and paste the URL into the "Hosted pubs.json URL" field. The snippet collapses to a single `data-config` attribute, and you can change the list later by editing that one file — without touching the website again. This is the right choice for a lab that will keep adjusting the list.
+- **If the snippet is unwieldy**, use the hosted-configuration route instead. Open **Keep the settings in a file instead of in the snippet** (the wizard opens it for you when the attributes get too long for a CMS field, or when a PubMed query contains a comma), press **Download `pubs.json`**, put that file anywhere that serves it publicly — your own server, or a GitHub Gist raw URL, which needs no setup — and paste the URL into the field. The snippet collapses to a single `data-config` attribute, and editing that one file then changes the list on every page it is embedded in, with nothing to re-paste. This is the right choice for a lab that will keep adjusting the list.
 
 Style it from your own stylesheet. The markup is unstyled and every class is namespaced `publist-`:
 
@@ -116,7 +116,7 @@ Check first — it may be working. View the page source and search for `embed.js
 
 If it was stripped, you have three options.
 
-**Use the iframe snippet.** The wizard emits one for exactly this case, below the script snippet:
+**Use the iframe snippet.** The wizard emits one for exactly this case, under the collapsed **iframe snippet** heading below the script snippet:
 
 ```html
 <iframe class="publist-frame" title="Publication list" loading="lazy"
@@ -157,8 +157,9 @@ Almost always this is a gap in the source, not in the tool. In order of likeliho
 2. **You set a date filter.** Check the `from` / `to` fields, and the `limit`.
 3. **It was found only by a name search and is sitting unreviewed in the queue.** Under the default policy it is deliberately not on the page. Approve it.
 4. **It was categorised as an erratum or as paratext and dropped.** The warnings panel names every record dropped this way.
-5. **It is a Japanese-language paper and you set `japanese: hide`.** Or it is in the trailing "Japanese-language publications" section and you scrolled past it.
-6. **It is genuinely in none of ORCID, researchmap or PubMed.** Pin it by DOI.
+5. **It is a preprint, and preprints are off by default.** The warnings panel names every one that was held back. Tick **Include preprints** if you want them on the page. Note that this also covers an F1000-family article whose referees have not approved it yet — see [that entry below](#an-f1000research-paper-shows-as-a-preprint).
+6. **It is a Japanese-language paper and you set `japanese: hide`.** Or it is in the trailing "Japanese-language publications" section and you scrolled past it.
+7. **It is genuinely in none of ORCID, researchmap or PubMed.** Pin it by DOI.
 
 If a paper is in ORCID but still missing, check the warnings panel — an upstream failure is reported there rather than being swallowed, and a source that returned an error produces a shorter list, not a broken page.
 
@@ -169,9 +170,11 @@ A paper filed under "Other Publication Types" or an article shown as a letter us
 - Set `groupBy` to `year` or `none`, which sidesteps categorisation entirely. For many lab pages a reverse-chronological list is what you wanted anyway.
 - Report the metadata error to OpenAlex. It benefits everyone downstream, not just this page.
 
-### An F1000Research paper shows as a preprint
+### An F1000Research paper is missing, or shows as a preprint
 
 F1000-family journals publish before peer review, so a given article may genuinely not be approved yet. The tool asks Crossref whether referees have approved it: approved articles are filed as original articles, not-yet-approved ones as preprints. If Crossref has not been updated, the article is filed conservatively as a preprint.
+
+Because preprints are off by default, that article is then **not on the page at all**. The warnings panel says so by name, and says how many. Two ways forward: tick **Include preprints**, which brings back every preprint including this one; or leave it, and the article moves into the list by itself once Crossref reports the referee approval — no edit needed at your end, because the list is rebuilt on every page load.
 
 ### The list shows an old version
 

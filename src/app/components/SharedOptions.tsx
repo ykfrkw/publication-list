@@ -1,15 +1,17 @@
 /**
  * Controls shared by all three modes: citation style, date range, grouping,
- * Japanese-language handling, bold names, review policy and the limit.
+ * preprint inclusion, Japanese-language handling, bold names, review policy and
+ * the limit.
  *
  * Every one of these maps to a single `ListConfig` field of the same name; see
- * `draftToConfig`.
+ * `draftToConfig`. The one that is not a straight copy is the preprint
+ * checkbox: a boolean here, `'include'` / `'exclude'` in the config.
  */
 
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { CITATION_STYLES } from '@/core/types'
-import { Field, SelectField } from './Field'
+import { CheckboxField, Field, SelectField } from './Field'
 import type { WizardDraft } from '../lib/wizard'
 
 const GROUP_BY = [
@@ -94,6 +96,19 @@ export function SharedOptions({
       </Field>
 
       <Separator />
+
+      {/*
+        Unchecked is the default, and the label says so by being an opt-in:
+        "Include preprints" reads as "they are not included right now". The
+        pipeline reports every preprint it holds back in the warnings panel,
+        so an unticked box is never a silent omission.
+      */}
+      <CheckboxField
+        checked={draft.preprints}
+        onChange={(preprints) => update({ preprints })}
+        label="Include preprints"
+        hint="Off by default, so the list is published work. Turning it on adds a Preprints section for medRxiv, bioRxiv, arXiv and the like — and for an F1000-family article whose referees have not approved it yet."
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <SelectField

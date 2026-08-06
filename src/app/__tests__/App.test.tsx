@@ -89,9 +89,24 @@ function click(el: Element) {
   })
 }
 
+/**
+ * The *most specific* element matching `selector` whose text contains `text`.
+ *
+ * Deliberately not the first in document order: every ancestor of a match also
+ * "contains" the text, so `div` + a label would otherwise resolve to the page
+ * wrapper and any `querySelector` from there would find the wrong control.
+ * Shortest text wins, which is the innermost match.
+ */
 function byText(selector: string, text: string): HTMLElement {
-  const match = Array.from(container.querySelectorAll<HTMLElement>(selector)).find(
-    (el) => (el.textContent ?? '').includes(text),
+  const matches = Array.from(
+    container.querySelectorAll<HTMLElement>(selector),
+  ).filter((el) => (el.textContent ?? '').includes(text))
+  const match = matches.reduce<HTMLElement | undefined>(
+    (best, el) =>
+      best == null || (el.textContent ?? '').length < (best.textContent ?? '').length
+        ? el
+        : best,
+    undefined,
   )
   if (!match) throw new Error(`no ${selector} containing "${text}"`)
   return match

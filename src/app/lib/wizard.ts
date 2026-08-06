@@ -58,6 +58,8 @@ export interface WizardDraft {
   from: string
   to: string
   groupBy: NonNullable<ListConfig['groupBy']>
+  /** "Include preprints" — false projects onto `preprints: 'exclude'`. */
+  preprints: boolean
   japanese: NonNullable<ListConfig['japanese']>
   reviewPolicy: NonNullable<ListConfig['reviewPolicy']>
   boldNames: string
@@ -95,6 +97,7 @@ export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
     from: '',
     to: '',
     groupBy: GROUP_BY_DEFAULT[mode],
+    preprints: false,
     japanese: 'separate',
     reviewPolicy: 'strict',
     boldNames: '',
@@ -162,6 +165,7 @@ export function draftToConfig(draft: WizardDraft): ListConfig {
 
   partial.style = draft.style
   partial.groupBy = draft.groupBy
+  partial.preprints = draft.preprints ? 'include' : 'exclude'
   partial.japanese = draft.japanese
   partial.reviewPolicy = draft.reviewPolicy
 

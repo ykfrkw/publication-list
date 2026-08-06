@@ -171,6 +171,18 @@ describe('configToDataAttributes', () => {
     })
   })
 
+  it('writes data-preprints only when preprints are opted in', () => {
+    const attrs = (preprints: 'include' | 'exclude') =>
+      Object.fromEntries(
+        configToDataAttributes(
+          normalizeConfig({ seeds: { orcid: ['0000-0003-1317-0220'] }, preprints }),
+        ),
+      )
+    // Excluded is the default, so the attribute would say nothing.
+    expect(attrs('exclude')['data-preprints']).toBeUndefined()
+    expect(attrs('include')['data-preprints']).toBe('include')
+  })
+
   it('escapes quotes and angle brackets so a value cannot break out', () => {
     const config = normalizeConfig({
       seeds: { pubmed: [{ query: 'x" onload="alert(1)' }] },

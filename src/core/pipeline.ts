@@ -17,6 +17,7 @@
  *   4. dedupe              one record per work
  *   5. enrich              OpenAlex (doi → pmid → title), then Crossref
  *   6. categorize          erratum/paratext split out and *reported*
+ *  6b. preprints          held back unless `preprints: 'include'`, *reported*
  *   7. filter              date range, then limit
  *   8. sort                year desc, month desc, first author asc
  *   9. split               confirmed → publications, candidate → candidates
@@ -26,7 +27,7 @@ import type { ListConfig, ListModel, Member, Publication, Trust } from './types'
 import type { IdRef } from './ids'
 import { normalizeDoi, parseIdRef, pubKey, stripDoiVersion } from './ids'
 import { dedupePublications } from './dedupe'
-import { categorizeAll } from './categorize'
+import { categorizeAll, isOpenReviewJournal } from './categorize'
 import { matchesBoldName } from './format'
 import { fetchOrcidPerson, fetchOrcidWorksWithWarnings } from './sources/orcid'
 import {
@@ -740,6 +741,34 @@ export async function buildList(
           .map((p) => p.title || p.doi || p.pmid || p.key)
           .join('; ')}`,
     )
+  }
+
+  // ── 6b. preprints ─────────────────────────────────────────────────────
+  // Here rather than in `render.ts` so that `ListModel.publications` is the
+  // list that is actually displayed — a count in the wizard that disagreed
+  // with the page would be worse than either number on its own.
+  //
+  // Always reported, like the erratum drop above. A researcher whose medRxiv
+  // preprints disappeared from their own page with no explanation has no way
+  // to tell a setting from a bug.
+  if ((config.preprints ?? 'exclude') === 'exclude') {
+    const held = pubs.filter((p) => p.category === 'preprint')
+    if (held.length > 0) {
+      pubs = pubs.filter((p) => p.category !== 'preprint')
+      // Only mention the open-review rule when it actually applies, so nobody
+      // reads it as "one of your journal articles was dropped".
+      const openReview = held.filter((p) => isOpenReviewJournal(p.journal))
+      warnings.push(
+        `Held back ${held.length} preprint(s), which are not shown by default: ` +
+          `${held.map((p) => p.title || p.doi || p.pmid || p.key).join('; ')}. ` +
+          `Set preprints: 'include' (data-preprints="include") to show them.` +
+          (openReview.length > 0
+            ? ` ${openReview.length} of them ${openReview.length === 1 ? 'is an article' : 'are articles'} ` +
+              `in an open-review journal that Crossref does not yet report as approved by referees; ` +
+              `once the referees approve, it is filed as an original article instead.`
+            : ''),
+      )
+    }
   }
 
   // ── 7. filter ─────────────────────────────────────────────────────────

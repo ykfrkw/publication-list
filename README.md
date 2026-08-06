@@ -90,6 +90,7 @@ Read off `src/core/config.ts`. Values are trimmed; an empty attribute is treated
 | `data-bold-names` | `boldNames` | Comma-separated author names to bold. Spell them out in full (`Yuki Furukawa`, not `Furukawa Y`). | every seeded member's own name |
 | `data-style` | `style` | `vancouver`, `apa`, `harvard`, `chicago`, `nature` | `vancouver` |
 | `data-group-by` | `groupBy` | `category`, `year`, `none` | `category` |
+| `data-preprints` | `preprints` | `include`, `exclude` | `exclude` — preprints are left off unless you ask for them |
 | `data-japanese` | `japanese` | `separate`, `merge`, `hide` | `separate` |
 | `data-review-policy` | `reviewPolicy` | `strict`, `auto` | `strict` |
 | `data-from` | `from` | `YYYY` or `YYYY-MM`. A bare year means January of that year. | no lower bound |
@@ -101,7 +102,8 @@ Read off `src/core/config.ts`. Values are trimmed; an empty attribute is treated
 What the values mean:
 
 - **`style`** — the citation format. All five are ported from the R original; `vancouver` is the default.
-- **`groupBy`** — `category` splits the list into Original Articles & Reviews / Preprints / Letters / Editorials / Other Publication Types. `year` gives one heading per year, newest first, with an `Undated` bucket last. `none` gives one flat numbered list (what you want for an article's reference list).
+- **`groupBy`** — `category` splits the list into Original Articles & Reviews / Letters / Editorials / Other Publication Types, plus a Preprints section if `preprints` is `include`. `year` gives one heading per year, newest first, with an `Undated` bucket last. `none` gives one flat numbered list (what you want for an article's reference list).
+- **`preprints`** — whether preprints appear at all. **The default is `exclude`**: a publication list normally means published work, and an unlabelled manuscript sitting among journal articles overstates it. Nothing disappears quietly — every excluded preprint is named in the model's warnings, with the count and how to turn them on. `include` puts them back, in their own "Preprints" section under `groupBy: category`. Note what counts as a preprint: anything on a preprint server (medRxiv, bioRxiv, arXiv and the rest of the list in [Limitations](#limitations)), anything the source typed as a preprint, **and an F1000-family article that Crossref does not yet report as approved by referees** — see [Limitations](#limitations).
 - **`japanese`** — what to do with Japanese-language records, which in practice come from researchmap. `separate` puts them in a trailing "Japanese-language publications" section. `merge` interleaves them with everything else. `hide` drops them (before `limit` is applied, so a limit of 10 still yields 10 visible entries).
 - **`reviewPolicy`** — `strict` publishes only records the tool is confident about; anything a PubMed *name* search turned up stays off the page until you confirm it. `auto` publishes name-search hits immediately. Read [Limitations](#limitations) before choosing `auto`.
 
@@ -116,7 +118,7 @@ Best for anything larger: a lab with many members, a long exclude list, or a Pub
 
 The file must be served with permissive CORS. Anything that works in a browser `fetch()` from your page works here — your own web server, GitHub Pages, or a GitHub Gist raw URL (`raw.githubusercontent.com` sends `Access-Control-Allow-Origin: *`).
 
-The wizard has a **Download `pubs.json`** button that writes exactly this file.
+The wizard has a **Download `pubs.json`** button that writes exactly this file: in the results panel always, and in the embed panel next to the field you paste the hosted URL into. That field is offered up front only when the inline attributes cannot do the job — too long to paste and read back, or containing a comma — and otherwise sits under "Keep the settings in a file instead of in the snippet".
 
 **Precedence:** inline `data-*` attributes win over the hosted file. The two are merged shallowly, and `seeds` is merged one key at a time — so `data-orcid` on the container replaces the `seeds.orcid` array from the file, but leaves `seeds.researchmap` from the file alone. If both `data-config` and `data-list` are present, `data-config` is used and `data-list` is ignored.
 
@@ -133,7 +135,7 @@ The id is resolved against the script's own URL (`…/publication-list/lists/<id
 
 ## The iframe fallback
 
-Some CMSes strip `<script src>` out of page content. For those, the wizard emits an `<iframe>` snippet pointing at a hosted widget page:
+Some CMSes strip `<script src>` out of page content. For those, the wizard emits an `<iframe>` snippet — collapsed under "iframe snippet", because it is the fallback rather than the recommended route — pointing at a hosted widget page:
 
 ```html
 <iframe class="publist-frame" title="Publication list" loading="lazy"
@@ -205,6 +207,7 @@ The `pubs.json` schema, defined in `src/core/types.ts`. Every field except `v` a
   from?: string                         // "YYYY" | "YYYY-MM"
   to?: string                           // "YYYY" | "YYYY-MM"
   groupBy?: 'category' | 'year' | 'none'
+  preprints?: 'include' | 'exclude'      // default 'exclude'
   japanese?: 'separate' | 'merge' | 'hide'
   reviewPolicy?: 'strict' | 'auto'
   limit?: number                        // positive integer
@@ -214,6 +217,7 @@ The `pubs.json` schema, defined in `src/core/types.ts`. Every field except `v` a
 Notes that are easy to get wrong:
 
 - **`seeds.pubmed[].query` is a raw PubMed query string.** A query ending in `[auid]` is an ORCID identifier search and its hits are trusted outright. Any other query — including `Furukawa Y[au]` — is a name search, and its hits become *candidates*: they do not appear on the page under the default `strict` policy until you confirm them in the wizard's review queue. `label` is cosmetic; it is what the record's provenance is attributed to.
+- **`preprints` defaults to `'exclude'`, and omitting the field means excluded.** A `pubs.json` written before this field existed therefore loses its preprints on the next page load. The wizard's downloaded file always writes the value out explicitly, so what you host says what you meant.
 - **`include` is not just "extra papers".** It also force-confirms a record another seed already found. That is the mechanism the review queue uses: a confirmed candidate goes into `include`, a rejected one into `exclude`, and neither is ever asked about again.
 - **A pinned base DOI also matches the versioned records of the same work.** `doi:10.12688/f1000research.12345` catches `.1` through `.4`.
 - **Unrecognized `include` / `exclude` strings are reported, not silently dropped** — they land in the model's warnings.
@@ -252,6 +256,7 @@ A three-person lab. Two members have ORCID iDs, the third does not and is covere
   "style": "vancouver",
   "groupBy": "category",
   "japanese": "separate",
+  "preprints": "exclude",
   "reviewPolicy": "strict",
   "from": "2015"
 }
@@ -314,7 +319,9 @@ This is a research tool. Here is what it does not do well.
 
 A query that returns PubMed's 200-result cap is flagged as probably too broad; narrow it with an affiliation (`[ad]`) or a date range (`[dp]`).
 
-**Publication type classification is imperfect.** Categories (original article, preprint, letter, editorial, other) come mostly from OpenAlex work types, falling back to the type ORCID or researchmap reported. OpenAlex gets this wrong sometimes, and there is no cross-source vote to catch it. Preprint servers are detected by journal-name matching against a fixed list (medRxiv, bioRxiv, arXiv, SSRN, ChemRxiv, PsyArXiv, preprints.org, Research Square, Authorea) — a server not on that list will be miscategorised. Records that OpenAlex types as `erratum` or `paratext` are dropped from the list entirely, and the drop is reported in the warnings rather than done silently. For F1000-family open-review journals, Crossref is consulted to decide whether an article has been approved by referees (original article) or not yet (preprint).
+**Publication type classification is imperfect.** Categories (original article, preprint, letter, editorial, other) come mostly from OpenAlex work types, falling back to the type ORCID or researchmap reported. OpenAlex gets this wrong sometimes, and there is no cross-source vote to catch it. Preprint servers are detected by journal-name matching against a fixed list (medRxiv, bioRxiv, arXiv, SSRN, ChemRxiv, PsyArXiv, preprints.org, Research Square, Authorea) — a server not on that list will be miscategorised. Records that OpenAlex types as `erratum` or `paratext` are dropped from the list entirely, and the drop is reported in the warnings rather than done silently.
+
+**Preprints are hidden by default, and an unapproved F1000 article counts as one.** `preprints` defaults to `exclude` (see [the attribute table](#full-attribute-reference)). For F1000-family open-review journals, Crossref is consulted to decide whether an article has been approved by referees (original article) or not yet (preprint) — so an F1000Research paper whose referee reports have not landed, or whose Crossref record has not caught up, is filed as a preprint and is therefore **also hidden by default**. That is the intended reading: it has been posted, not yet peer-reviewed. It is still a surprise if you were not expecting it, which is why every held-back record is named in the warnings with its count, and why turning them all back on is one setting: `preprints: 'include'`, or the wizard's "Include preprints" checkbox.
 
 **Speed.** Measured 2026-08-05 against ORCID `0000-0003-1317-0220` (34 publications):
 

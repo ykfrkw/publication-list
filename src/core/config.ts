@@ -18,11 +18,17 @@ const CITATION_STYLE_VALUES: readonly CitationStyle[] = [
 ]
 
 const GROUP_BY_VALUES = ['category', 'year', 'none'] as const
+const PREPRINTS_VALUES = ['include', 'exclude'] as const
 const JAPANESE_VALUES = ['separate', 'merge', 'hide'] as const
 const REVIEW_POLICY_VALUES = ['strict', 'auto'] as const
 
 export const DEFAULT_STYLE: CitationStyle = 'vancouver'
 export const DEFAULT_GROUP_BY: NonNullable<ListConfig['groupBy']> = 'category'
+/**
+ * Preprints are off unless asked for. Same reasoning as `strict` review
+ * policy: the default is the conservative reading of "my publication list".
+ */
+export const DEFAULT_PREPRINTS: NonNullable<ListConfig['preprints']> = 'exclude'
 export const DEFAULT_JAPANESE: NonNullable<ListConfig['japanese']> = 'separate'
 export const DEFAULT_REVIEW_POLICY: NonNullable<ListConfig['reviewPolicy']> =
   'strict'
@@ -95,6 +101,7 @@ export const CONFIG_PARAM_NAMES = [
   'bold-names',
   'style',
   'group-by',
+  'preprints',
   'japanese',
   'review-policy',
   'from',
@@ -150,6 +157,10 @@ function readConfig(read: ConfigReader): DatasetConfig {
   if (style) config.style = style
   const groupBy = oneOf(read('group-by', false), GROUP_BY_VALUES)
   if (groupBy) config.groupBy = groupBy
+  // Like `review-policy`, an unrecognized value falls back to the cautious
+  // default rather than publishing something the author did not ask for.
+  const preprints = oneOf(read('preprints', false), PREPRINTS_VALUES)
+  if (preprints) config.preprints = preprints
   const japanese = oneOf(read('japanese', false), JAPANESE_VALUES)
   if (japanese) config.japanese = japanese
   // An unrecognized value is ignored, so a typo falls back to the safe
@@ -176,9 +187,10 @@ function readConfig(read: ConfigReader): DatasetConfig {
  * Read a `ListConfig` out of an embed container's `data-*` attributes.
  *
  * Recognized: data-orcid, data-researchmap, data-pubmed, data-include,
- * data-exclude, data-style, data-from, data-to, data-group-by, data-japanese,
- * data-review-policy, data-limit, data-bold-names (comma-separated where
- * plural), plus the remote-config pointers data-config and data-list.
+ * data-exclude, data-style, data-from, data-to, data-group-by, data-preprints,
+ * data-japanese, data-review-policy, data-limit, data-bold-names
+ * (comma-separated where plural), plus the remote-config pointers data-config
+ * and data-list.
  */
 export function parseConfigFromDataset(el: HTMLElement): DatasetConfig {
   return readConfig((name) => attr(el, `data-${name}`))
@@ -260,6 +272,7 @@ export function normalizeConfig(partial: Partial<ListConfig>): ListConfig {
     },
     style: partial.style ?? DEFAULT_STYLE,
     groupBy: partial.groupBy ?? DEFAULT_GROUP_BY,
+    preprints: partial.preprints ?? DEFAULT_PREPRINTS,
     japanese: partial.japanese ?? DEFAULT_JAPANESE,
     reviewPolicy: partial.reviewPolicy ?? DEFAULT_REVIEW_POLICY,
   }

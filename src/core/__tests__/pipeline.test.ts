@@ -98,8 +98,11 @@ describe('buildList — trust assignment', () => {
     'treats every ORCID works record as confirmed',
     async () => {
       useRoutes()
+      // `preprints: 'include'` because this test is about *trust*, and two of
+      // the four fixture records are preprints that the default policy would
+      // hold back. Their exclusion has its own tests below.
       const model = await buildList(
-        normalizeConfig({ seeds: { orcid: [ORCID] } }),
+        normalizeConfig({ seeds: { orcid: [ORCID] }, preprints: 'include' }),
       )
 
       expect(model.publications.length).toBe(4)
@@ -375,6 +378,7 @@ describe('buildList — include / exclude', () => {
         normalizeConfig({
           seeds: { orcid: [ORCID] },
           exclude: [`doi:${excluded}`],
+          preprints: 'include',
         }),
       )
 
@@ -394,6 +398,7 @@ describe('buildList — review policy', () => {
       const model = await buildList(
         normalizeConfig({
           seeds: { orcid: [ORCID], pubmed: [{ query: 'Furukawa Y[au]' }] },
+          preprints: 'include',
         }),
       )
 
@@ -412,6 +417,7 @@ describe('buildList — review policy', () => {
         normalizeConfig({
           seeds: { orcid: [ORCID], pubmed: [{ query: 'Furukawa Y[au]' }] },
           reviewPolicy: 'auto',
+          preprints: 'include',
         }),
       )
 
@@ -421,6 +427,79 @@ describe('buildList — review policy', () => {
       for (const candidate of model.candidates) {
         expect(model.publications).toContain(candidate)
       }
+    },
+    TIMEOUT,
+  )
+})
+
+describe('buildList — preprints', () => {
+  it(
+    'holds preprints back by default and says how many, by name',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({ seeds: { orcid: [ORCID] } }),
+      )
+
+      // The ORCID fixture carries four works, two of which categorize as
+      // preprints: one typed `preprint`, and one F1000Research article that
+      // Crossref does not report as referee-approved.
+      expect(model.publications.length).toBe(2)
+      expect(model.publications.some((p) => p.category === 'preprint')).toBe(false)
+
+      const warning = model.warnings.find((w) => w.includes('preprint'))
+      expect(warning).toBeDefined()
+      expect(warning).toContain('Held back 2 preprint(s)')
+      expect(warning).toContain("preprints: 'include'")
+      // Named, not just counted: a vanished record the author cannot identify
+      // is indistinguishable from a bug.
+      expect(warning).toContain('Initial treatment choices for long term remission')
+      // The open-review clause only appears because one of the two held-back
+      // records really is an F1000-family article awaiting referees.
+      expect(warning).toContain('open-review journal')
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'says nothing about preprints when there are none to hold back',
+    async () => {
+      useRoutes({ esummary: singleSummary('41062142') })
+      const model = await buildList(
+        normalizeConfig({ seeds: {}, include: ['pmid:41062142'] }),
+      )
+
+      expect(model.publications.length).toBeGreaterThan(0)
+      expect(model.warnings.some((w) => w.includes('Held back'))).toBe(false)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    "restores them under preprints: 'include', in their own category",
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({ seeds: { orcid: [ORCID] }, preprints: 'include' }),
+      )
+
+      expect(model.publications.length).toBe(4)
+      expect(model.publications.filter((p) => p.category === 'preprint').length).toBe(2)
+      expect(model.warnings.some((w) => w.includes('Held back'))).toBe(false)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'excludes them before the limit is applied, so a limit still fills up',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({ seeds: { orcid: [ORCID] }, limit: 2 }),
+      )
+
+      expect(model.publications.length).toBe(2)
+      expect(model.publications.some((p) => p.category === 'preprint')).toBe(false)
     },
     TIMEOUT,
   )
@@ -436,6 +515,7 @@ describe('buildList — filtering', () => {
           seeds: { orcid: [ORCID] },
           from: '2025-01',
           to: '2025-12',
+          preprints: 'include',
         }),
       )
 
@@ -450,7 +530,11 @@ describe('buildList — filtering', () => {
     async () => {
       useRoutes()
       const model = await buildList(
-        normalizeConfig({ seeds: { orcid: [ORCID] }, limit: 2 }),
+        normalizeConfig({
+          seeds: { orcid: [ORCID] },
+          limit: 2,
+          preprints: 'include',
+        }),
       )
 
       expect(model.publications.length).toBe(2)

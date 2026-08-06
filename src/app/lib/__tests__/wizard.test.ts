@@ -63,6 +63,18 @@ describe('draftToConfig — mode 2, one person', () => {
   })
 })
 
+describe('draftToConfig — preprints', () => {
+  it('leaves preprints excluded while the checkbox is unticked', () => {
+    expect(emptyDraft('person').preprints).toBe(false)
+    expect(draftToConfig(emptyDraft('person')).preprints).toBe('exclude')
+  })
+
+  it('opts in once the checkbox is ticked', () => {
+    const config = draftToConfig({ ...emptyDraft('person'), preprints: true })
+    expect(config.preprints).toBe('include')
+  })
+})
+
 describe('draftToConfig — mode 3, lab', () => {
   it('fans the pasted member list out into the seed arrays', () => {
     const config = draftToConfig({

@@ -75,6 +75,9 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
   if (config.groupBy && config.groupBy !== 'category') {
     push('data-group-by', config.groupBy)
   }
+  if (config.preprints && config.preprints !== 'exclude') {
+    push('data-preprints', config.preprints)
+  }
   if (config.japanese && config.japanese !== 'separate') {
     push('data-japanese', config.japanese)
   }

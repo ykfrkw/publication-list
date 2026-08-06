@@ -16,6 +16,7 @@
  *   3. include / exclude   drop excluded, force-confirm and back-fill pinned
  *   4. dedupe              one record per work
  *   5. enrich              OpenAlex (doi → pmid → title), then Crossref
+ *  5c. seed windows        per-member tenure, applied per SEED, *reported*
  *   6. categorize          erratum/paratext split out and *reported*
  *  6b. preprints          held back unless `preprints: 'include'`, *reported*
  *   7. filter              date range, then limit
@@ -49,6 +50,13 @@ import {
   enrichAuthorNamesWithWarnings,
   enrichPeerReviewWithWarnings,
 } from './sources/crossref'
+import {
+  INCLUDE_SEED_ID,
+  applySeedWindows,
+  publicationYearMonth,
+  seedIdList,
+  yearMonthBound,
+} from './seeds'
 import { chunk, errorMessage, getJson } from './sources/http'
 import { formatAuthorShort } from './sources/names'
 import type { PersonNameAnchor } from './sources/names'
@@ -159,8 +167,11 @@ async function resolveSeeds(
   config: ListConfig,
   signal?: AbortSignal,
 ): Promise<SeedResolution> {
-  const orcids = config.seeds.orcid ?? []
-  const researchmaps = config.seeds.researchmap ?? []
+  // Ids only: a seed's time window is applied at stage 5c, over the built
+  // records, not here. Whether a seed is a bare string or a windowed object
+  // makes no difference to whose profile has to be fetched.
+  const orcids = seedIdList(config.seeds.orcid)
+  const researchmaps = seedIdList(config.seeds.researchmap)
   if (orcids.length === 0 && researchmaps.length === 0) {
     return { members: Promise.resolve([]), anchors: Promise.resolve([]) }
   }
@@ -370,7 +381,7 @@ async function fetchPinnedDois(
             typeof work.publication_year === 'number' ? work.publication_year : 0,
           doi,
           sources: ['manual'],
-          seedIds: ['include'],
+          seedIds: [INCLUDE_SEED_ID],
           trust: 'confirmed',
         }
         const version = stripDoiVersion(doi).version
@@ -408,23 +419,6 @@ function matchesRef(pub: Publication, ref: IdRef): boolean {
   if (normalized === ref.value) return true
   // A pinned base DOI must also catch the versioned records of the same work.
   return stripDoiVersion(normalized).doi === stripDoiVersion(ref.value).doi
-}
-
-/** `"YYYY-MM"` / `"YYYY"` → the `year*100+month` integer `app.R:236-243` uses. */
-function yearMonthBound(value: string, fallbackMonth: number): number | null {
-  const match = /^(\d{4})(?:-(\d{2}))?$/.exec(value.trim())
-  if (!match) return null
-  const year = Number.parseInt(match[1], 10)
-  const month = match[2] ? Number.parseInt(match[2], 10) : fallbackMonth
-  if (!Number.isFinite(year)) return null
-  return year * 100 + (month >= 1 && month <= 12 ? month : fallbackMonth)
-}
-
-/** Missing month counts as January, exactly as in `app.R:237`. */
-function publicationYearMonth(pub: Publication): number {
-  const year = typeof pub.year === 'number' && pub.year > 0 ? pub.year : 0
-  const month = pub.month != null && pub.month >= 1 && pub.month <= 12 ? pub.month : 1
-  return year * 100 + month
 }
 
 function comparePublications(a: Publication, b: Publication): number {
@@ -534,8 +528,8 @@ export async function buildList(
   report(10, 'Fetching publications')
   const fetched: Publication[] = []
 
-  const orcidSeeds = config.seeds.orcid ?? []
-  const researchmapSeeds = config.seeds.researchmap ?? []
+  const orcidSeeds = seedIdList(config.seeds.orcid)
+  const researchmapSeeds = seedIdList(config.seeds.researchmap)
 
   const [orcidResults, researchmapResults] = await Promise.all([
     Promise.all(orcidSeeds.map((id) => fetchOrcidWorksWithWarnings(id, signal))),
@@ -616,9 +610,11 @@ export async function buildList(
           ? {
               ...pub,
               trust: 'confirmed' as Trust,
-              seedIds: pub.seedIds.includes('include')
+              // This marker is what exempts the record from every seed time
+              // window later on: an explicit pin outranks any date rule.
+              seedIds: pub.seedIds.includes(INCLUDE_SEED_ID)
                 ? pub.seedIds
-                : [...pub.seedIds, 'include'],
+                : [...pub.seedIds, INCLUDE_SEED_ID],
             }
           : pub,
       )
@@ -631,7 +627,7 @@ export async function buildList(
   if (missingPmids.length > 0) {
     const pinned = await fetchPubmedSummariesWithWarnings(
       missingPmids,
-      { trust: 'confirmed', seedIds: ['include'] },
+      { trust: 'confirmed', seedIds: [INCLUDE_SEED_ID] },
       signal,
     )
     working = [...working, ...pinned.publications]
@@ -729,6 +725,19 @@ export async function buildList(
       )
     }
   }
+
+  // ── 5c. seed windows ──────────────────────────────────────────────────
+  // After enrichment, because OpenAlex is what supplies the publication month
+  // on an ORCID record, and a window decided on a wrong date would remove real
+  // work. Before categorization, so the erratum and preprint reports below
+  // only name records that are actually in scope for this group.
+  //
+  // The filtering is per SEED (see `seeds.ts`): a paper co-authored by a
+  // departed student and a current member survives on the current member's
+  // seed. Pinned records are exempt outright.
+  const windowed = applySeedWindows(pubs, config)
+  pubs = windowed.publications
+  warnings.push(...windowed.warnings)
 
   // ── 6. categorize ─────────────────────────────────────────────────────
   report(88, 'Categorizing')

@@ -86,9 +86,9 @@ Read off `src/core/config.ts`. Values are trimmed; an empty attribute is treated
 
 | Attribute | Maps to | Accepted values | Default if absent |
 | --- | --- | --- | --- |
-| `data-orcid` | `seeds.orcid` | Comma-separated ORCID iDs. A full `https://orcid.org/…` URL is accepted and the prefix stripped. | none |
-| `data-researchmap` | `seeds.researchmap` | Comma-separated researchmap permalinks. A `https://researchmap.jp/…` URL is accepted; only the first path segment is kept. | none |
-| `data-pubmed` | `seeds.pubmed[].query` | Comma-separated PubMed queries. **A query containing a comma cannot be carried this way** — use a hosted `pubs.json` instead. | none |
+| `data-orcid` | `seeds.orcid` | Comma-separated ORCID iDs. A full `https://orcid.org/…` URL is accepted and the prefix stripped. A member's time in the group may be appended as `iD@from:to:grace` — see [Seed time windows](#seed-time-windows). | none |
+| `data-researchmap` | `seeds.researchmap` | Comma-separated researchmap permalinks. A `https://researchmap.jp/…` URL is accepted; only the first path segment is kept. Takes the same `@from:to:grace` suffix. | none |
+| `data-pubmed` | `seeds.pubmed[].query` | Comma-separated PubMed queries. **A query containing a comma cannot be carried this way** — use a hosted `pubs.json` instead. The query only: a PubMed seed's `label`, `from`, `to` and `grace` need the JSON route. | none |
 | `data-include` | `include` | Comma-separated `pmid:12345678` / `doi:10.1136/bmj.n71`. Pinned records are always shown. | none |
 | `data-exclude` | `exclude` | Same format. Excluded records are dropped before anything else runs. | none |
 | `data-bold-names` | `boldNames` | Comma-separated author names to bold. Spell them out in full (`Yuki Furukawa`, not `Furukawa Y`). | every seeded member's own name |
@@ -206,9 +206,13 @@ The `pubs.json` schema, defined in `src/core/types.ts`. Every field except `v` a
 {
   v: 1                                  // schema version; always 1
   seeds: {
-    orcid?: string[]                    // ORCID iDs
-    researchmap?: string[]              // researchmap permalinks
-    pubmed?: { query: string, label?: string }[]
+    // Seed = string | { id: string, from?: string, to?: string, grace?: number }
+    orcid?: Seed[]                      // ORCID iDs
+    researchmap?: Seed[]                // researchmap permalinks
+    pubmed?: {
+      query: string, label?: string,
+      from?: string, to?: string, grace?: number
+    }[]
   }
   include?: string[]                    // "pmid:12345678" | "doi:10.1136/bmj.n71"
   exclude?: string[]                    // same format
@@ -234,6 +238,52 @@ Notes that are easy to get wrong:
 - **`include` is not just "extra papers".** It also force-confirms a record another seed already found. That is the mechanism the review queue uses: a confirmed candidate goes into `include`, a rejected one into `exclude`, and neither is ever asked about again.
 - **A pinned base DOI also matches the versioned records of the same work.** `doi:10.12688/f1000research.12345` catches `.1` through `.4`.
 - **Unrecognized `include` / `exclude` strings are reported, not silently dropped** — they land in the model's warnings.
+
+### Seed time windows
+
+A seed may be a bare string or an object bounding it to the period its owner was part of the group. **A bare string means exactly what it always meant** — no window, no filtering — so every configuration written before this existed keeps its behaviour untouched, and a list with no departed members never needs the object form.
+
+```json
+{
+  "seeds": {
+    "orcid": [
+      "0000-0003-1317-0220",
+      { "id": "0000-0002-1825-0097", "from": "2019-04", "to": "2023-03" },
+      { "id": "0000-0001-2345-6789", "to": "2021-09", "grace": 36 }
+    ]
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | the ORCID iD, researchmap permalink, or a PubMed seed's `label ?? query` |
+| `from` | `YYYY` or `YYYY-MM`. Omit for an open start. |
+| `to` | `YYYY` or `YYYY-MM`. **Omit for a member who is still here** — no end at all. |
+| `grace` | months after `to` in which a paper still counts. Default **24**; `0` makes `to` hard. |
+
+A publication contributed by a windowed seed is kept when its year-month falls in `[from, to + grace]`.
+
+**The 24-month default reflects typical publication lag** — the gap between finishing work in a group and seeing it in print, through submission, review, revision and production. It is a pragmatic estimate chosen to be forgiving, not a rule derived from anything, and a group that knows its own field's timelines should set `grace` deliberately.
+
+Four rules worth knowing, because they are what keep this from removing real work:
+
+- **Filtering is per seed, not per publication.** A paper co-authored by a departed student and a current member keeps the current member's seed and stays on the list. Only a record that has lost *every* seed is removed. (Concretely: the out-of-window ids are dropped from the record's `seedIds`, and the record goes only when that leaves none.)
+- **Pinned records are exempt.** Anything in `include` is never removed by a window. An explicit identifier outranks a date rule, always — and that is also what makes freezing a member safe.
+- **Removals are reported.** Every record a window drops is named and counted in the model's warnings, with the window responsible, and so is the number of records another member's window rescued.
+- **An undated record is kept.** A record with no usable year cannot be placed inside or outside a window, and missing metadata is not a reason to take work off a CV.
+
+**How a window travels:**
+
+| Route | Carries a window on `seeds.orcid` / `seeds.researchmap` | Carries one on `seeds.pubmed` |
+| --- | --- | --- |
+| `pubs.json` (`data-config`, `data-list`) | yes, as the object above | yes |
+| `data-orcid` / `data-researchmap` | yes, as `id@from:to:grace` | — |
+| `?orcid=` / `?researchmap=` (iframe) | yes, same encoding | no |
+
+The inline encoding is positional and every field is optional: `0000-0002-1825-0097@2019-04:2023-03`, `…@2019-04` (still here), `…@:2023-03` (open start), `…@2019-04:2023-03:0` (no grace). It contains no commas, so it survives the comma-joined attributes unchanged, and a value whose tail is not *exactly* a window is left alone entirely — an id containing an `@` is never reinterpreted.
+
+The one thing that does not travel inline is a window on a **PubMed** seed, for the same reason `label` does not: the attribute's value is a raw PubMed query, and reading part of one as a date range would be a guess about somebody else's search syntax. Put a windowed PubMed seed in a `pubs.json`. The wizard never produces one, so it cannot lose one.
 
 ### Worked example
 
@@ -347,6 +397,8 @@ A query that returns PubMed's 200-result cap is flagged as probably too broad; n
 The bottleneck is researchmap's response time, not the number of requests. **This is not what your visitors experience**, because the pre-rendered snapshot in the snippet is on screen from the first paint and a cached list from a previous visit replaces it immediately; the live fetch swaps in when it lands.
 
 **Author names are only as good as the source.** ORCID work summaries carry no author list at all — author names come from OpenAlex enrichment. researchmap stores short forms (`Türkmen C`) in a field that reads like a full-name field, and its author ordering varies between accounts. Bold-name matching therefore works on full names; if you give it `Furukawa Y` it cannot tell Yuki from Yuri, and the tool will warn you when a bold name lands on two different people.
+
+**Group membership is not something the sources know.** Neither ORCID nor PubMed will tell you that a student left your lab in 2023, so nothing here can work it out on its own. The reliable answer is to [freeze a member](docs/lab-setup.md#when-someone-joins-or-leaves) when they go, which converts their work so far into explicit pins and removes the seed — no inference involved. [Seed time windows](#seed-time-windows) are the fallback for when nobody remembers to, and they are a rule about dates: a paper genuinely delayed past the grace period drops off, and a paper the departed member wrote elsewhere but dated inside the window stays. Both outcomes are reported in the warnings, and neither can happen to a pinned record. Affiliation-based filtering — asking OpenAlex which institution an author gave *on that paper* — is the semantically correct answer and is deliberately not implemented: the institution data varies in quality and its accuracy has not been measured here.
 
 **The iframe fallback carries no snapshot.** The `<iframe>` route (below) exists for CMSes that strip `<script>` tags, and it works — but its content is a separate document, so it is not in your page's HTML. Search engines do not index it as part of your page, and a visitor with JavaScript disabled sees an empty frame. Use the script snippet unless your CMS forces you not to.
 

@@ -8,15 +8,24 @@
 
 import { DEFAULT_GROUP_BY, normalizeConfig } from '@/core/config'
 import { formatIdRef, parseIdRef, formatIdRefValue } from '@/core/ids'
+import { INCLUDE_SEED_ID } from '@/core/seeds'
 import { CACHE_PREFIX } from '@/core/cache'
-import type { CitationStyle, ListConfig, Publication } from '@/core/types'
+import type {
+  CitationStyle,
+  ListConfig,
+  ListModel,
+  Publication,
+  Seed,
+} from '@/core/types'
 import {
+  commentOutLine,
   parseIdList,
   parseMemberLines,
   parseNameList,
   parsePubmedQueries,
   parseYearMonth,
 } from './parse'
+import type { ParsedMember } from './parse'
 
 export type WizardMode = 'article' | 'person' | 'lab'
 
@@ -144,6 +153,24 @@ export function exampleDraft(): WizardDraft {
 // ───────────────────────────────────────────────────── draft → ListConfig ──
 
 /**
+ * One member's identifier as a seed.
+ *
+ * A member line with no dates yields the **bare string** the seed arrays have
+ * always held — not an object with three `undefined` fields. That keeps a
+ * pasted member list projecting onto exactly the config it projected onto
+ * before windows existed, byte for byte, so nothing about the snippet, the
+ * `pubs.json` or the cache key changes for a lab that does not use them.
+ */
+function memberSeed(id: string, member: ParsedMember): Seed {
+  if (member.from == null && member.to == null && member.grace == null) return id
+  const seed = { id } as Extract<Seed, { id: string }>
+  if (member.from != null) seed.from = member.from
+  if (member.to != null) seed.to = member.to
+  if (member.grace != null) seed.grace = member.grace
+  return seed
+}
+
+/**
  * Project a draft onto a `ListConfig`.
  *
  * Mode is purely a projection rule — it never survives into the config, so a
@@ -168,8 +195,12 @@ export function draftToConfig(draft: WizardDraft): ListConfig {
     if (researchmap !== '') partial.seeds!.researchmap = [researchmap]
   } else if (draft.mode === 'lab') {
     const { members } = parseMemberLines(draft.members)
-    const orcids = members.map((m) => m.orcid).filter((v): v is string => !!v)
-    const rms = members.map((m) => m.researchmap).filter((v): v is string => !!v)
+    const orcids = members
+      .filter((m) => m.orcid)
+      .map((m) => memberSeed(m.orcid as string, m))
+    const rms = members
+      .filter((m) => m.researchmap)
+      .map((m) => memberSeed(m.researchmap as string, m))
     if (orcids.length > 0) partial.seeds!.orcid = orcids
     if (rms.length > 0) partial.seeds!.researchmap = rms
   }
@@ -349,6 +380,113 @@ export function forgetRef(draft: WizardDraft, ref: string): WizardDraft {
 export function canonicalRef(input: string): string | null {
   const ref = parseIdRef(input)
   return ref ? formatIdRefValue(ref) : null
+}
+
+// ──────────────────────────────────────────────────── freezing a member ──
+
+/**
+ * What freezing one member would do, computed from the **built** list.
+ *
+ * Freezing is the primary answer to a member leaving the group: everything of
+ * theirs that is on the page right now becomes an explicit pin, and their seed
+ * comes out. Past work stays — it was done here — and nothing they publish
+ * afterwards can ever enter, because there is no seed left to find it and a pin
+ * is an identifier rather than a search.
+ *
+ * It is deliberately built out of `include`, the mechanism that already exists:
+ * no new matching rule means no new way to be wrong, and a pin is exempt from
+ * the seed time windows, so a window added later cannot undo a freeze.
+ *
+ * The one thing it cannot do is pin a record with neither a DOI nor a PMID —
+ * `formatIdRef` has nothing to write. Those are counted and named rather than
+ * dropped in silence, and split in two, because the consequences differ:
+ * `losing` disappears from the list, while the rest are held in place by a
+ * co-author's seed and stay.
+ */
+export interface FreezePlan {
+  /**
+   * The seeds being removed. Usually one, but a member row can carry both an
+   * ORCID iD and a researchmap permalink, and freezing the person has to take
+   * out both or the one left behind keeps collecting their new work.
+   */
+  seedIds: string[]
+  /** what to call the member in the UI */
+  label: string
+  /** canonical `"pmid:…"` / `"doi:…"` refs to add to `include` */
+  refs: string[]
+  /** records that will be pinned */
+  pinned: Publication[]
+  /** records this seed contributed that have neither a DOI nor a PMID */
+  unpinnable: Publication[]
+  /**
+   * The subset of `unpinnable` that will actually vanish: no identifier to pin
+   * them by *and* no other seed still contributing them.
+   */
+  losing: Publication[]
+}
+
+export function planFreeze(
+  model: ListModel,
+  seedIds: readonly string[],
+  label?: string,
+): FreezePlan {
+  const frozen = new Set(seedIds)
+  const refs: string[] = []
+  const pinned: Publication[] = []
+  const unpinnable: Publication[] = []
+  const losing: Publication[] = []
+
+  for (const pub of model.publications) {
+    if (!pub.seedIds.some((id) => frozen.has(id))) continue
+    const ref = formatIdRef(pub)
+    if (ref == null) {
+      unpinnable.push(pub)
+      // A record already carrying the pin marker survives on that alone, and
+      // one a remaining member also contributed survives on their seed.
+      const others = pub.seedIds.filter(
+        (id) => !frozen.has(id) && id !== INCLUDE_SEED_ID,
+      )
+      if (others.length === 0 && !pub.seedIds.includes(INCLUDE_SEED_ID)) {
+        losing.push(pub)
+      }
+      continue
+    }
+    pinned.push(pub)
+    if (!refs.includes(ref)) refs.push(ref)
+  }
+
+  return {
+    seedIds: [...seedIds],
+    label: label ?? seedIds.join(', '),
+    refs,
+    pinned,
+    unpinnable,
+    losing,
+  }
+}
+
+/**
+ * Apply a plan: pin the records, then take the member's line out of the seed
+ * list by commenting it out (see `commentOutLine` — the line stays readable and
+ * the `#` can be deleted to undo).
+ */
+export function applyFreeze(
+  draft: WizardDraft,
+  plan: FreezePlan,
+  lineIndex: number,
+  today: Date = new Date(),
+): WizardDraft {
+  const include = [...draft.include]
+  for (const ref of plan.refs) if (!include.includes(ref)) include.push(ref)
+  return {
+    ...draft,
+    include,
+    members: commentOutLine(
+      draft.members,
+      lineIndex,
+      `frozen ${today.toISOString().slice(0, 10)} — ${plan.refs.length} paper(s) pinned`,
+    ),
+  }
 }
 
 // ─────────────────────────────────────────────────────────── persistence ──

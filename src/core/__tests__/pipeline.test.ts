@@ -853,3 +853,69 @@ describe('triageCandidates', () => {
     expect(triageCandidates(confirmed, candidates, [])).toEqual(['x'])
   })
 })
+
+/**
+ * Seed time windows, end to end.
+ *
+ * The unit-level rules live in `seeds.test.ts`; what these pin is that
+ * `buildList` applies them at all, applies them *after* enrichment has settled
+ * the dates, and leaves a config of bare strings completely untouched.
+ *
+ * The ORCID fixture holds four works, dated 2026-06, 2025-10, 2025-09 and
+ * 2024-04, so a window ending 2022-06 (+ the default 24 months of grace, i.e.
+ * 2024-06) admits exactly the oldest one.
+ */
+describe('buildList — seed time windows', () => {
+  const WINDOWED = { seeds: { orcid: [{ id: ORCID, to: '2022-06' }] }, preprints: 'include' as const }
+
+  it(
+    'keeps every work when the seed is a bare string',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({ seeds: { orcid: [ORCID] }, preprints: 'include' }),
+      )
+      expect(model.publications.length).toBe(4)
+      expect(model.warnings.join(' ')).not.toContain('time window')
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'drops the works published outside the window, and names them',
+    async () => {
+      useRoutes()
+      const model = await buildList(normalizeConfig(WINDOWED))
+
+      expect(model.publications.map((p) => p.year)).toEqual([2024])
+      const warning = model.warnings.find((w) => w.includes('Left 3 record(s)'))
+      expect(warning).toBeDefined()
+      expect(warning).toContain(ORCID)
+      expect(warning).toContain('2022-06')
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'never drops a pinned record, whatever the window says',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({
+          ...WINDOWED,
+          include: ['doi:10.1016/j.euroneuro.2026.112802'],
+        }),
+      )
+
+      // 2026-06, two years past the end of the window — and still here,
+      // because an explicit pin outranks a date rule.
+      expect(
+        model.publications.some(
+          (p) => p.doi === '10.1016/j.euroneuro.2026.112802',
+        ),
+      ).toBe(true)
+      expect(model.publications.length).toBe(2)
+    },
+    TIMEOUT,
+  )
+})

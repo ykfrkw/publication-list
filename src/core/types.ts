@@ -94,17 +94,59 @@ export interface Member {
   researchmap?: string
 }
 
+/**
+ * A seed bounded by the period its owner was part of the group.
+ *
+ * Only ever needed by a group whose membership changes: a seed left in place
+ * after a student graduates keeps adding the papers they publish elsewhere to
+ * their old group's page. See `src/core/seeds.ts` for the full reasoning, the
+ * grace period and the seed-level (not publication-level) filtering rule.
+ */
+export interface SeedWindow {
+  /** ORCID iD, researchmap permalink, or a PubMed seed's `label ?? query` */
+  id: string
+  /** "YYYY-MM" or "YYYY". Absent = open start. */
+  from?: string
+  /** "YYYY-MM" or "YYYY". Absent = still active, no end. */
+  to?: string
+  /**
+   * Months after `to` in which a paper still counts as this group's output.
+   * Defaults to `DEFAULT_SEED_GRACE_MONTHS` (24); `0` makes `to` hard.
+   */
+  grace?: number
+}
+
+/**
+ * A seed identifier, optionally time-bounded.
+ *
+ * **A bare string behaves exactly as it always has** — no window, no filtering.
+ * Every configuration written before `SeedWindow` existed keeps its meaning,
+ * which is why the union exists rather than a required object form.
+ */
+export type Seed = string | SeedWindow
+
 export interface PubmedSeed {
   /** e.g. "0000-0003-1317-0220[auid]", "Furukawa Y[au] AND (Tokyo[ad])" */
   query: string
   label?: string
+  /**
+   * Same time window as `SeedWindow`, flattened onto the seed this source
+   * already spells as an object. The seed id a window is matched against is
+   * `label ?? query`.
+   *
+   * These three fields travel in a `pubs.json` only: `data-pubmed` and
+   * `?pubmed=` carry the query string alone, as they already do for `label`.
+   */
+  from?: string
+  to?: string
+  grace?: number
 }
 
 export interface ListConfig {
   v: 1
   seeds: {
-    orcid?: string[]
-    researchmap?: string[]
+    orcid?: Seed[]
+    researchmap?: Seed[]
     pubmed?: PubmedSeed[]
   }
   /** "pmid:12345678" / "doi:10.1136/bmj.n71" */

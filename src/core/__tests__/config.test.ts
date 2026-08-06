@@ -380,3 +380,68 @@ describe('normalizeConfig — preprints', () => {
     expect(serializeConfig(normalizeConfig({}))).toContain('"preprints": "exclude"')
   })
 })
+
+/**
+ * Seed time windows across the three transports.
+ *
+ * The requirement is asymmetric and worth stating: a **bare string must keep
+ * meaning exactly what it meant**, and a window must not disappear on the way
+ * into a snippet. Both are checked here; the `data-*` side of the round trip is
+ * checked against `configToDataAttributes` in `app/lib/__tests__/snippet.test.ts`.
+ */
+describe('seed time windows', () => {
+  it('reads a windowed seed from a query string and from an attribute', () => {
+    const expected = {
+      orcid: [{ id: ORCID, from: '2019-04', to: '2023-03' }],
+    }
+    expect(fromQuery(`orcid=${ORCID}%402019-04%3A2023-03`).config.seeds).toEqual(
+      expected,
+    )
+    expect(
+      fromAttributes({ 'data-orcid': `${ORCID}@2019-04:2023-03` }).config.seeds,
+    ).toEqual(expected)
+  })
+
+  it('mixes windowed and bare seeds in one comma-separated attribute', () => {
+    const { config } = fromAttributes({
+      'data-orcid': `${ORCID},0000-0002-1825-0097@:2023-03`,
+    })
+    expect(config.seeds?.orcid).toEqual([
+      ORCID,
+      { id: '0000-0002-1825-0097', to: '2023-03' },
+    ])
+  })
+
+  it('leaves a plain seed as the bare string it has always been', () => {
+    expect(fromAttributes({ 'data-orcid': ORCID }).config.seeds?.orcid).toEqual([
+      ORCID,
+    ])
+    expect(
+      normalizeConfig({ v: 1, seeds: { orcid: [ORCID] } }).seeds.orcid,
+    ).toEqual([ORCID])
+  })
+
+  it('normalizes the id inside a window, and survives serialization', () => {
+    const config = normalizeConfig({
+      v: 1,
+      seeds: {
+        orcid: [{ id: `https://orcid.org/${ORCID}`, to: '2023-03', grace: 36 }],
+      },
+    })
+    expect(config.seeds.orcid).toEqual([{ id: ORCID, to: '2023-03', grace: 36 }])
+    const json = serializeConfig(config)
+    expect(JSON.parse(json).seeds.orcid).toEqual([
+      { grace: 36, id: ORCID, to: '2023-03' },
+    ])
+    // A pubs.json round trip must be lossless — it is the transport windows
+    // are documented as always working on.
+    expect(normalizeConfig(JSON.parse(json) as ListConfig)).toEqual(config)
+  })
+
+  it('does not read a window out of a PubMed query', () => {
+    // A query is free text; a date-looking tail in one is the user's syntax,
+    // not ours. PubMed windows travel in a pubs.json only.
+    const { config } = fromAttributes({ 'data-pubmed': 'Tanaka H[au]@2019:2023' })
+    expect(config.seeds?.pubmed).toEqual([{ query: 'Tanaka H[au]@2019:2023' }])
+  })
+})

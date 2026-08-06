@@ -8,6 +8,7 @@
 
 import type { CitationStyle, ListConfig, PubmedSeed } from './types'
 import { normalizeDoi, normalizeOrcid, normalizeResearchmapId } from './ids'
+import { decodeSeed, normalizeSeedList } from './seeds'
 
 const CITATION_STYLE_VALUES: readonly CitationStyle[] = [
   'vancouver',
@@ -155,10 +156,20 @@ type ConfigReader = (name: string, multi: boolean) => string | undefined
 function readConfig(read: ConfigReader): DatasetConfig {
   const config: Partial<ListConfig> = {}
 
-  const orcid = splitList(read('orcid', true))?.map(normalizeOrcid)
-  const researchmap = splitList(read('researchmap', true))?.map(
-    normalizeResearchmapId,
-  )
+  // `decodeSeed` before the id normalizer, so `ID@2019-04:2023-03` keeps its
+  // window and a plain `ID` comes back as the bare string it has always been.
+  const orcid = splitList(read('orcid', true))
+    ?.map(decodeSeed)
+    .map((seed) => normalizeSeedList([seed], normalizeOrcid)[0])
+    .filter((seed) => seed !== undefined)
+  const researchmap = splitList(read('researchmap', true))
+    ?.map(decodeSeed)
+    .map((seed) => normalizeSeedList([seed], normalizeResearchmapId)[0])
+    .filter((seed) => seed !== undefined)
+  // No window decoding here: a PubMed seed's value is a free-text query, and
+  // reinterpreting part of one as a date range would be a guess about somebody
+  // else's search syntax. `from` / `to` / `grace` on a PubMed seed travel in a
+  // `pubs.json`, exactly as `label` already does.
   const pubmed: PubmedSeed[] | undefined = splitList(read('pubmed', true))?.map(
     (query) => ({ query }),
   )
@@ -289,13 +300,16 @@ function normalizeRefs(refs: string[] | undefined): string[] | undefined {
 /** Fill in the defaults so downstream code never has to branch on `undefined`. */
 export function normalizeConfig(partial: Partial<ListConfig>): ListConfig {
   const seeds = partial.seeds ?? {}
+  // `normalizeSeedList` normalizes the id and leaves any window on it intact,
+  // so a bare-string seed stays a bare string and a windowed one stays an
+  // object. Nothing downstream has to know which form it was given.
+  const orcid = normalizeSeedList(seeds.orcid, normalizeOrcid)
+  const researchmap = normalizeSeedList(seeds.researchmap, normalizeResearchmapId)
   const config: ListConfig = {
     v: 1,
     seeds: {
-      ...(seeds.orcid?.length ? { orcid: seeds.orcid.map(normalizeOrcid) } : {}),
-      ...(seeds.researchmap?.length
-        ? { researchmap: seeds.researchmap.map(normalizeResearchmapId) }
-        : {}),
+      ...(orcid.length ? { orcid } : {}),
+      ...(researchmap.length ? { researchmap } : {}),
       ...(seeds.pubmed?.length ? { pubmed: seeds.pubmed } : {}),
     },
     style: partial.style ?? DEFAULT_STYLE,

@@ -9,6 +9,7 @@
 
 export * from './types'
 export * from './ids'
+export * from './seeds'
 export * from './config'
 export * from './dedupe'
 export * from './categorize'

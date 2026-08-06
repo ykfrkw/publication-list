@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeConfig } from '@/core/config'
+import { normalizeConfig, parseConfigFromSearchParams } from '@/core/config'
 import { CREDIT_HTML } from '@/core/render'
 import type { ListConfig, ListModel, Publication } from '@/core/types'
 import {
@@ -289,5 +289,44 @@ describe('the credit checkbox reaches the iframe snippet', () => {
     const on = buildIframeSnippet(model().config, { credit: true })
     const off = buildIframeSnippet(model().config, { credit: false })
     expect(off.replace('&amp;credit=0', '')).toBe(on)
+  })
+})
+
+describe('seed time windows in the emitted snippet', () => {
+  const windowed = normalizeConfig({
+    v: 1,
+    seeds: {
+      orcid: [
+        '0000-0003-1317-0220',
+        { id: '0000-0002-1825-0097', from: '2019-04', to: '2023-03' },
+      ],
+    },
+  })
+
+  it('carries a window in the inline attribute instead of dropping it', () => {
+    // The alternative — silently emitting a snippet whose seeds have lost
+    // their end dates — is the failure this encoding exists to prevent.
+    const attrs = new Map(configToDataAttributes(windowed))
+    expect(attrs.get('data-orcid')).toBe(
+      '0000-0003-1317-0220,0000-0002-1825-0097@2019-04:2023-03',
+    )
+  })
+
+  it('carries it in the iframe URL too', () => {
+    const url = buildIframeSnippet(windowed).match(/src="([^"]+)"/)?.[1] ?? ''
+    const query = new URLSearchParams(url.split('?')[1] ?? '')
+    expect(
+      normalizeConfig(parseConfigFromSearchParams(query).config).seeds,
+    ).toEqual(windowed.seeds)
+  })
+
+  it('leaves a windowless seed spelled exactly as before', () => {
+    const plain = normalizeConfig({
+      v: 1,
+      seeds: { orcid: ['0000-0003-1317-0220'] },
+    })
+    expect(new Map(configToDataAttributes(plain)).get('data-orcid')).toBe(
+      '0000-0003-1317-0220',
+    )
   })
 })

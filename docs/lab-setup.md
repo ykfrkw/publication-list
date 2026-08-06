@@ -33,7 +33,7 @@ Put it in a spreadsheet, one member per row, name in one column and identifier i
 Open the wizard: <https://ykfrkw.github.io/publication-list/>
 
 1. Choose the **Lab or group** mode.
-2. Paste your member list into the members box. One member per line. It accepts a bare ORCID iD, an `https://orcid.org/…` URL, a researchmap permalink, or a row copied out of Excel in either column order — identifiers are found by shape, so `Name<TAB>ORCID` and `ORCID<TAB>Name` both work. Lines starting with `#` are ignored, and a header row is discarded.
+2. Paste your member list into the members box. One member per line. It accepts a bare ORCID iD, an `https://orcid.org/…` URL, a researchmap permalink, or a row copied out of Excel in either column order — identifiers are found by shape, so `Name<TAB>ORCID` and `ORCID<TAB>Name` both work. Lines starting with `#` are ignored, and a header row is discarded. Each member then gets a row underneath with optional **Joined** / **Left** dates and a **Freeze** button; ignore both for now and read [When someone joins or leaves](#when-someone-joins-or-leaves) when your first member moves on.
 3. Optionally add **pinned papers**: PMIDs and DOIs, pasted in any mixture of lines, commas and spaces. Use this for anything that predates a member's ORCID record, or for a paper credited to the group rather than to an individual.
 4. Optionally add a **PubMed query** for a member who has no ORCID iD. See [that troubleshooting entry](#a-member-has-no-orcid-id) for how to write one that does not drown you in strangers.
 5. Set the options you care about: citation style, grouping (a section per publication type with a year divider inside each to start with, or one of those two levels on its own, or one flat list), a `from` year if you only want recent work, whether Japanese-language records get their own section, and whether to **include preprints** — that box is unticked, so preprints stay off the page unless you ask for them.
@@ -82,6 +82,49 @@ Style it from your own stylesheet. The markup is unstyled and every class is nam
 ## Step 5 — Keep the configuration
 
 Save the snippet, or the `pubs.json`, somewhere you can find it. When someone joins the group you will want to regenerate rather than start over — the wizard also keeps your last draft in the browser it was made in, but that is not a backup.
+
+---
+
+## When someone joins or leaves
+
+This is the question every lab runs into, usually about eighteen months after setting the page up, and it is worth understanding before it happens.
+
+The problem is one-sided. A new member is easy: add their line to the members box and regenerate. A departing member is not, because **their ORCID record follows them**. A seed left in place keeps working perfectly — it keeps finding everything that person publishes, including the papers they write at their next institution, which then appear on your group's page as though your group had produced them. Nobody notices, because nobody reads their own publication page looking for papers that should not be there.
+
+Deleting the member's line the day they leave is the obvious fix and it is wrong. Work done in your group is routinely published a year or two after the person has gone, and that work is yours. Delete the seed and it never arrives.
+
+### The answer: freeze them
+
+In the **Lab or group** mode, each member has a row under the members box with a **Freeze** button. Generate the list first, then press it. The row tells you what it will do before you confirm:
+
+> Pins the 11 papers of theirs that are on the list right now and removes their seed, so those stay and nothing they publish afterwards can be added.
+
+That is the whole mechanism. Their publications become explicit `include` entries — pinned by DOI or PMID, exactly as if you had typed the identifiers yourself — and the seed comes out of the configuration. Nothing is inferred and nothing is guessed, so nothing can be got wrong later: a pinned paper cannot vanish, and a paper that does not exist yet cannot be pinned.
+
+Two things to know:
+
+- **A paper with neither a DOI nor a PMID cannot be pinned.** There is nothing to pin it *by*. The confirmation tells you the count and names them before you commit, because those are the entries that will disappear from the list — usually conference abstracts and Japanese-language records from researchmap. If you need one of them, keep it another way (the **Static HTML** output, or a hand-written line in your page) before freezing.
+- **It is recoverable.** Freezing comments the member's line out rather than deleting it — the line stays in the box, marked with the date and the number of papers pinned. Delete the `#` and the seed is back. Regenerate afterwards, and save the new snippet or `pubs.json`.
+
+If a delayed paper of theirs comes out six months later, add it by DOI in the **Pinned papers** box. You would want to look at it before publishing it under your group's name anyway, which is precisely why that step is not automated.
+
+### The fallback: dates, for when nobody freezes anybody
+
+Labs forget. So each member row also has optional **Joined** and **Left** fields, and a member with a `Left` date stops contributing new work — after a grace period.
+
+The grace period is the point. It defaults to **24 months**, and it exists so that the paper published eighteen months after your postdoc left still counts as your group's. That number is an estimate of ordinary publication lag — submission, review, revision, production — and not a rule from anywhere; if your field is faster or slower, write `2019-04..2023-03+36` straight into the members box to say 36 months instead.
+
+Leave **Left** blank for anyone still in the group. A member with no dates at all is included with no time limit, which is what every member has always been and what they stay if you never touch these fields.
+
+What the dates cannot do, and freezing can:
+
+- They are a rule about publication dates, so they can be wrong about an individual paper — a genuinely delayed one past the grace period drops off, and a paper written elsewhere but dated early enough stays.
+- Every paper a date window removes is **named in the warnings panel** with the window responsible. Read it after regenerating. Nothing is removed silently.
+
+Two things the dates deliberately never do:
+
+- **A pinned paper is never removed by a date window.** Anything in the pinned box, and anything freezing put there, is immune. An identifier you named outranks any rule about dates.
+- **A co-authored paper survives on the co-author.** This is the one that would otherwise ruin a lab page: a paper written by a student who left *and* a member who is still here keeps the current member's claim on it and stays on the list. The dates are applied per member, not per paper, so one person's departure can never take another person's work off the page.
 
 ---
 
@@ -161,6 +204,7 @@ Almost always this is a gap in the source, not in the tool. In order of likeliho
 
 1. **The paper is not in the member's ORCID record.** Open `https://orcid.org/<their-iD>` and look. This is the single most common cause. The fix is in ORCID.
 2. **You set a date filter.** Check the `from` / `to` fields, and the `limit`.
+2b. **A member's Joined / Left dates ruled it out.** Every record a member window removes is named in the warnings panel with the window responsible. Widen the grace period, clear the dates, or pin the paper — a pinned paper is never removed by a window. See [When someone joins or leaves](#when-someone-joins-or-leaves).
 3. **It was found only by a name search and is sitting unreviewed in the queue.** Under the default policy it is deliberately not on the page. Approve it.
 4. **It was categorised as an erratum or as paratext and dropped.** The warnings panel names every record dropped this way.
 5. **It is a preprint, and preprints are off by default.** The warnings panel names every one that was held back. Tick **Include preprints** if you want them on the page. Note that this also covers an F1000-family article whose referees have not approved it yet — see [that entry below](#an-f1000research-paper-shows-as-a-preprint).
@@ -168,6 +212,16 @@ Almost always this is a gap in the source, not in the tool. In order of likeliho
 7. **It is genuinely in none of ORCID, researchmap or PubMed.** Pin it by DOI.
 
 If a paper is in ORCID but still missing, check the warnings panel — an upstream failure is reported there rather than being swallowed, and a source that returned an error produces a shorter list, not a broken page.
+
+### A former member's new papers are appearing on our page
+
+Their seed is still in the list, and it is following them to their new institution. Fix it the way [that section](#when-someone-joins-or-leaves) describes — but in this order, because freezing pins *whatever is on the list at that moment*:
+
+1. **First remove the papers that are not yours.** They are already on the page, and freezing would pin them there permanently. Untick them in the review queue if they arrived through a name search; otherwise add their DOIs or PMIDs to the exclude list and regenerate.
+2. **Then press Freeze** on the member's row. What gets pinned is now exactly their work with your group.
+3. Regenerate, and save the new snippet or `pubs.json`.
+
+Freezing prevents future arrivals. It does not decide on your behalf which of the papers currently listed were done here — nothing in this tool can, which is why the step above is yours.
 
 ### The categories are wrong
 

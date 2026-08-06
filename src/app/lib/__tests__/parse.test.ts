@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
+  commentOutLine,
+  formatMemberWindow,
   parseIdList,
   parseMemberLines,
+  parseMemberWindow,
   parseNameList,
   parsePubmedQueries,
   parseYearMonth,
+  setMemberWindow,
 } from '../parse'
 
 describe('parseIdList', () => {
@@ -72,7 +76,7 @@ describe('parseMemberLines', () => {
   it('reads a bare ORCID iD', () => {
     const { members } = parseMemberLines('0000-0003-1317-0220')
     expect(members).toEqual([
-      { raw: '0000-0003-1317-0220', orcid: '0000-0003-1317-0220' },
+      { raw: '0000-0003-1317-0220', lineIndex: 0, orcid: '0000-0003-1317-0220' },
     ])
   })
 
@@ -89,6 +93,7 @@ describe('parseMemberLines', () => {
     )
     expect(members[0]).toEqual({
       raw: 'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki',
+      lineIndex: 0,
       name: 'Yuki Furukawa',
       orcid: '0000-0003-1317-0220',
       researchmap: 'furukawayuki',
@@ -161,5 +166,104 @@ describe('parseYearMonth', () => {
     expect(parseYearMonth('')).toBeUndefined()
     expect(parseYearMonth('2020-13')).toBeUndefined()
     expect(parseYearMonth('20-04')).toBeUndefined()
+  })
+})
+
+describe('member time windows in the pasted list', () => {
+  it('reads every shape of window token', () => {
+    expect(parseMemberWindow('2019-04..2023-03')).toEqual({
+      from: '2019-04',
+      to: '2023-03',
+    })
+    expect(parseMemberWindow('2019-04..')).toEqual({ from: '2019-04' })
+    expect(parseMemberWindow('..2023-03')).toEqual({ to: '2023-03' })
+    expect(parseMemberWindow('2019..2023+36')).toEqual({
+      from: '2019',
+      to: '2023',
+      grace: 36,
+    })
+  })
+
+  it('is not fooled by anything that is not a window', () => {
+    for (const token of ['furukawayuki', 'Yuki', '..', '2019-04', 'a..b']) {
+      expect(parseMemberWindow(token)).toBeNull()
+    }
+  })
+
+  it('round-trips through formatMemberWindow', () => {
+    for (const token of ['2019-04..2023-03', '2019-04..', '..2023-03', '2019..2023+36']) {
+      expect(formatMemberWindow(parseMemberWindow(token))).toBe(token)
+    }
+    expect(formatMemberWindow(null)).toBe('')
+  })
+
+  it('picks the window out of a pasted row without disturbing the rest', () => {
+    const { members } = parseMemberLines(
+      'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki\t2019-04..2023-03',
+    )
+    expect(members[0]).toEqual({
+      raw: 'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki\t2019-04..2023-03',
+      lineIndex: 0,
+      name: 'Yuki Furukawa',
+      orcid: '0000-0003-1317-0220',
+      researchmap: 'furukawayuki',
+      from: '2019-04',
+      to: '2023-03',
+    })
+  })
+
+  it('leaves a line without dates exactly as it was', () => {
+    const { members } = parseMemberLines('0000-0003-1317-0220')
+    expect(members[0].from).toBeUndefined()
+    expect(members[0].to).toBeUndefined()
+    expect(members[0].grace).toBeUndefined()
+  })
+
+  it('numbers lines as they appear, blank and commented ones included', () => {
+    const { members } = parseMemberLines(
+      '# a comment\n\n0000-0003-1317-0220\n\n0000-0002-1825-0097',
+    )
+    expect(members.map((m) => m.lineIndex)).toEqual([2, 4])
+  })
+})
+
+describe('setMemberWindow', () => {
+  const text = '0000-0003-1317-0220\n0000-0002-1825-0097'
+
+  it('appends a window to the right line and leaves the others alone', () => {
+    expect(setMemberWindow(text, 1, { to: '2023-03' })).toBe(
+      '0000-0003-1317-0220\n0000-0002-1825-0097\t..2023-03',
+    )
+  })
+
+  it('replaces a window rather than stacking a second one', () => {
+    const once = setMemberWindow(text, 0, { from: '2019-04' })
+    const twice = setMemberWindow(once, 0, { from: '2019-04', to: '2023-03' })
+    expect(twice.split('\n')[0]).toBe('0000-0003-1317-0220\t2019-04..2023-03')
+  })
+
+  it('clears the window when given null', () => {
+    const once = setMemberWindow(text, 0, { from: '2019-04', to: '2023-03' })
+    expect(setMemberWindow(once, 0, null)).toBe(text)
+  })
+
+  it('ignores an out-of-range line', () => {
+    expect(setMemberWindow(text, 9, { to: '2023-03' })).toBe(text)
+  })
+})
+
+describe('commentOutLine', () => {
+  it('takes a member out of the seed list while keeping the line readable', () => {
+    const text = 'Yuki Furukawa\t0000-0003-1317-0220\n0000-0002-1825-0097'
+    const next = commentOutLine(text, 1, 'frozen 2026-08-06')
+    expect(next.split('\n')[1]).toBe('# frozen 2026-08-06\t0000-0002-1825-0097')
+    // The seed is gone — that is the point — and the other member is not.
+    const { members } = parseMemberLines(next)
+    expect(members.map((m) => m.orcid)).toEqual(['0000-0003-1317-0220'])
+  })
+
+  it('does not comment a line twice', () => {
+    const text = '# already\t0000-0002-1825-0097'
+    expect(commentOutLine(text, 0, 'again')).toBe(text)
   })
 })

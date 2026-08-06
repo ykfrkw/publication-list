@@ -12,8 +12,10 @@ import { useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Field } from './Field'
+import { MemberRows } from './MemberRows'
 import { parseIdList, parseMemberLines, parsePubmedQueries } from '../lib/parse'
 import type { WizardDraft } from '../lib/wizard'
+import type { ListModel } from '@/core/types'
 
 type Update = (patch: Partial<WizardDraft>) => void
 
@@ -166,9 +168,14 @@ export function PersonModeForm({
 export function LabModeForm({
   draft,
   update,
+  model,
+  onFreeze,
 }: {
   draft: WizardDraft
   update: Update
+  /** The built list, so a member row can be frozen against real publications. */
+  model?: ListModel | null
+  onFreeze?: (next: WizardDraft) => void
 }) {
   const members = useMemo(() => parseMemberLines(draft.members), [draft.members])
   const queries = useMemo(() => parsePubmedQueries(draft.pubmed), [draft.pubmed])
@@ -208,11 +215,18 @@ export function LabModeForm({
             value={draft.members}
             onChange={(e) => update({ members: e.currentTarget.value })}
             placeholder={
-              'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki\n0000-0002-1825-0097\nhttps://researchmap.jp/someone'
+              'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki\n0000-0002-1825-0097\t2019-04..2023-03\nhttps://researchmap.jp/someone'
             }
           />
         )}
       </Field>
+
+      <MemberRows
+        draft={draft}
+        update={update}
+        model={model}
+        onFreeze={onFreeze}
+      />
 
       <Field
         label="PubMed queries (one per line)"

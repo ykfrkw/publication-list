@@ -78,9 +78,62 @@ export function parsePubmedQueries(text: string): PubmedSeed[] {
 export interface ParsedMember {
   /** the input line, verbatim — shown back to the user */
   raw: string
+  /**
+   * Index of this member's line in the textarea, counting blank and commented
+   * lines. The member-row controls edit the textarea in place — it stays the
+   * single source of truth — and this is how a row finds its line.
+   */
+  lineIndex: number
   name?: string
   orcid?: string
   researchmap?: string
+  /** "YYYY-MM" / "YYYY" — start of the member's time in the group */
+  from?: string
+  /** "YYYY-MM" / "YYYY" — end of it */
+  to?: string
+  /** months of publication lag allowed after `to`; default is 24 */
+  grace?: number
+}
+
+/** The `from`/`to`/`grace` triple, on its own. */
+export interface MemberWindow {
+  from?: string
+  to?: string
+  grace?: number
+}
+
+/**
+ * How a member's time in the group is written in the members box:
+ * `2019-04..2023-03`, `2019-04..` (still here), `..2023-03` (joined before the
+ * record starts), optionally `+36` for a non-default grace period.
+ *
+ * `..` is the separator because nothing else in a pasted spreadsheet row looks
+ * like it — a name never contains one, and a researchmap permalink cannot.
+ * Anchored, so a token is either a window or is left alone entirely.
+ */
+const MEMBER_WINDOW =
+  /^(\d{4}(?:-\d{2})?)?\.\.(\d{4}(?:-\d{2})?)?(?:\+(\d{1,3}))?$/
+
+/** Parse one `2019-04..2023-03+36` token, or `null` if it is not one. */
+export function parseMemberWindow(token: string): MemberWindow | null {
+  const match = MEMBER_WINDOW.exec(token.trim())
+  if (!match) return null
+  if (!match[1] && !match[2]) return null
+  const window: MemberWindow = {}
+  if (match[1]) window.from = match[1]
+  if (match[2]) window.to = match[2]
+  if (match[3]) {
+    const grace = Number.parseInt(match[3], 10)
+    if (Number.isFinite(grace) && grace >= 0) window.grace = grace
+  }
+  return window
+}
+
+/** Inverse of `parseMemberWindow`. Empty string when there is no window. */
+export function formatMemberWindow(window: MemberWindow | null): string {
+  if (!window || (!window.from && !window.to)) return ''
+  const grace = window.grace == null ? '' : `+${window.grace}`
+  return `${window.from ?? ''}..${window.to ?? ''}${grace}`
 }
 
 export interface ParsedMembers {
@@ -131,20 +184,41 @@ function looksLikeName(cell: string): boolean {
  * The one ambiguity left is a name and a researchmap permalink separated by a
  * single space: a permalink is just a bare word, and there is no way to tell
  * it from a middle name. Separate those two with a tab, a comma or two spaces.
+ *
+ * A line may also carry the member's time in the group as a `2019-04..2023-03`
+ * token in any position — see `parseMemberWindow`. **A line without one is a
+ * seed with no window**, which is what every pasted list has always been and
+ * what it stays.
  */
 export function parseMemberLines(text: string): ParsedMembers {
   const members: ParsedMember[] = []
   const invalid: string[] = []
   const seen = new Set<string>()
 
-  for (const rawLine of text.split(/[\r\n]+/)) {
+  // Split so that the index of a line in this array is its index in the
+  // textarea; the member rows edit lines by that index.
+  text.split(/\r?\n/).forEach((rawLine, lineIndex) => {
     const line = rawLine.trim()
-    if (line === '' || line.startsWith('#')) continue
+    if (line === '' || line.startsWith('#')) return
 
-    const member: ParsedMember = { raw: line }
+    const member: ParsedMember = { raw: line, lineIndex }
 
     // Identifiers first, so what is left over can be treated as free text.
     let rest = line
+
+    // The window token, before anything else looks at the leftovers: it is a
+    // bare ASCII word with no whitespace, which is also the shape of a
+    // researchmap permalink, so whichever check runs first wins.
+    for (const token of rest.split(/[\s,\t]+/)) {
+      const window = parseMemberWindow(token)
+      if (!window) continue
+      if (window.from) member.from = window.from
+      if (window.to) member.to = window.to
+      if (window.grace != null) member.grace = window.grace
+      rest = rest.replace(token, ' ')
+      break
+    }
+
     const orcidMatch = ORCID_ANYWHERE.exec(rest)
     if (orcidMatch) {
       member.orcid = normalizeOrcid(orcidMatch[0])
@@ -168,7 +242,7 @@ export function parseMemberLines(text: string): ParsedMembers {
       !member.researchmap &&
       cells.every((c) => HEADER_CELLS.has(c.toLowerCase()))
     ) {
-      continue
+      return
     }
 
     const names: string[] = []
@@ -185,14 +259,14 @@ export function parseMemberLines(text: string): ParsedMembers {
     if (names.length > 0) member.name = names.join(' ')
     if (!member.orcid && !member.researchmap) {
       invalid.push(line)
-      continue
+      return
     }
 
     const key = `${member.orcid ?? ''}|${member.researchmap ?? ''}`
-    if (seen.has(key)) continue
+    if (seen.has(key)) return
     seen.add(key)
     members.push(member)
-  }
+  })
 
   return { members, invalid }
 }
@@ -205,6 +279,57 @@ export function parseNameList(text: string): string[] {
     if (name !== '' && !out.includes(name)) out.push(name)
   }
   return out
+}
+
+// ──────────────────────────────────────────── editing the members textarea ──
+
+/**
+ * Set (or clear) the time window on one line of the members box.
+ *
+ * The textarea stays the single source of truth for the member list — there is
+ * no parallel structure holding dates that could drift from the text the user
+ * can see and edit. A row's date fields write back here.
+ */
+export function setMemberWindow(
+  text: string,
+  lineIndex: number,
+  window: MemberWindow | null,
+): string {
+  const lines = text.split(/\r?\n/)
+  if (lineIndex < 0 || lineIndex >= lines.length) return text
+
+  // Strip whatever window the line already carries, wherever it sits.
+  const stripped = lines[lineIndex]
+    .split(/([\s,\t]+)/)
+    .filter((part) => parseMemberWindow(part) == null)
+    .join('')
+    .replace(/[\s,\t]+$/, '')
+
+  const token = formatMemberWindow(window)
+  lines[lineIndex] = token === '' ? stripped : `${stripped}\t${token}`
+  return lines.join('\n')
+}
+
+/**
+ * Comment one line out, keeping it visible.
+ *
+ * What "removing a seed" means in a free-text box. `parseMemberLines` ignores a
+ * line starting with `#`, so the seed is gone from the configuration, while the
+ * person and their identifier stay on screen where the user can read them — and
+ * deleting the `#` puts the seed back. That is what makes freezing recoverable
+ * from the UI rather than only from a backup.
+ */
+export function commentOutLine(
+  text: string,
+  lineIndex: number,
+  note: string,
+): string {
+  const lines = text.split(/\r?\n/)
+  if (lineIndex < 0 || lineIndex >= lines.length) return text
+  const line = lines[lineIndex]
+  if (line.trim().startsWith('#')) return text
+  lines[lineIndex] = `# ${note}\t${line.trim()}`
+  return lines.join('\n')
 }
 
 /** `"YYYY-MM"` / `"YYYY"`, or `undefined` when the field is blank or malformed. */

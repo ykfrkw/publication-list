@@ -121,6 +121,24 @@ export default function App() {
     void run(nextConfig)
   }, [run])
 
+  /**
+   * Adopt a draft produced by one of the panels and rebuild from it.
+   *
+   * Shared by the review queue and by freezing a member: both write decisions
+   * into `include` / `exclude`, and in both cases the point of the action is
+   * the list that comes out of it, so waiting for the user to press Generate
+   * again would just leave a stale list on screen.
+   */
+  const rerunWith = useCallback(
+    (next: WizardDraft) => {
+      const nextConfig = draftToConfig(next)
+      setDraft(next)
+      runningHash.current = configHash(nextConfig)
+      void run(nextConfig)
+    },
+    [run],
+  )
+
   const startOver = useCallback(() => {
     reset()
     clearDraft()
@@ -202,7 +220,12 @@ export default function App() {
                   <PersonModeForm draft={draft} update={update} />
                 ) : null}
                 {mode.value === 'lab' ? (
-                  <LabModeForm draft={draft} update={update} />
+                  <LabModeForm
+                    draft={draft}
+                    update={update}
+                    model={model}
+                    onFreeze={rerunWith}
+                  />
                 ) : null}
 
                 <details className="rounded-lg border border-border p-3">
@@ -263,13 +286,9 @@ export default function App() {
               reviewPolicy={model.config.reviewPolicy ?? 'strict'}
               include={draft.include}
               exclude={draft.exclude}
-              onApply={({ include, exclude }) => {
-                const next = { ...draft, include, exclude }
-                const nextConfig = draftToConfig(next)
-                setDraft(next)
-                runningHash.current = configHash(nextConfig)
-                void run(nextConfig)
-              }}
+              onApply={({ include, exclude }) =>
+                rerunWith({ ...draft, include, exclude })
+              }
             />
           ) : null}
 

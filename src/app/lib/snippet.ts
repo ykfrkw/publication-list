@@ -29,6 +29,7 @@
 
 import { renderHtml } from '@/core/render'
 import { DEFAULT_DISCLAIMER, DEFAULT_GROUP_BY } from '@/core/config'
+import { encodeSeed } from '@/core/seeds'
 import { escapeHtml } from '@/core/format'
 import type { ListConfig, ListModel } from '@/core/types'
 
@@ -72,8 +73,13 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
     if (value != null && value !== '') out.push([name, value] as const)
   }
 
-  push('data-orcid', config.seeds.orcid?.join(','))
-  push('data-researchmap', config.seeds.researchmap?.join(','))
+  // `encodeSeed` writes a bare id unchanged and a time-bounded one as
+  // `id@from:to:grace`, which `decodeSeed` reads back — so a member window
+  // survives the inline-attribute route as well as the JSON one. The one thing
+  // that cannot travel here is a window on a *PubMed* seed, because that seed's
+  // value is a free-text query; see `readConfig` in `core/config.ts`.
+  push('data-orcid', config.seeds.orcid?.map(encodeSeed).join(','))
+  push('data-researchmap', config.seeds.researchmap?.map(encodeSeed).join(','))
   push('data-pubmed', config.seeds.pubmed?.map((s) => s.query).join(','))
   push('data-include', config.include?.join(','))
   push('data-exclude', config.exclude?.join(','))
@@ -112,8 +118,8 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
  */
 export function hasCommaHostileValues(config: ListConfig): boolean {
   const lists = [
-    config.seeds.orcid,
-    config.seeds.researchmap,
+    config.seeds.orcid?.map(encodeSeed),
+    config.seeds.researchmap?.map(encodeSeed),
     config.include,
     config.exclude,
     config.boldNames,

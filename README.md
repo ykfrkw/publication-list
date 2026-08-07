@@ -12,22 +12,13 @@ It also formats reference lists for articles (paste PMIDs and DOIs, get Vancouve
 
 ## Quickstart
 
-Generate a snippet in the [wizard](https://ykfrkw.github.io/publication-list/), or write one by hand. It looks like this:
+Generate a snippet in the [wizard](https://ykfrkw.github.io/publication-list/), or write one by hand. With nothing ticked, this is the whole of it:
 
 ```html
 <div class="publist-embed"
   data-orcid="0000-0003-1317-0220"
   data-bold-names="Yuki Furukawa"
   data-style="vancouver">
-  <!-- Snapshot generated 2026-08-05. embed.js replaces it with a live list on load. -->
-  <section class="publist">
-  <h3 class="publist-heading">Original Articles &amp; Reviews</h3>
-  <h4 class="publist-subheading">2026</h4>
-  <ol class="publist-list">
-  <li class="publist-item"><b>Furukawa Y</b>, Salahuddin NH, Wei Y, et al. Next-step treatment for schizophrenia non-responsive to antipsychotics: a systematic review and network meta-analysis. <em>eClinicalMedicine</em>. 2026.</li>
-  <li class="publist-item">Fares-Otero NE, <b>Furukawa Y</b>, Sijbrandij M, et al. Efficacy of MDMA-assisted therapy for posttraumatic stress disorder: a systematic review and meta-analysis. <em>European Neuropsychopharmacology</em>. 2026.</li>
-  </ol>
-  </section>
   <p class="publist-disclaimer" style="font-size:0.8em;opacity:0.75">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>
   <p class="publist-credit" style="font-size:0.8em;opacity:0.75">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>
 </div>
@@ -38,12 +29,42 @@ Paste it into your page. That is the whole installation.
 
 Two things about that snippet are deliberate:
 
-- **The list can be in the HTML already.** The `<section class="publist">` block is a snapshot of the list as it stood when the snippet was generated. Search engines index it, visitors with JavaScript disabled read it, and it appears instantly on a slow connection. `embed.js` replaces it with a freshly fetched list after the page loads — the snapshot is the floor, not the ceiling. The wizard offers it as a tick box (recommended, off by default, because it is most of the snippet's length); without it the container starts empty and the script fills it in. Either way the two small-print lines sit **outside** the section, so leaving the snapshot out never takes them with it.
+- **The list is not in it; `embed.js` fetches it on load.** The container starts empty and the script fills it in, which is what keeps the snippet short enough to read before pasting. What that costs is the readers who never run the script: search engines do not index a list that is not in your HTML, a visitor with JavaScript turned off sees nothing, and the list appears only once the fetch finishes. One tick box buys all three back — see below.
 - **`embed.js` never blanks the list.** If ORCID is down, if the network fails, if the script never loads at all, whatever is in the container stays on the page.
+
+**Putting the list in the snippet as well.** Tick **Include the list itself in the snippet (recommended)** and the wizard bakes the list as it stands into the same snippet, inside the container and above the two small-print lines (abridged here — a real one carries a `<li>` per publication):
+
+```html
+<div class="publist-embed"
+  data-orcid="0000-0003-1317-0220"
+  data-bold-names="Yuki Furukawa"
+  data-style="vancouver"
+  data-heading-level="3">
+  <!-- Snapshot generated 2026-08-05. embed.js replaces it with a live list on load. -->
+  <section class="publist">
+  <h3 class="publist-heading">Original Articles &amp; Reviews</h3>
+  <h4 class="publist-subheading">2026</h4>
+  <ol class="publist-list">
+  <li class="publist-item"><b>Furukawa Y</b>, Salahuddin NH, Wei Y, et al. Next-step treatment for schizophrenia non-responsive to antipsychotics: a systematic review and network meta-analysis. <em>eClinicalMedicine</em>. 2026.</li>
+  <!-- … -->
+  </ol>
+  </section>
+  <p class="publist-disclaimer" style="font-size:0.8em;opacity:0.75">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>
+  <p class="publist-credit" style="font-size:0.8em;opacity:0.75">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>
+</div>
+<script src="https://ykfrkw.github.io/publication-list/embed.js" defer></script>
+```
+
+That `<section class="publist">` is a snapshot of the list as it stood when the snippet was generated. Search engines index it, visitors with JavaScript disabled read it, and it is on screen from the first paint. `embed.js` replaces it with a freshly fetched list after the page loads — the snapshot is the floor, not the ceiling. It is off by default for one reason only: it is most of the snippet's length, and a wall of markup is what stops someone pasting the snippet at all.
+
+Two details of the baked form:
+
+- **The two small-print lines sit outside the `<section>`**, in both snippets, as direct children of the container. Leaving the snapshot out never takes them with it; each has its own checkbox and nothing else changes.
+- **`data-heading-level` appears.** The baked headings have to match the ones the script draws afterwards, and the wizard cannot measure a page it has not been pasted into — so the level is fixed at `3` instead of the usual `auto`. See [the attribute table](#full-attribute-reference).
 
 The container gets a `data-publist-state` attribute you can style against: `loading`, `cached` (a previous run restored from `localStorage`), `ready`, or `error`.
 
-While the refresh runs, the script adds one small "Updating…" line laid out at zero height, so nothing on your page moves and the list is neither covered nor dimmed. A container that starts genuinely empty — a hand-written snippet with no snapshot — gets a spinner instead, because there is nothing else in it to look at. Both are removed the moment the list lands, and both are `publist-` prefixed and styled from a stylesheet the script injects only if it needs one.
+While the refresh runs, the script adds one small "Updating…" line laid out at zero height, so nothing on your page moves and the list is neither covered nor dimmed. A container that starts genuinely empty — the default snippet above, or any other with no list baked in — gets a spinner instead, because there is nothing else in it to look at. A container holding only the credit and the disclaimer counts as empty for this, since the visitor has no list to read either way. Both are removed the moment the list lands, and both are `publist-` prefixed and styled from a stylesheet the script injects only if it needs one.
 
 Every class is namespaced `publist-`, and the markup is unstyled `<section>` / `<h3>` / `<h4>` / `<ol>` / `<li>` so it inherits your site's typography. Style it from your own stylesheet:
 

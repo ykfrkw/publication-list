@@ -68,6 +68,33 @@ import { ResultsPanel } from './components/ResultsPanel'
 import { SnippetPanel } from './components/SnippetPanel'
 import { RestorePanel } from './components/RestorePanel'
 
+/**
+ * Whether this page is inside someone else's frame.
+ *
+ * Read once, at module scope: a document cannot be framed and unframed while
+ * it is open, and reading it per render would only invite a re-render that
+ * can never change the answer.
+ */
+const IS_FRAMED = typeof window !== 'undefined' && window.parent !== window
+
+/**
+ * The shell's classes. `min-h-svh` is the half of the sticky footer that
+ * `mt-auto` on the <footer> below leans on: together they hold the footer at
+ * the bottom of the window on a page too short to fill it.
+ *
+ * That pin has to come off inside a frame. `svh` there is the *frame's*
+ * height, which the parent has just set from the height this page reported —
+ * so the page would be pinned to the frame it is being measured for. The
+ * reported height could then only ever grow: switch to a shorter tab and the
+ * pin holds the old height, and the parent, which clamps but never shrinks on
+ * its own, keeps the frame at the taller size with the empty space showing.
+ * Framed, the page is a document exactly as tall as its content, which is what
+ * /embed-height.js measures. See the note in index.html.
+ */
+const SHELL_CLASS =
+  'mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6' +
+  (IS_FRAMED ? '' : ' min-h-svh')
+
 export default function App() {
   const [draft, setDraft] = useState<WizardDraft>(() => loadDraft() ?? emptyDraft())
   const { state, run, cancel, reset } = useBuildList()
@@ -223,7 +250,7 @@ export default function App() {
     model != null && (model.candidates.length > 0 || hasNameQuery(model.config))
 
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6">
+    <div className={SHELL_CLASS}>
       <header className="flex flex-col gap-2">
         <h1 className="font-heading text-2xl leading-tight font-semibold sm:text-3xl">
           Publication List Generator

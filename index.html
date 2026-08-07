@@ -12,5 +12,19 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!--
+      Reports this page's height to the parent page (embed:height standard),
+      the same script widget.html loads. The blog post at
+      /publication-list-generator/ frames this page and sizes the frame from
+      what arrives here, instead of hard-coding a height per breakpoint.
+
+      It measures the bottom edge of body's children, so #root above is what
+      gets measured and the wizard's own padding sits inside it. Nothing may
+      put padding or margin on `body`: that space would be outside every
+      measured child and the frame would clip the footer. See also the sticky
+      footer note in src/app/App.tsx — a viewport-height pin inside a frame
+      would report the frame back to itself and could never shrink.
+    -->
+    <script type="module" src="/embed-height.js"></script>
   </body>
 </html>

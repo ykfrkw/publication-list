@@ -296,7 +296,7 @@ function MemberTextTools({
             value={paste}
             onChange={(e) => setPaste(e.currentTarget.value)}
             placeholder={
-              'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki\n0000-0002-1825-0097\t2019-04..2023-03\nhttps://researchmap.jp/someone'
+              'Yuki Furukawa\t0000-0003-1317-0220\tyk_frkw\n0000-0002-1825-0097\t2019-04..2023-03\nhttps://researchmap.jp/someone'
             }
           />
           <p className="text-xs leading-relaxed text-muted-foreground">
@@ -374,7 +374,7 @@ function MemberTextTools({
                 value={draft.members}
                 onChange={(e) => update({ members: e.currentTarget.value })}
                 placeholder={
-                  'Yuki Furukawa\t0000-0003-1317-0220\tfurukawayuki\n0000-0002-1825-0097\t2019-04..2023-03'
+                  'Yuki Furukawa\t0000-0003-1317-0220\tyk_frkw\n0000-0002-1825-0097\t2019-04..2023-03'
                 }
               />
             )}
@@ -485,7 +485,7 @@ export function PersonModeForm({
               value={draft.researchmap}
               spellCheck={false}
               onChange={(e) => update({ researchmap: e.currentTarget.value })}
-              placeholder="furukawayuki"
+              placeholder="yk_frkw"
             />
           )}
         </Field>

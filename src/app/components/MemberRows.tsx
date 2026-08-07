@@ -308,7 +308,7 @@ export function MemberRows({
                   <Input
                     className="h-8 font-mono text-xs"
                     spellCheck={false}
-                    placeholder="furukawayuki"
+                    placeholder="yk_frkw"
                     aria-label={`researchmap — ${label}`}
                     value={shown(row, 'researchmap')}
                     onChange={(e) =>

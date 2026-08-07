@@ -60,7 +60,10 @@ export function SelectField<T extends string>({
           id={id}
           value={value}
           onChange={(e) => onChange(e.currentTarget.value as T)}
-          className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+          // `text-foreground` for the same reason as `Input` and `Textarea`:
+          // preflight makes form controls inherit their colour, and a selected
+          // option must never come out in the muted grey used for hints.
+          className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
         >
           {options.map((option) => (
             <option

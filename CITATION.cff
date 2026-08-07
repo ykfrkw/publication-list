@@ -6,7 +6,7 @@ abstract: >-
   researcher, laboratory or research group. It assembles records from ORCID,
   PubMed and researchmap, enriches their metadata with OpenAlex and Crossref,
   de-duplicates and categorises them, and emits a formatted list in one of five
-  citation styles. The generated embed snippet carries a pre-rendered snapshot
+  citation styles. The generated embed snippet can carry a pre-rendered snapshot
   and refreshes itself in each visitor's browser, so a laboratory publication
   page stays current without a server, an account, an API key or any scheduled
   job. Additional outputs cover article reference lists, WordPress block markup,

@@ -33,11 +33,12 @@ jobs:
       - run: npm run build
 
       # The embed script is injected into other people's pages, so its transfer
-      # size is a promise, not a detail. 20 KB gzipped is the budget; without
+      # size is a promise, not a detail. 25 KB gzipped is the budget (raised from
+      # 20 KB when the 業績集 taxonomy joined src/core); without
       # this check a stray dependency would blow it silently.
       - name: Check the embed size budget
         run: |
-          budget=20480
+          budget=25600
           size=$(gzip -9 -c dist/embed.js | wc -c | tr -d ' ')
           echo "dist/embed.js: $size bytes gzipped (budget $budget)"
           if [ "$size" -gt "$budget" ]; then

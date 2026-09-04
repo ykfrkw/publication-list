@@ -312,3 +312,142 @@ describe('dedupePublications', () => {
     expect(warnings).toEqual([])
   })
 })
+
+describe('dedupePublications — gyoseki records', () => {
+  it('drops fromMisc when a published_papers twin absorbs a misc record', () => {
+    // The same paper listed under both published_papers and misc: the merged
+    // record is a paper, and must categorize from the paper's signals — not
+    // be filed as a review just because misc also carried it.
+    const input = [
+      pub({
+        title: 'Trazodone for insomnia',
+        doi: '10.1/paper',
+        journal: 'Sleep',
+        language: 'en',
+        sources: ['researchmap'],
+      }),
+      pub({
+        title: 'Trazodone for insomnia',
+        doi: '10.1/paper',
+        journal: 'Sleep',
+        language: 'en',
+        fromMisc: true,
+        miscType: 'introduction_commerce_magazine',
+        rmId: '12345678',
+        sources: ['researchmap'],
+      }),
+    ]
+
+    const { publications } = dedupePublications(input)
+
+    expect(publications).toHaveLength(1)
+    expect(publications[0].fromMisc).toBeUndefined()
+    // The misc-only metadata still travels: merge, never discard.
+    expect(publications[0].rmId).toBe('12345678')
+    expect(publications[0].miscType).toBe('introduction_commerce_magazine')
+  })
+
+  it('keeps fromMisc when every record in the group carries it', () => {
+    const input = [
+      pub({ title: 'A commentary', doi: '10.1/misc', fromMisc: true }),
+      pub({ title: 'A commentary', doi: '10.1/misc', fromMisc: true }),
+    ]
+    expect(dedupePublications(input).publications[0].fromMisc).toBe(true)
+  })
+
+  it('merges the same presentation (title + event + year) across keys', () => {
+    const input = [
+      pub({
+        title: 'CBT for insomnia',
+        key: 'rm:111',
+        kind: 'presentation',
+        event: 'World Sleep Congress',
+        rmId: '111',
+        year: 2025,
+      }),
+      pub({
+        title: 'CBT for Insomnia!',
+        key: 'rm:222',
+        kind: 'presentation',
+        event: 'World Sleep Congress',
+        rmId: '222',
+        year: 2025,
+      }),
+    ]
+    const { publications, warnings } = dedupePublications(input)
+    expect(publications).toHaveLength(1)
+    expect(publications[0].kind).toBe('presentation')
+    expect(warnings).toHaveLength(1)
+  })
+
+  it('keeps the same talk at two different events apart', () => {
+    const input = [
+      pub({
+        title: 'CBT for insomnia',
+        key: 'rm:111',
+        kind: 'presentation',
+        event: 'World Sleep Congress',
+        rmId: '111',
+        year: 2025,
+      }),
+      pub({
+        title: 'CBT for insomnia',
+        key: 'rm:222',
+        kind: 'presentation',
+        event: 'Oxford Psychiatry Seminar Series',
+        rmId: '222',
+        year: 2025,
+      }),
+    ]
+    const { publications, warnings } = dedupePublications(input)
+    expect(publications).toHaveLength(2)
+    expect(warnings).toEqual([])
+  })
+
+  it('never merges a book with a paper sharing its title and year', () => {
+    const input = [
+      pub({
+        title: 'Sleep medicine in practice',
+        doi: '10.1/article',
+        year: 2024,
+      }),
+      pub({
+        title: 'Sleep medicine in practice',
+        key: 'rm:333',
+        kind: 'book',
+        rmId: '333',
+        year: 2024,
+      }),
+    ]
+    const { publications, warnings } = dedupePublications(input)
+    expect(publications).toHaveLength(2)
+    expect(warnings).toEqual([])
+  })
+
+  it('propagates book and award fields through a merge', () => {
+    const input = [
+      pub({
+        title: 'ねころんで読める不眠症',
+        key: 'rm:444',
+        kind: 'book',
+        rmId: '444',
+        year: 2025,
+      }),
+      pub({
+        title: 'ねころんで読める不眠症',
+        key: 'rm:444',
+        kind: 'book',
+        rmId: '444',
+        bookRole: 'single_work',
+        publisher: 'メディカ出版',
+        isbn: '9784840488235',
+        year: 2025,
+      }),
+    ]
+    const [merged] = dedupePublications(input).publications
+    expect(merged.kind).toBe('book')
+    expect(merged.bookRole).toBe('single_work')
+    expect(merged.publisher).toBe('メディカ出版')
+    expect(merged.isbn).toBe('9784840488235')
+  })
+})

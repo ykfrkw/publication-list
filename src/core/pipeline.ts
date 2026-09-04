@@ -44,12 +44,14 @@ import {
 } from './ids'
 import { dedupePublications } from './dedupe'
 import { categorizeAll, isOpenReviewJournal } from './categorize'
+import { applyCategoryPins, categorizeGyoseki } from './gyoseki'
 import { matchesBoldName, normalizeNameCjk } from './format'
 import { fetchOrcidPerson, fetchOrcidWorksWithWarnings } from './sources/orcid'
 import {
   fetchResearchmapProfile,
   fetchResearchmapWorksWithWarnings,
 } from './sources/researchmap'
+import { fetchResearchmapGyosekiWithWarnings } from './sources/researchmapGyoseki'
 import type { ResearchmapProfile } from './sources/researchmap'
 import {
   fetchPubmedSummariesWithWarnings,
@@ -215,8 +217,14 @@ async function resolveSeeds(
     .filter((a): a is PersonNameAnchor => a !== undefined)
 
   const namedByOrcid = [...new Set(people.map((p) => p.name).filter((n): n is string => !!n))]
+  // Under the gyoseki taxonomy the profile is never skipped: it is the only
+  // source of the Japanese-script 姓/名 pair, and without that pair no
+  // Japanese bold variants derive — on the one taxonomy whose sections are
+  // full of Japanese-script author lists.
   const skipProfile =
-    orcidAnchors.length > 0 && (namedByOrcid.length > 0 || !!config.boldNames?.length)
+    config.taxonomy !== 'gyoseki' &&
+    orcidAnchors.length > 0 &&
+    (namedByOrcid.length > 0 || !!config.boldNames?.length)
 
   // Deliberately not awaited: the caller passes `anchors` into the papers
   // fetch, so a profile lookup that does happen runs alongside it.
@@ -633,15 +641,25 @@ export async function buildList(
   const orcidSeeds = seedIdList(config.seeds.orcid)
   const researchmapSeeds = seedIdList(config.seeds.researchmap)
 
-  const [orcidResults, researchmapResults] = await Promise.all([
+  const [orcidResults, researchmapResults, gyosekiResults] = await Promise.all([
     Promise.all(orcidSeeds.map((id) => fetchOrcidWorksWithWarnings(id, signal))),
     Promise.all(
       researchmapSeeds.map((id) =>
         fetchResearchmapWorksWithWarnings(id, { signal, anchors: seeds.anchors }),
       ),
     ),
+    // The four extra researchmap endpoints (misc / books_etc / presentations /
+    // awards) are strictly opt-in: a config that never asked for the 業績集
+    // taxonomy costs zero additional requests.
+    config.taxonomy === 'gyoseki'
+      ? Promise.all(
+          researchmapSeeds.map((id) =>
+            fetchResearchmapGyosekiWithWarnings(id, { signal, anchors: seeds.anchors }),
+          ),
+        )
+      : Promise.resolve([]),
   ])
-  for (const result of [...orcidResults, ...researchmapResults]) {
+  for (const result of [...orcidResults, ...researchmapResults, ...gyosekiResults]) {
     fetched.push(...result.publications)
     warnings.push(...result.warnings)
   }
@@ -853,6 +871,15 @@ export async function buildList(
   // ── 5. enrich ─────────────────────────────────────────────────────────
   // Must finish before ANY rendering: `format.ts` decides bold authors from
   // `authorsFull`, and OpenAlex is what populates it.
+  //
+  // Papers only. A presentation title fed to the OpenAlex title search burns
+  // one of its lookup slots on a record that cannot be there, and a book has
+  // no DOI Crossref could resolve — so books, presentations and awards step
+  // aside here and rejoin after stage 5b, untouched.
+  const isPaperRecord = (p: Publication) => (p.kind ?? 'paper') === 'paper'
+  const nonPapers = pubs.filter((p) => !isPaperRecord(p))
+  pubs = pubs.filter(isPaperRecord)
+
   report(58, 'Enriching metadata (OpenAlex)')
   const byDoi = await enrichByDoiWithWarnings(pubs, signal, { skipDois: enrichedDois })
   pubs = byDoi.publications
@@ -908,6 +935,10 @@ export async function buildList(
     }
   }
 
+  // Non-papers rejoin here: the seed windows and every later stage apply to
+  // them exactly as to papers (they carry year/month and trust 'confirmed').
+  pubs = [...pubs, ...nonPapers]
+
   // ── 5c. seed windows ──────────────────────────────────────────────────
   // After enrichment, because OpenAlex is what supplies the publication month
   // on an ORCID record, and a window decided on a wrong date would remove real
@@ -923,9 +954,12 @@ export async function buildList(
   warnings.push(...windowed.warnings)
 
   // ── 6. categorize ─────────────────────────────────────────────────────
+  // Papers only, again: `PublicationCategory` is a paper vocabulary, and a
+  // book must neither get a `category` nor be erratum-excluded.
   report(88, 'Categorizing')
-  const categorized = categorizeAll(pubs)
-  pubs = categorized.publications
+  const nonPaperRecords = pubs.filter((p) => !isPaperRecord(p))
+  const categorized = categorizeAll(pubs.filter(isPaperRecord))
+  pubs = [...categorized.publications, ...nonPaperRecords]
   dropped.erratum += categorized.excluded.length
   if (categorized.excluded.length > 0) {
     warnings.push(
@@ -934,6 +968,14 @@ export async function buildList(
           .map((p) => p.title || p.doi || p.pmid || p.key)
           .join('; ')}`,
     )
+  }
+
+  if (config.taxonomy === 'gyoseki') {
+    // Every record gets its 業績集 section, then the manual pins overwrite.
+    pubs = pubs.map((p) => ({ ...p, gyosekiCategory: categorizeGyoseki(p) }))
+    const pinned = applyCategoryPins(pubs, config.categoryPins)
+    pubs = pinned.publications
+    warnings.push(...pinned.warnings)
   }
 
   // ── 6b. preprints ─────────────────────────────────────────────────────

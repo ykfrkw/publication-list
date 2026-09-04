@@ -602,3 +602,70 @@ describe('the heading level', () => {
     expect(parseConfigFromSearchParams(query).config.headingLevel).toBe(4)
   })
 })
+
+describe('the gyoseki taxonomy and pins in the emitted attributes', () => {
+  const names = (attrs: readonly (readonly [string, string])[]) =>
+    attrs.map(([name]) => name)
+
+  it('emits none of the three attributes for a standard config', () => {
+    const attrs = configToDataAttributes(model().config)
+    expect(names(attrs)).not.toContain('data-taxonomy')
+    expect(names(attrs)).not.toContain('data-category-pins')
+    expect(names(attrs)).not.toContain('data-order-pins')
+  })
+
+  it('emits data-taxonomy only for gyoseki, and the pins only when present', () => {
+    const config = normalizeConfig({
+      seeds: { orcid: ['0000-0003-1317-0220'] },
+      taxonomy: 'gyoseki',
+      categoryPins: ['pmid:1=ja-review', 'rm:12345=award'],
+      orderPins: ['pmid:2', 'doi:10.1136/bmj.n71'],
+    })
+    const attrs = new Map(configToDataAttributes(config))
+    expect(attrs.get('data-taxonomy')).toBe('gyoseki')
+    expect(attrs.get('data-category-pins')).toBe('pmid:1=ja-review,rm:12345=award')
+    expect(attrs.get('data-order-pins')).toBe('pmid:2,doi:10.1136/bmj.n71')
+  })
+
+  it('escapes a comma inside a pin ref, and the parser reads it back', () => {
+    // A DOI may legally contain a comma; the naive join would split the pin in
+    // two. Same `encodeListValue` escaping as every other comma-joined list.
+    const config = normalizeConfig({
+      seeds: { orcid: ['0000-0003-1317-0220'] },
+      taxonomy: 'gyoseki',
+      categoryPins: ['doi:10.1000/a,b=ja-original'],
+      orderPins: ['doi:10.1000/a,b'],
+    })
+    const attrs = new Map(configToDataAttributes(config))
+    expect(attrs.get('data-category-pins')).toBe('doi:10.1000/a%2Cb=ja-original')
+    expect(attrs.get('data-order-pins')).toBe('doi:10.1000/a%2Cb')
+
+    const params = new URLSearchParams({
+      orcid: '0000-0003-1317-0220',
+      taxonomy: 'gyoseki',
+      'category-pins': attrs.get('data-category-pins')!,
+      'order-pins': attrs.get('data-order-pins')!,
+    })
+    const back = normalizeConfig(parseConfigFromSearchParams(params).config)
+    expect(back.categoryPins).toEqual(['doi:10.1000/a,b=ja-original'])
+    expect(back.orderPins).toEqual(['doi:10.1000/a,b'])
+  })
+
+  it('carries all three into the embed snippet and the iframe URL', () => {
+    const config = normalizeConfig({
+      seeds: { orcid: ['0000-0003-1317-0220'] },
+      taxonomy: 'gyoseki',
+      categoryPins: ['pmid:1=ja-review'],
+      orderPins: ['pmid:1'],
+    })
+    const embed = buildEmbedSnippet(model({ config }), { credit: false })
+    expect(embed).toContain('data-taxonomy="gyoseki"')
+    expect(embed).toContain('data-category-pins="pmid:1=ja-review"')
+    expect(embed).toContain('data-order-pins="pmid:1"')
+
+    const iframe = buildIframeSnippet(config)
+    expect(iframe).toContain('taxonomy=gyoseki')
+    expect(iframe).toContain('category-pins=')
+    expect(iframe).toContain('order-pins=')
+  })
+})

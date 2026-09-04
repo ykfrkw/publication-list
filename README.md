@@ -82,6 +82,8 @@ Two elements are the exception. The last two lines — `.publist-disclaimer` and
 
 `https://ykfrkw.github.io/publication-list/embed.js` always serves the current build. `https://ykfrkw.github.io/publication-list/v1/embed.js` is the pinned copy: same file today, and it will keep the v1 behaviour if the format ever changes. Use the pinned URL if you would rather not be updated automatically.
 
+Pinned means **pinned against breaking changes, not frozen**. Additive, opt-in features — the [gyoseki taxonomy](#the-gyoseki-taxonomy) is one — are included in `v1/embed.js` too, because an attribute your snippet does not carry changes nothing about what your page renders. What `v1/` promises is that the attributes and markup that work today keep meaning what they mean today.
+
 ---
 
 ## Coming back to a list you already made
@@ -129,9 +131,12 @@ Read off `src/core/config.ts`. Values are trimmed; an empty attribute is treated
 | `data-group-by` | `groupBy` | `category-year`, `category`, `year`, `none` | `category-year` |
 | `data-heading-level` | `headingLevel` | `auto`, or `2`–`5`. The level the publication-type headings render at; the year dividers always sit one level below (never past `<h6>`). `auto` measures the host page — see below. Anything else, `1` and `6` included, is an unrecognized value and falls back to the default. | `auto` — **except in a snippet with the list baked into it, where the wizard writes an explicit `3`** |
 | `data-preprints` | `preprints` | `include`, `exclude` | `exclude` — preprints are left off unless you ask for them |
-| `data-japanese` | `japanese` | `separate`, `merge`, `hide` | `separate` |
+| `data-japanese` | `japanese` | `separate`, `merge`, `hide`. **Ignored entirely under `data-taxonomy="gyoseki"`** — that scheme divides by language itself, so records flow as if `merge` were set. See [The gyoseki taxonomy](#the-gyoseki-taxonomy). | `separate` |
 | `data-review-policy` | `reviewPolicy` | `strict`, `auto` | `strict` |
 | `data-disclaimer` | `disclaimer` | `show`, `hide` | `show` — the list says it was compiled automatically |
+| `data-taxonomy` | `taxonomy` | `standard`, `gyoseki`. `gyoseki` switches the section scheme to the ten numbered Japanese sections of a 業績集 — see [The gyoseki taxonomy](#the-gyoseki-taxonomy). | `standard` — the English publication-type sections |
+| `data-category-pins` | `categoryPins` | Comma-separated `ref=category` overrides that re-file one record under another gyoseki section. `ref` is `doi:…`, `pmid:…` or `rm:<digits>` (a researchmap achievement id); `category` is one of the ten tokens listed under [The gyoseki taxonomy](#the-gyoseki-taxonomy). The entry is split on the **last** `=`, because a DOI may contain one. An unrecognized category token drops the entry — a typo un-pins the record, it never mis-files it. Later entries for the same ref win. | none |
+| `data-order-pins` | `orderPins` | Comma-separated refs (same three forms) in explicit display order. A pinned record sorts before its unpinned neighbours **within its own section**; everything unpinned keeps the default newest-first sort. A ref matching nothing is ignored — a stale pin never hides a record. Works in either taxonomy. | none |
 | `data-from` | `from` | `YYYY` or `YYYY-MM`. A bare year means January of that year. | no lower bound |
 | `data-to` | `to` | `YYYY` or `YYYY-MM`. A bare year means December of that year. | no upper bound |
 | `data-limit` | `limit` | Positive integer. Applied after sorting, so you keep the newest N. | no limit |
@@ -143,7 +148,7 @@ What the values mean:
 - **`groupBy`** — **the default is `category-year`**, which is two levels: an `<h3>` per publication type — Original Articles & Reviews / Letters / Editorials / Other Publication Types, plus Preprints if `preprints` is `include` — and inside each of those an `<h4>` per publication year, newest first, with an `Undated` bucket last *within its own type*. It answers both of the questions a publication page gets asked, what kind of work this is and how recent it is, without the reader scanning dates down the citations. The other three give you one level or none: `category` is the type headings alone, `year` the year headings alone, and `none` one flat numbered list — which is what you want for an article's reference list, where the numbers are what the prose cites. Each heading starts its own `<ol>`, so the numbering restarts under it; only `none` produces a single unbroken sequence. Under `japanese: separate` the Japanese-language section stays last, undivided, whichever of the four you pick.
 - **`headingLevel`** — what level the type headings come out at, so the list fits the outline of the page it is pasted into. **The default is `auto`, and automatic measures the host page**: `embed.js` takes the last heading that comes before the container in document order and renders one level below it, clamped to 2–5 — under an `<h2>` the sections are `<h3>`, under an `<h1>` they stay `<h2>` rather than claiming the page title's level, and under an `<h5>` or `<h6>` they stop at `<h5>` so the year dividers still have an `<h6>` to sit on. Headings inside the container are ignored, so a baked-in list is never measured against itself. With no preceding heading at all — a list at the top of a page — it falls back to `3`. **A snapshot changes the default to an explicit `3`.** The wizard bakes that copy of the list before it knows what page it will be pasted into, and a level that later shifted on load would leave exactly the readers the snapshot exists for — crawlers, and visitors with JavaScript off — holding the wrong outline permanently; so with the box ticked the level is resolved once and written into both the baked markup and `data-heading-level`, and the wizard's "Heading level" select disables Automatic and shows the number you will get. Un-tick the box and the stored choice is still `auto`.
 - **`preprints`** — whether preprints appear at all. **The default is `exclude`**: a publication list normally means published work, and an unlabelled manuscript sitting among journal articles overstates it. Nothing disappears quietly — every excluded preprint is named in the model's warnings, with the count and how to turn them on. `include` puts them back, in their own "Preprints" section under `groupBy: category`. Note what counts as a preprint: anything on a preprint server (medRxiv, bioRxiv, arXiv and the rest of the list in [Limitations](#limitations)), anything the source typed as a preprint, **and an F1000-family article that Crossref does not yet report as approved by referees** — see [Limitations](#limitations).
-- **`japanese`** — what to do with Japanese-language records, which in practice come from researchmap. `separate` puts them in a trailing "Japanese-language publications" section. `merge` interleaves them with everything else. `hide` drops them (before `limit` is applied, so a limit of 10 still yields 10 visible entries).
+- **`japanese`** — what to do with Japanese-language records, which in practice come from researchmap. `separate` puts them in a trailing "Japanese-language publications" section. `merge` interleaves them with everything else. `hide` drops them (before `limit` is applied, so a limit of 10 still yields 10 visible entries). **Under `data-taxonomy="gyoseki"` this option is ignored entirely, whatever it says**: the 業績集 scheme divides by language itself — 英文 and 和文 sections *are* the taxonomy — so a trailing Japanese section would duplicate its own headings and `hide` would empty half the list. Records flow through as if `merge` were set. See [The gyoseki taxonomy](#the-gyoseki-taxonomy).
 - **`reviewPolicy`** — `strict` publishes only records the tool is confident about; anything a PubMed *name* search turned up stays off the page until you confirm it. `auto` publishes name-search hits immediately. Read [Limitations](#limitations) before choosing `auto`.
 - **`include`** — the way to put specific papers on the list. A pinned PMID or DOI is confirmed outright: it is published whatever found it, it is exempt from the seed time windows, and it appears in an embed. This is what a PubMed query cannot do — **a candidate never appears in an embed**, and there is no review queue on an embedded page to change that. If you know which papers you want, pin them rather than searching for them.
 - **`disclaimer`** — the one-line note under the list saying it was compiled automatically from ORCID, PubMed and researchmap and inherits their errors. **On by default**, and worth leaving on: it is what tells a reader that a missing paper is a gap in a database rather than a claim about the group. `hide` removes it. It is a separate switch from [the credit link](#the-credit-link) in both directions — turning either off leaves the other alone.
@@ -176,6 +181,42 @@ This registry is small, curated, and **not open for submissions** — it exists 
 
 ---
 
+## The gyoseki taxonomy
+
+A 業績集 (gyoseki, achievement list) is the format a Japanese academic CV expects: ten numbered sections filing work by language and article type for papers, by authorship role for books, by venue scope for presentations, and awards last. `data-taxonomy="gyoseki"` — or the wizard's **List format** select, in person and lab modes — switches the section scheme to it:
+
+| Token (for `data-category-pins`) | Section heading |
+| --- | --- |
+| `en-original` | 1. 英文原著論文 |
+| `en-review` | 2. 英文総説（Commentary, Editorial を含む） |
+| `ja-original` | 3. 和文原著（ケースレポート等を含む） |
+| `ja-review` | 4. 和文総説・解説 |
+| `ja-report` | 5. 和文報告書（座談会記録を含む） |
+| `book-lead` | 6. 著書・訳書（主著・編） |
+| `book-chapter` | 7. 著書・訳書（分担執筆） |
+| `intl-presentation` | 8. 国際学会発表・講演 |
+| `domestic-presentation` | 9. 国内学会発表・講演等 |
+| `award` | 10. 受賞歴 |
+
+**It is opt-in, and absent means the standard sections.** A configuration that never says `gyoseki` parses, hashes and renders exactly as it did before the taxonomy existed — no snippet written earlier changes meaning.
+
+**Sections 4–10 require a researchmap seed.** ORCID and PubMed carry papers; researchmap is the only source here that carries 和文総説・報告書 (its `misc` list), books, presentations and awards. Without a researchmap permalink among the seeds those sections stay empty — the wizard says so beside the select. Empty sections render no heading, consistent with the standard scheme.
+
+**Where a record files is inferred, and the heuristics have limits.** They are, in the order they decide:
+
+- **原著 vs 総説, papers** — a record from researchmap's `misc` endpoint files as a review or report (that list is where 総説・解説・報告書 live), and a letter or editorial files review-side; after those, a title announcing a **systematic review, meta-analysis, or network/scoping/umbrella review** files under 原著論文 and outranks the two weaker review signals — OpenAlex's `review` work type and a review-journal name token (Review, Trends in, Current Opinion, 総説, 解説…) — because a 業績集 files SR/MA as original research and OpenAlex's `review` type conflates them with narrative reviews. Japanese SR/MA phrasings (メタ解析 …) are not matched yet. The journal-name token is a substring match, so a journal like *Systematic Reviews* can drag a plain original article review-side.
+- **和文 vs 英文** — the record's language field, from the source that supplied it.
+- **国際 vs 国内, presentations** — the record's language field first; failing that, the script of the event name (a CJK event name is domestic; a non-CJK event name with a non-CJK title is international); failing everything, domestic — a 業績集 that over-claims an international talk is worse than one that under-claims it. The invited flag and presentation type never change the bucket.
+- **主著・編 vs 分担執筆, books** — researchmap's role string (a 分担/contributor token means chapter), or failing that a page/chapter range in the record.
+
+**When a heuristic gets one wrong, you re-file the record rather than fight the rule.** In the wizard's preview, drag the entry onto another section — or use the small section select on its row, which does the same thing with a keyboard and reaches sections that are currently empty. Either writes a `data-category-pins` entry into the snippet, so the correction is part of the configuration and survives every rebuild. Dragging within a section writes `data-order-pins` the same way. Choosing the section a record would land in anyway deletes the pin rather than storing a redundant one, so an upstream metadata fix is not overridden for ever. A record with no DOI, PMID or researchmap achievement id cannot be pinned — there is no reference to write — and its controls say so.
+
+**Japanese author bolding is automatic for researchmap-seeded members.** Bold-name matching never crosses scripts — `Yuki Furukawa` cannot bold `古川由己` — so when a bolded member's researchmap profile carries Japanese name halves, both ways researchmap writes a Japanese author (`姓 名` and `姓名`, family-first) join the bold set automatically. Matching stays **exact**: no fuzzy variants, no surname-only bolding. If a record spells the name some third way, list that spelling in `data-bold-names` yourself — both script forms can sit in the list side by side.
+
+`data-japanese` is ignored under this taxonomy — see [its row in the attribute table](#full-attribute-reference).
+
+---
+
 ## The iframe fallback
 
 Some CMSes strip `<script src>` out of page content. For those, the wizard emits an `<iframe>` snippet — collapsed under "iframe snippet", because it is the fallback rather than the recommended route — pointing at a hosted widget page:
@@ -191,7 +232,7 @@ The snippet also carries a small inline listener that resizes the frame to its c
 The widget reads its configuration from the **query string** rather than from `data-*` attributes, using the same vocabulary and the same coercion rules: drop the `data-` prefix and you have the parameter name. `?orcid=…&style=vancouver` means exactly what `data-orcid="…" data-style="vancouver"` means. Two conveniences the query string adds:
 
 - **Repeated names are joined.** `?orcid=A&orcid=B` is the same as `?orcid=A,B`. For a single-valued parameter, the first occurrence wins.
-- **camelCase spellings are accepted** for every hyphenated name: `groupBy`, `boldNames`, `reviewPolicy`, `headingLevel` and `pubmedTrusted` work as well as `group-by`, `bold-names`, `review-policy`, `heading-level` and `pubmed-trusted`.
+- **camelCase spellings are accepted** for every hyphenated name: `groupBy`, `boldNames`, `reviewPolicy`, `headingLevel`, `pubmedTrusted`, `categoryPins` and `orderPins` work as well as `group-by`, `bold-names`, `review-policy`, `heading-level`, `pubmed-trusted`, `category-pins` and `order-pins`. (`taxonomy` is one word and needs no alias.)
 
 `?list=` works like its attribute counterpart, and is validated the same way and by the same function: a bare filename, so it cannot climb out of `lists/`. There is deliberately no parameter that names an arbitrary URL for the widget to fetch.
 
@@ -264,6 +305,9 @@ The `ListConfig` document, defined in `src/core/types.ts`. Every field except `v
   japanese?: 'separate' | 'merge' | 'hide'
   reviewPolicy?: 'strict' | 'auto'
   disclaimer?: 'show' | 'hide'          // default 'show'
+  taxonomy?: 'standard' | 'gyoseki'     // default 'standard'; see The gyoseki taxonomy
+  categoryPins?: string[]               // "<ref>=<category>" section overrides
+  orderPins?: string[]                  // refs in explicit display order
   limit?: number                        // positive integer
 }
 ```
@@ -428,7 +472,7 @@ A query that returns PubMed's 200-result cap is flagged as probably too broad; n
 
 **A candidate never appears in an embed.** Reviewing happens in the wizard and nowhere else: an embedded page has no queue and nobody at the other end of a page load to work through one, so under the default `strict` policy an unconfirmed candidate is absent from the embed permanently, not temporarily. This has two consequences worth stating outright. First, the wizard preview is a superset of what the page will show — the preview has a review queue under it, the page does not — so a list with outstanding candidates embeds fewer records than you are looking at, and the wizard says so with the count beside the snippet. Second, a list whose records are *all* unconfirmed candidates embeds nothing at all, for ever; the wizard diagnoses that case and refuses to generate a snippet for it rather than handing over markup that would render an empty list on someone's site. **If you know which papers you want, pin them by PMID or DOI** — `include` entries are confirmed outright and are the only route that reliably puts a named paper into an embed.
 
-**Publication type classification is imperfect.** Categories (original article, preprint, letter, editorial, other) come mostly from OpenAlex work types, falling back to the type ORCID or researchmap reported. OpenAlex gets this wrong sometimes, and there is no cross-source vote to catch it. Preprint servers are detected by journal-name matching against a fixed list (medRxiv, bioRxiv, arXiv, SSRN, ChemRxiv, PsyArXiv, preprints.org, Research Square, Authorea) — a server not on that list will be miscategorised. Records that OpenAlex types as `erratum` or `paratext` are dropped from the list entirely, and the drop is reported in the warnings rather than done silently.
+**Publication type classification is imperfect.** Categories (original article, preprint, letter, editorial, other) come mostly from OpenAlex work types, falling back to the type ORCID or researchmap reported. OpenAlex gets this wrong sometimes, and there is no cross-source vote to catch it. Preprint servers are detected by journal-name matching against a fixed list (medRxiv, bioRxiv, arXiv, SSRN, ChemRxiv, PsyArXiv, preprints.org, Research Square, Authorea) — a server not on that list will be miscategorised. Records that OpenAlex types as `erratum` or `paratext` are dropped from the list entirely, and the drop is reported in the warnings rather than done silently. The [gyoseki taxonomy](#the-gyoseki-taxonomy) layers its own inferences on top — 原著 vs 総説, 国際 vs 国内 — with their own failure modes, listed there; a record it mis-files is corrected by dragging it to the right section in the wizard, which writes the fix into the snippet as a category pin.
 
 **Preprints are hidden by default, and an unapproved F1000 article counts as one.** `preprints` defaults to `exclude` (see [the attribute table](#full-attribute-reference)). For F1000-family open-review journals, Crossref is consulted to decide whether an article has been approved by referees (original article) or not yet (preprint) — so an F1000Research paper whose referee reports have not landed, or whose Crossref record has not caught up, is filed as a preprint and is therefore **also hidden by default**. That is the intended reading: it has been posted, not yet peer-reviewed. It is still a surprise if you were not expecting it, which is why every held-back record is named in the warnings with its count, and why turning them all back on is one setting: `preprints: 'include'`, or the wizard's "Include preprints" checkbox.
 
@@ -441,7 +485,7 @@ A query that returns PubMed's 200-result cap is flagged as probably too broad; n
 
 The bottleneck is researchmap's response time, not the number of requests. **This is largely not what your visitors experience**: a cached list from a previous visit is on screen immediately, and with the snapshot box ticked the pre-rendered list is there from the first paint; the live fetch swaps in when it lands. A first-time visitor to a snippet with no snapshot does wait for it, which is one of the reasons the box is recommended.
 
-**Author names are only as good as the source.** ORCID work summaries carry no author list at all — author names come from OpenAlex enrichment. researchmap stores short forms (`Türkmen C`) in a field that reads like a full-name field, and its author ordering varies between accounts. Bold-name matching therefore works on full names; if you give it `Furukawa Y` it cannot tell Yuki from Yuri, and the tool will warn you when a bold name lands on two different people.
+**Author names are only as good as the source.** ORCID work summaries carry no author list at all — author names come from OpenAlex enrichment. researchmap stores short forms (`Türkmen C`) in a field that reads like a full-name field, and its author ordering varies between accounts. Bold-name matching therefore works on full names; if you give it `Furukawa Y` it cannot tell Yuki from Yuri, and the tool will warn you when a bold name lands on two different people. It also never crosses scripts — a Latin bold name cannot bold a 日本語 rendering of the same person. For researchmap-seeded members the tool derives the Japanese variants itself; for anyone else, list both script forms in `bold-names` — see [The gyoseki taxonomy](#the-gyoseki-taxonomy).
 
 **Group membership is not something the sources know.** Neither ORCID nor PubMed will tell you that a student left your lab in 2023, so nothing here can work it out on its own. The reliable answer is to [freeze a member](docs/lab-setup.md#when-someone-joins-or-leaves) when they go, which converts their work so far into explicit pins and removes the seed — no inference involved. Freezing pins whatever is on the list at that moment, so it can pin something that does not belong there; excluding the record afterwards removes it, because `exclude` outranks `include`. [Seed time windows](#seed-time-windows) are the fallback for when nobody remembers to, and they are a rule about dates: a paper genuinely delayed past the grace period drops off, and a paper the departed member wrote elsewhere but dated inside the window stays. Both outcomes are reported in the warnings, and neither can happen to a pinned record. Affiliation-based filtering — asking OpenAlex which institution an author gave *on that paper* — is the semantically correct answer and is deliberately not implemented: the institution data varies in quality and its accuracy has not been measured here.
 
@@ -512,7 +556,7 @@ npm run lint
 npm run build    # dist/ — wizard, widget page, lists/, embed.js and v1/embed.js
 ```
 
-`src/core/` is framework-free and shared by the React wizard and the embed bundle; nothing in it may import React or touch the DOM outside `parseConfigFromDataset`. `npm run build` runs two Vite builds: the app, then the embed bundle as a single self-contained IIFE with no hashed filenames. The app build also copies `lists/*.json` into `dist/lists/`, which is what makes `data-list` / `?list=` resolve on the deployed site; the dev server does not, so test a registry entry against `npm run preview`. CI fails the deploy if `dist/embed.js` exceeds 20 KB gzipped.
+`src/core/` is framework-free and shared by the React wizard and the embed bundle; nothing in it may import React or touch the DOM outside `parseConfigFromDataset`. `npm run build` runs two Vite builds: the app, then the embed bundle as a single self-contained IIFE with no hashed filenames. The app build also copies `lists/*.json` into `dist/lists/`, which is what makes `data-list` / `?list=` resolve on the deployed site; the dev server does not, so test a registry entry against `npm run preview`. CI fails the deploy if `dist/embed.js` exceeds 25 KB gzipped; it currently weighs about 22.6 KB, most of the growth being the gyoseki fetchers and classifier, which run at embed time.
 
 ## Deploying your own copy
 
@@ -520,7 +564,7 @@ npm run build    # dist/ — wizard, widget page, lists/, embed.js and v1/embed.
 
 The site lands at `https://ykfrkw.github.io/publication-list/` — on a fork, at `https://<your-user>.github.io/<your-repo>/`, which is also the origin your snippets' `embed.js` URL has to point at.
 
-The same workflow fails the build if `dist/embed.js` exceeds 20 KB gzipped. That gate is deliberate: the script goes into other people's pages, so its transfer size is a promise rather than an implementation detail.
+The same workflow fails the build if `dist/embed.js` exceeds 25 KB gzipped (raised from 20 KB when the gyoseki taxonomy joined the core; the file is ~22.6 KB today). That gate is deliberate: the script goes into other people's pages, so its transfer size is a promise rather than an implementation detail.
 
 ## Citing
 

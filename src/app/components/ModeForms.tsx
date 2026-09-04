@@ -608,7 +608,9 @@ export function LabModeForm({
             spellCheck={false}
             value={draft.pins}
             onChange={(e) => update({ pins: e.currentTarget.value })}
-            placeholder={'33782057\n10.1136/bmj.n71'}
+            placeholder={
+              '10.1016/j.jpsychires.2025.09.083\n10.1016/j.invent.2025.100860\n10.1016/j.jad.2024.09.017\n10.1111/pcn.13730\n10.1001/jamapsychiatry.2023.5060'
+            }
           />
         )}
       </Field>
@@ -638,7 +640,9 @@ export function LabModeForm({
             spellCheck={false}
             value={draft.pubmed}
             onChange={(e) => update({ pubmed: e.currentTarget.value })}
-            placeholder={'Tanaka H[au] AND ("Univ Tokyo"[ad])\n"RECOVERY Collaborative Group"[cn]'}
+            placeholder={
+              '("SLEEPI"[cn]) OR (38231522 [pmid] OR 39242039 [pmid] OR 39188094 [pmid] OR 41061442 [pmid] OR 40703853 [pmid])'
+            }
           />
         )}
       </Field>

@@ -1,0 +1,234 @@
+{
+  "_fixture_note": "books_etc items captured 2026-09-05, trimmed: rm:id 54195029/52078738/50352883 from api.researchmap.jp/yk_frkw, 52084597/44094703 from /ykanekopsy, and the joint_work item from /7000024045. book_owner_role values observed in the wild: single_work, contributor, others, joint_translation, joint_work, and absent.",
+  "total_items": 6,
+  "items": [
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/books_etc/54195029",
+      "rm:id": "54195029",
+      "major_achievement": false,
+      "book_title": {
+        "ja": "こころの科学"
+      },
+      "book_owner_role": "contributor",
+      "book_owner_range": {
+        "ja": "「眠れない」に向き合う ——不眠症治療の第一選択・不眠の認知行動療法を手に"
+      },
+      "publisher": {
+        "ja": "日本評論社"
+      },
+      "publication_date": "2026-07",
+      "identifiers": {
+        "isbn": [
+          "9784535141483"
+        ]
+      }
+    },
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/books_etc/52078738",
+      "rm:id": "52078738",
+      "major_achievement": false,
+      "book_title": {
+        "ja": "パンプキン2026年2月号"
+      },
+      "book_owner_role": "others",
+      "book_owner_range": {
+        "ja": "【健康ノート】 不眠症"
+      },
+      "publisher": {
+        "ja": "潮出版社"
+      },
+      "publication_date": "2026-01"
+    },
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/books_etc/50352883",
+      "rm:id": "50352883",
+      "major_achievement": false,
+      "book_title": {
+        "ja": "ねころんで読める不眠症：睡眠衛生指導や睡眠薬より効く不眠症治療、教えます"
+      },
+      "book_owner_role": "single_work",
+      "authors": {
+        "ja": [
+          {
+            "name": "古川 由己"
+          }
+        ]
+      },
+      "publisher": {
+        "ja": "メディカ出版"
+      },
+      "publication_date": "2025-06-17",
+      "identifiers": {
+        "isbn": [
+          "4840488231"
+        ],
+        "asin": [
+          "4840488231"
+        ],
+        "ean": [
+          "9784840488235"
+        ]
+      }
+    },
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/books_etc/52084597",
+      "rm:id": "52084597",
+      "major_achievement": false,
+      "book_title": {
+        "ja": "日本うつ病学会診療ガイドライン 双極症 2023"
+      },
+      "authors": {
+        "ja": [
+          {
+            "name": "気分障害の治療ガイドライン検討委員会"
+          },
+          {
+            "name": "双極性障害委員会"
+          }
+        ]
+      },
+      "publisher": {
+        "ja": "日本うつ病学会"
+      },
+      "publication_date": "2023-03"
+    },
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/books_etc/44094703",
+      "rm:id": "44094703",
+      "major_achievement": false,
+      "book_title": {
+        "ja": "セシル内科学 原著第26版 日本対応版",
+        "en": "Goldman-Cecil Medicine"
+      },
+      "book_owner_role": "joint_translation",
+      "authors": {
+        "ja": [
+          {
+            "name": "鈴木正泰"
+          },
+          {
+            "name": "横瀬宏美"
+          },
+          {
+            "name": "鈴木貴浩"
+          },
+          {
+            "name": "金子宜之"
+          },
+          {
+            "name": "金森正"
+          }
+        ]
+      },
+      "book_owner_range": {
+        "en": "Psychiatric Disorders in Medical Practice."
+      },
+      "publisher": {
+        "ja": "エルゼビア・ジャパン",
+        "en": "ELSEVIER JAPAN"
+      },
+      "publication_date": "2023"
+    },
+    {
+      "@id": "https://api.researchmap.jp/7000024045/books_etc/43348238",
+      "rm:id": "43348238",
+      "major_achievement": false,
+      "book_title": {
+        "ja": "Hydrologic controls on the nitrogen dynamics of forested ecosystems investigated using water and nitrate isotope signatures, In: Earth, Life, and Isotopes",
+        "en": "Hydrologic controls on the nitrogen dynamics of forested ecosystems investigated using water and nitrate isotope signatures, In: Earth, Life, and Isotopes"
+      },
+      "book_owner_role": "joint_work",
+      "authors": {
+        "ja": [
+          {
+            "name": "Ohte"
+          },
+          {
+            "name": "N."
+          },
+          {
+            "name": "Tokuchi"
+          },
+          {
+            "name": "N."
+          },
+          {
+            "name": "and Osaka"
+          },
+          {
+            "name": "K."
+          },
+          {
+            "name": "edited by Ohkouch"
+          },
+          {
+            "name": "N"
+          },
+          {
+            "name": "Tayasu"
+          },
+          {
+            "name": "I"
+          },
+          {
+            "name": "Koba"
+          },
+          {
+            "name": "K."
+          }
+        ],
+        "en": [
+          {
+            "name": "Ohte"
+          },
+          {
+            "name": "N."
+          },
+          {
+            "name": "Tokuchi"
+          },
+          {
+            "name": "N."
+          },
+          {
+            "name": "and Osaka"
+          },
+          {
+            "name": "K."
+          },
+          {
+            "name": "edited by Ohkouch"
+          },
+          {
+            "name": "N"
+          },
+          {
+            "name": "Tayasu"
+          },
+          {
+            "name": "I"
+          },
+          {
+            "name": "Koba"
+          },
+          {
+            "name": "K."
+          }
+        ]
+      },
+      "publisher": {
+        "ja": "Kyoto University Press",
+        "en": "Kyoto University Press"
+      },
+      "publication_date": "2010-04-01",
+      "languages": [
+        "eng"
+      ],
+      "identifiers": {
+        "isbn": [
+          "9784876989607"
+        ]
+      }
+    }
+  ]
+}

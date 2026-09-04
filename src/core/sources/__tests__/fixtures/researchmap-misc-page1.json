@@ -1,0 +1,107 @@
+{
+  "_fixture_note": "api.researchmap.jp/ykanekopsy/misc?format=json&limit=2 captured 2026-09-05, items trimmed. Real response; only total_items is kept small-page realistic (84 on the live account).",
+  "total_items": 84,
+  "_links": {
+    "next": {
+      "href": "https://api.researchmap.jp/ykanekopsy/misc?start=3&limit=2"
+    }
+  },
+  "items": [
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/misc/54755004",
+      "rm:id": "54755004",
+      "major_achievement": false,
+      "paper_title": {
+        "ja": "【-キーワードから読み解く-これからの精神医学・精神医療の10の潮流】精神医療の潮流を読み解くキーワード 当事者が主体の精神医療 潮流 日常体験と精神医学 悪夢障害"
+      },
+      "authors": {
+        "ja": [
+          {
+            "name": "金子 宜之"
+          },
+          {
+            "name": "鈴木 正泰"
+          }
+        ]
+      },
+      "publisher": {
+        "ja": "(株)医学書院"
+      },
+      "publication_date": "2026-05",
+      "publication_name": {
+        "ja": "精神医学"
+      },
+      "languages": [
+        "jpn"
+      ],
+      "identifiers": {
+        "issn": [
+          "0488-1281"
+        ],
+        "e_issn": [
+          "1882-126X"
+        ],
+        "jamas_id": [
+          "A521180058"
+        ]
+      }
+    },
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/misc/54755007",
+      "rm:id": "54755007",
+      "major_achievement": false,
+      "paper_title": {
+        "ja": "クロザピンに関連した強迫症状に対しアリピプラゾールが奏効した統合失調症の2例"
+      },
+      "authors": {
+        "ja": [
+          {
+            "name": "佐藤 洋一"
+          },
+          {
+            "name": "金子 宜之"
+          },
+          {
+            "name": "金森 正"
+          },
+          {
+            "name": "横瀬 宏美"
+          },
+          {
+            "name": "早乙女 優太"
+          },
+          {
+            "name": "永井 康"
+          },
+          {
+            "name": "木附 隼"
+          },
+          {
+            "name": "鈴木 正泰"
+          }
+        ]
+      },
+      "publisher": {
+        "ja": "(一社)日本総合病院精神医学会"
+      },
+      "publication_date": "2025-11",
+      "publication_name": {
+        "ja": "総合病院精神医学"
+      },
+      "languages": [
+        "jpn"
+      ],
+      "identifiers": {
+        "issn": [
+          "0915-5872"
+        ],
+        "e_issn": [
+          "2186-4810"
+        ],
+        "jamas_id": [
+          "2026127439"
+        ]
+      }
+    }
+  ]
+}

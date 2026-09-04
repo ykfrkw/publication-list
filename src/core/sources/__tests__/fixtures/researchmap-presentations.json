@@ -1,0 +1,165 @@
+{
+  "_fixture_note": "presentations captured 2026-09-05, trimmed: items 1-3 from api.researchmap.jp/yk_frkw (public_discourse, invited), items 4-5 from /ykanekopsy (oral_presentation, poster_presentation).",
+  "total_items": 5,
+  "items": [
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/presentations/51665682",
+      "rm:id": "51665682",
+      "major_achievement": false,
+      "presentation_title": {
+        "ja": "システマティック・レビューとネットワーク・メタ分析"
+      },
+      "presenters": {
+        "ja": [
+          {
+            "name": "古川由己"
+          }
+        ]
+      },
+      "event": {
+        "ja": "第25回 日本認知療法・認知行動療法学会"
+      },
+      "publication_date": "2025-11-16",
+      "invited": true,
+      "languages": [
+        "jpn"
+      ],
+      "presentation_type": "public_discourse"
+    },
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/presentations/48378592",
+      "rm:id": "48378592",
+      "major_achievement": false,
+      "presentation_title": {
+        "en": "CBT for Insomnia: Ingredients, Indications, and Implementation"
+      },
+      "presenters": {
+        "en": [
+          {
+            "name": "Yuki Furukawa"
+          }
+        ]
+      },
+      "event": {
+        "en": "Oxford Psychiatry Seminar Series"
+      },
+      "publication_date": "2024-11-05",
+      "invited": true,
+      "languages": [
+        "eng"
+      ],
+      "presentation_type": "public_discourse"
+    },
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/presentations/48154522",
+      "rm:id": "48154522",
+      "major_achievement": false,
+      "presentation_title": {
+        "ja": "大学生のための 不眠の認知行動療法 CBT-I"
+      },
+      "presenters": {
+        "ja": [
+          {
+            "name": "古川由己"
+          }
+        ]
+      },
+      "event": {
+        "ja": "第11回睡眠講演会@中部大学睡眠相談室"
+      },
+      "publication_date": "2024-10-09",
+      "invited": true,
+      "presentation_type": "public_discourse"
+    },
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/presentations/33703642",
+      "rm:id": "33703642",
+      "major_achievement": false,
+      "presentation_title": {
+        "ja": "重症身体合併症が行動変容につながった摂食障害の1例"
+      },
+      "presenters": {
+        "ja": [
+          {
+            "name": "湯地義啓"
+          },
+          {
+            "name": "金森正"
+          },
+          {
+            "name": "久保英之"
+          },
+          {
+            "name": "柿本健治郎"
+          },
+          {
+            "name": "藤井伸邦"
+          },
+          {
+            "name": "中島翔吾"
+          },
+          {
+            "name": "中島英"
+          },
+          {
+            "name": "金子宜之"
+          },
+          {
+            "name": "山田幸樹"
+          },
+          {
+            "name": "鈴木正泰"
+          }
+        ]
+      },
+      "event": {
+        "ja": "東京精神医学会第121回学術集会"
+      },
+      "publication_date": "2021-03-06",
+      "invited": false,
+      "presentation_type": "oral_presentation"
+    },
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/presentations/20091315",
+      "rm:id": "20091315",
+      "major_achievement": false,
+      "presentation_title": {
+        "ja": "クラスター解析を用いた一般成人人口における抑うつ症状と心理的要因の関連性の評価."
+      },
+      "presenters": {
+        "ja": [
+          {
+            "name": "金子 宜之"
+          },
+          {
+            "name": "今野 千聖"
+          },
+          {
+            "name": "降籏 隆二"
+          },
+          {
+            "name": "横瀬 宏美"
+          },
+          {
+            "name": "鈴木 正泰"
+          },
+          {
+            "name": "高橋 栄"
+          },
+          {
+            "name": "内山 真"
+          }
+        ]
+      },
+      "event": {
+        "ja": "第114回日本精神神経学会学術総会"
+      },
+      "publication_date": "2018-06",
+      "invited": false,
+      "languages": [
+        "jpn"
+      ],
+      "presentation_type": "poster_presentation"
+    }
+  ]
+}

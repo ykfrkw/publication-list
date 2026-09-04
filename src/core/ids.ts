@@ -136,7 +136,7 @@ export function pubKey(pub: PubKeyInput): string {
   return `title:${titleSlug(pub.title ?? '')}`
 }
 
-export type IdRefKind = 'pmid' | 'doi'
+export type IdRefKind = 'pmid' | 'doi' | 'rm'
 
 export interface IdRef {
   kind: IdRefKind
@@ -146,9 +146,12 @@ export interface IdRef {
 /**
  * Parse an `include` / `exclude` reference string.
  *
- * Canonical form is `"pmid:12345678"` or `"doi:10.1136/bmj.n71"`. Bare input
+ * Canonical form is `"pmid:12345678"`, `"doi:10.1136/bmj.n71"` or
+ * `"rm:123456789"` (a researchmap achievement id, digits only — the fallback
+ * reference for a record that has neither DOI nor PMID). Bare input
  * is accepted too, so a user can paste raw PMIDs and DOIs into the wizard:
  * all-digits → PMID, anything starting with `10.` or a doi.org URL → DOI.
+ * There is no bare form for `rm:` — bare digits already mean a PMID.
  * Returns `null` when the string is not a usable reference.
  */
 export function parseIdRef(s: string): IdRef | null {
@@ -166,6 +169,9 @@ export function parseIdRef(s: string): IdRef | null {
       const doi = normalizeDoi(rest)
       return doi.startsWith('10.') ? { kind: 'doi', value: doi } : null
     }
+    if (prefix === 'rm') {
+      return /^\d+$/.test(rest) ? { kind: 'rm', value: rest } : null
+    }
   }
 
   // Tolerant fallbacks for pasted raw identifiers.
@@ -181,7 +187,7 @@ export function formatIdRefValue(ref: IdRef): string {
 }
 
 /** The fields a record needs before an `include` / `exclude` ref can be tested against it. */
-export type IdRefMatchable = Partial<Pick<Publication, 'doi' | 'pmid'>>
+export type IdRefMatchable = Partial<Pick<Publication, 'doi' | 'pmid' | 'rmId'>>
 
 /**
  * Does a record answer to this pinned/excluded reference?
@@ -194,6 +200,7 @@ export type IdRefMatchable = Partial<Pick<Publication, 'doi' | 'pmid'>>
  */
 export function matchesIdRef(pub: IdRefMatchable, ref: IdRef): boolean {
   if (ref.kind === 'pmid') return (pub.pmid ?? '').trim() === ref.value
+  if (ref.kind === 'rm') return (pub.rmId ?? '').trim() === ref.value
   const doi = (pub.doi ?? '').trim()
   if (doi === '') return false
   const normalized = normalizeDoi(doi)
@@ -211,7 +218,7 @@ export function matchesIdRef(pub: IdRefMatchable, ref: IdRef): boolean {
  */
 export function sameIdRef(a: IdRef, b: IdRef): boolean {
   if (a.kind !== b.kind) return false
-  if (a.kind === 'pmid') return a.value === b.value
+  if (a.kind !== 'doi') return a.value === b.value
   return stripDoiVersion(a.value).doi === stripDoiVersion(b.value).doi
 }
 
@@ -228,4 +235,27 @@ export function formatIdRef(pub: PubKeyInput): string | null {
     return `pmid:${pub.pmid.trim()}`
   }
   return null
+}
+
+/** The fields a record needs before a category-pin ref can be written for it. */
+export type CategoryPinRefInput = PubKeyInput &
+  Partial<Pick<Publication, 'rmId'>>
+
+/**
+ * Canonical `categoryPins` / `orderPins` reference for a publication:
+ * DOI → PMID → researchmap achievement id → `undefined`.
+ *
+ * Deliberately NOT the same function as `formatIdRef`, which stays
+ * DOI/PMID-only: an `include` reference must name a record the pipeline can
+ * *fetch*, and an `rm:` id is resolvable only through the researchmap seed
+ * that produced it. A pin, by contrast, only has to *recognize* a record that
+ * is already on the list, so the rm fallback is safe here and wrong there.
+ */
+export function formatCategoryPinRef(
+  pub: CategoryPinRefInput,
+): string | undefined {
+  const ref = formatIdRef(pub)
+  if (ref != null) return ref
+  if (pub.rmId && pub.rmId.trim() !== '') return `rm:${pub.rmId.trim()}`
+  return undefined
 }

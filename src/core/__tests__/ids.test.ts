@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
+  formatCategoryPinRef,
   formatIdRef,
   isOrcidId,
   isResearchmapId,
+  matchesIdRef,
   normalizeDoi,
   normalizeOrcid,
   normalizeResearchmapId,
   parseIdRef,
   pubKey,
+  sameIdRef,
   stripDoiVersion,
   titleSlug,
   VERSIONED_DOI_PREFIXES,
@@ -190,5 +193,70 @@ describe('formatIdRef', () => {
       kind: 'doi',
       value: '10.12688/f1000research.12345',
     })
+  })
+})
+
+describe('rm: references', () => {
+  it('parses the prefixed form, digits only', () => {
+    expect(parseIdRef('rm:123456789')).toEqual({ kind: 'rm', value: '123456789' })
+    expect(parseIdRef(' RM: 42 ')).toEqual({ kind: 'rm', value: '42' })
+    expect(parseIdRef('rm:abc')).toBeNull()
+    expect(parseIdRef('rm:')).toBeNull()
+  })
+
+  it('has no bare form — bare digits already mean a PMID', () => {
+    expect(parseIdRef('123456789')).toEqual({ kind: 'pmid', value: '123456789' })
+  })
+
+  it('matches a record by its rmId and nothing else', () => {
+    const ref = parseIdRef('rm:42')!
+    expect(matchesIdRef({ rmId: '42' }, ref)).toBe(true)
+    expect(matchesIdRef({ rmId: '43' }, ref)).toBe(false)
+    // A record without an rmId — every record today — never matches.
+    expect(matchesIdRef({ doi: '10.1136/bmj.n71', pmid: '42' }, ref)).toBe(false)
+  })
+
+  it('compares two rm refs by exact value in sameIdRef', () => {
+    expect(sameIdRef({ kind: 'rm', value: '42' }, { kind: 'rm', value: '42' })).toBe(
+      true,
+    )
+    expect(sameIdRef({ kind: 'rm', value: '42' }, { kind: 'rm', value: '43' })).toBe(
+      false,
+    )
+    // Kinds never cross: rm:42 is not pmid:42.
+    expect(sameIdRef({ kind: 'rm', value: '42' }, { kind: 'pmid', value: '42' })).toBe(
+      false,
+    )
+  })
+
+  it('stays outside formatIdRef, which include/exclude must be able to fetch', () => {
+    expect(formatIdRef({ title: 'x', rmId: '42' } as never)).toBeNull()
+  })
+})
+
+describe('formatCategoryPinRef', () => {
+  it('falls back doi → pmid → rm → undefined', () => {
+    expect(
+      formatCategoryPinRef({ title: 'x', doi: '10.1136/bmj.n71', pmid: '1', rmId: '2' }),
+    ).toBe('doi:10.1136/bmj.n71')
+    expect(formatCategoryPinRef({ title: 'x', pmid: '1', rmId: '2' })).toBe('pmid:1')
+    expect(formatCategoryPinRef({ title: 'x', rmId: '2' })).toBe('rm:2')
+    expect(formatCategoryPinRef({ title: 'x' })).toBeUndefined()
+    expect(formatCategoryPinRef({ title: 'x', doi: ' ', pmid: '', rmId: ' 2 ' })).toBe(
+      'rm:2',
+    )
+  })
+
+  it('round-trips through parseIdRef and matchesIdRef', () => {
+    const ref = formatCategoryPinRef({ title: 'x', rmId: '123456789' })!
+    const parsed = parseIdRef(ref)!
+    expect(parsed).toEqual({ kind: 'rm', value: '123456789' })
+    expect(matchesIdRef({ rmId: '123456789' }, parsed)).toBe(true)
+  })
+
+  it('strips a DOI version, agreeing with formatIdRef', () => {
+    expect(
+      formatCategoryPinRef({ title: 'x', doi: '10.12688/f1000research.12345.4' }),
+    ).toBe('doi:10.12688/f1000research.12345')
   })
 })

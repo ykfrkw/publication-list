@@ -40,6 +40,41 @@ export type PublicationCategory =
   | 'editorial'
   | 'other'
 
+/**
+ * Which sectioning vocabulary the list is filed under.
+ *
+ * `'standard'` is the existing behavior — `PublicationCategory` sections — and
+ * is what an absent value means, so every configuration written before this
+ * type existed keeps its meaning. `'gyoseki'` is the opt-in 業績集 taxonomy
+ * (`GyosekiCategory` below), the section scheme a Japanese academic CV expects.
+ */
+export type Taxonomy = 'standard' | 'gyoseki'
+
+/**
+ * What kind of work a record is, beyond the papers this tool has always
+ * handled. Absent means `'paper'` — the only kind that existed before this
+ * type did — so every cached record keeps its meaning.
+ */
+export type PublicationKind = 'paper' | 'book' | 'presentation' | 'award'
+
+/**
+ * The ten sections of a 業績集 (gyoseki) publication list, the scheme a
+ * Japanese academic CV files work under: language and article type for papers,
+ * authorship role for books, venue scope for presentations, and awards.
+ * Display order and headings live in `GYOSEKI_ORDER` / `GYOSEKI_LABELS`.
+ */
+export type GyosekiCategory =
+  | 'en-original'
+  | 'en-review'
+  | 'ja-original'
+  | 'ja-review'
+  | 'ja-report'
+  | 'book-lead'
+  | 'book-chapter'
+  | 'intl-presentation'
+  | 'domestic-presentation'
+  | 'award'
+
 export type SourceName = 'orcid' | 'pubmed' | 'researchmap' | 'manual'
 
 /**
@@ -105,6 +140,39 @@ export interface Publication {
   seedIds: string[]
   trust: Trust
   category?: PublicationCategory
+
+  // ── gyoseki taxonomy fields ──────────────────────────────────────────────
+  // All optional and JSON-serializable, so a cached record from before they
+  // existed round-trips unchanged. Nothing reads them yet.
+
+  /** What kind of work this is. Absent means `'paper'`. */
+  kind?: PublicationKind
+  /** Which 業績集 section the record files under when `taxonomy` is `'gyoseki'`. */
+  gyosekiCategory?: GyosekiCategory
+  /** researchmap achievement id — the digits in `/achievement/<id>` on the record's URL. */
+  rmId?: string
+  /** Whether the record came from a researchmap `misc` entry rather than `published_papers`. */
+  fromMisc?: boolean
+  /** researchmap's own `misc_type` string, kept verbatim for categorization. */
+  miscType?: string
+  /** Publisher name, for books. */
+  publisher?: string
+  /** The author's role on a book, e.g. "編集", "分担執筆", verbatim from the source. */
+  bookRole?: string
+  /** Page or chapter range within a book, e.g. "pp. 12-34". */
+  bookRange?: string
+  /** ISBN, for books, verbatim from the source. */
+  isbn?: string
+  /** Conference or event name, for presentations. */
+  event?: string
+  /** Japanese conference or event name, when the source carries both languages. */
+  eventJa?: string
+  /** researchmap's `presentation_type` string, e.g. "oral_presentation", verbatim. */
+  presentationType?: string
+  /** Whether a presentation was an invited talk. */
+  invited?: boolean
+  /** The awarding society or association, for awards. */
+  awardAssociation?: string
 }
 
 export interface Member {
@@ -259,6 +327,27 @@ export interface ListConfig {
   japanese?: 'separate' | 'merge' | 'hide'
   reviewPolicy?: 'strict' | 'auto'
   limit?: number
+  /**
+   * Which sectioning vocabulary the list uses. Absent means `'standard'`, and
+   * `normalizeConfig` writes the field only when it is `'gyoseki'` — so a
+   * config that never asked for the 業績集 mode serializes exactly as it did
+   * before the field existed, and its `configHash` cache key stays stable.
+   */
+  taxonomy?: Taxonomy
+  /**
+   * Manual `GyosekiCategory` overrides, one entry per record, spelled
+   * `<ref>=<category>` where `<ref>` is `doi:…`, `pmid:…` or `rm:<digits>`.
+   * The split is on the *last* `=`, because a DOI may contain one. An entry
+   * whose category token is not a valid `GyosekiCategory` is dropped — a typo
+   * un-pins, it never mis-pins.
+   */
+  categoryPins?: string[]
+  /**
+   * References (`doi:…` / `pmid:…` / `rm:<digits>`) in explicit display order.
+   * A pinned record sorts before its unpinned neighbors within its group, in
+   * the order given here; everything else keeps the default sort.
+   */
+  orderPins?: string[]
 }
 
 /**
@@ -334,3 +423,35 @@ export const CATEGORY_ORDER: PublicationCategory[] = [
   'editorial',
   'other',
 ]
+
+/** The ten 業績集 sections, in the order a Japanese academic CV lists them. */
+export const GYOSEKI_ORDER: GyosekiCategory[] = [
+  'en-original',
+  'en-review',
+  'ja-original',
+  'ja-review',
+  'ja-report',
+  'book-lead',
+  'book-chapter',
+  'intl-presentation',
+  'domestic-presentation',
+  'award',
+]
+
+/**
+ * Section headings for the 業績集 taxonomy. The leading number is part of the
+ * heading — a 業績集 numbers its sections — and matches the position in
+ * `GYOSEKI_ORDER`.
+ */
+export const GYOSEKI_LABELS: Record<GyosekiCategory, string> = {
+  'en-original': '1. 英文原著論文',
+  'en-review': '2. 英文総説（Commentary, Editorial を含む）',
+  'ja-original': '3. 和文原著（ケースレポート等を含む）',
+  'ja-review': '4. 和文総説・解説',
+  'ja-report': '5. 和文報告書（座談会記録を含む）',
+  'book-lead': '6. 著書・訳書（主著・編）',
+  'book-chapter': '7. 著書・訳書（分担執筆）',
+  'intl-presentation': '8. 国際学会発表・講演',
+  'domestic-presentation': '9. 国内学会発表・講演等',
+  award: '10. 受賞歴',
+}

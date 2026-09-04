@@ -12,7 +12,9 @@ import type {
   HeadingLevelSetting,
   ListConfig,
   PubmedSeed,
+  Taxonomy,
 } from './types'
+import { GYOSEKI_ORDER } from './types'
 import { normalizeDoi, normalizeOrcid, normalizeResearchmapId } from './ids'
 import { decodeSeed, normalizeSeedList } from './seeds'
 
@@ -29,6 +31,7 @@ const PREPRINTS_VALUES = ['include', 'exclude'] as const
 const JAPANESE_VALUES = ['separate', 'merge', 'hide'] as const
 const REVIEW_POLICY_VALUES = ['strict', 'auto'] as const
 const DISCLAIMER_VALUES = ['show', 'hide'] as const
+const TAXONOMY_VALUES = ['standard', 'gyoseki'] as const
 /** The spellings `data-heading-level` / `?headingLevel=` accept. */
 const HEADING_LEVEL_VALUES = ['auto', '2', '3', '4', '5'] as const
 
@@ -64,6 +67,12 @@ export const DEFAULT_PREPRINTS: NonNullable<ListConfig['preprints']> = 'exclude'
 export const DEFAULT_JAPANESE: NonNullable<ListConfig['japanese']> = 'separate'
 export const DEFAULT_REVIEW_POLICY: NonNullable<ListConfig['reviewPolicy']> =
   'strict'
+/**
+ * The taxonomy an unmarked config uses — the sectioning this tool has always
+ * had. `normalizeConfig` never writes `'standard'` out (see there), so the
+ * default is also what an absent field means everywhere downstream.
+ */
+export const DEFAULT_TAXONOMY: Taxonomy = 'standard'
 
 // ────────────────────────────────────────────────────────── heading level ──
 
@@ -298,6 +307,9 @@ export const CONFIG_PARAM_NAMES = [
   'japanese',
   'review-policy',
   'disclaimer',
+  'taxonomy',
+  'category-pins',
+  'order-pins',
   'from',
   'to',
   'limit',
@@ -410,6 +422,16 @@ function readConfig(read: ConfigReader): DatasetConfig {
   // stays on: a typo must not quietly strip a statement about provenance.
   const disclaimer = oneOf(read('disclaimer', false), DISCLAIMER_VALUES)
   if (disclaimer) config.disclaimer = disclaimer
+  // Same closed-vocabulary rule: an unrecognized taxonomy falls back to the
+  // standard sections rather than to a section scheme nobody asked for.
+  const taxonomy = oneOf(read('taxonomy', false), TAXONOMY_VALUES)
+  if (taxonomy) config.taxonomy = taxonomy
+  // Raw `<ref>=<category>` / `<ref>` strings here; validation and
+  // canonicalization happen in `normalizeConfig`, like include/exclude.
+  const categoryPins = splitList(read('category-pins', true))
+  if (categoryPins) config.categoryPins = categoryPins
+  const orderPins = splitList(read('order-pins', true))
+  if (orderPins) config.orderPins = orderPins
 
   const from = parseYearMonth(read('from', false))
   if (from) config.from = from
@@ -455,6 +477,8 @@ const SEARCH_PARAM_ALIASES: Readonly<Record<string, readonly string[]>> = {
   'heading-level': ['heading-level', 'headingLevel', 'headinglevel'],
   'pubmed-trusted': ['pubmed-trusted', 'pubmedTrusted', 'pubmedtrusted'],
   'review-policy': ['review-policy', 'reviewPolicy', 'reviewpolicy'],
+  'category-pins': ['category-pins', 'categoryPins', 'categorypins'],
+  'order-pins': ['order-pins', 'orderPins', 'orderpins'],
 }
 
 /**
@@ -534,6 +558,83 @@ function normalizeRefs(refs: string[] | undefined): string[] | undefined {
   return out.length > 0 ? Array.from(new Set(out)) : undefined
 }
 
+/**
+ * Canonicalize one pin reference: `doi:` and `pmid:` exactly as `normalizeRefs`
+ * spells them, plus `rm:<digits>` — the researchmap achievement id that is the
+ * only stable handle a DOI-less, PMID-less record has. An `rm:` whose value is
+ * not digits is dropped (`undefined`) rather than kept: a pin that can never
+ * match any record is a typo, and the fail-safe direction is to un-pin.
+ * Anything without a recognized prefix is kept as-is, like `normalizeRefs`.
+ */
+function canonicalizePinRef(raw: string): string | undefined {
+  const s = raw.trim()
+  if (s === '') return undefined
+  const lower = s.toLowerCase()
+  if (lower.startsWith('doi:')) return `doi:${normalizeDoi(s.slice(4))}`
+  if (lower.startsWith('pmid:')) return `pmid:${s.slice(5).trim()}`
+  if (lower.startsWith('rm:')) {
+    const rest = s.slice(3).trim()
+    return /^\d+$/.test(rest) ? `rm:${rest}` : undefined
+  }
+  return s
+}
+
+/**
+ * Canonicalize `categoryPins` entries (`<ref>=<category>`); drops unusable ones.
+ *
+ * The split is on the **last** `=` because a DOI may itself contain one
+ * (`10.1000/abc=def` is legal DOI syntax), and a category token never does.
+ * The category is matched against the closed `GyosekiCategory` vocabulary and
+ * an entry whose token is not in it is dropped — same direction as every other
+ * closed vocabulary here: a typo un-pins the record, it never mis-pins it.
+ * Duplicates are collapsed by ref with the **last** one winning, because a pin
+ * appended later is a correction of the one before it.
+ */
+export function normalizeCategoryPins(
+  pins: string[] | undefined,
+): string[] | undefined {
+  if (!pins) return undefined
+  const byRef = new Map<string, string>()
+  for (const raw of pins) {
+    const s = raw.trim()
+    if (s === '') continue
+    const separator = s.lastIndexOf('=')
+    if (separator <= 0) continue
+    const ref = canonicalizePinRef(s.slice(0, separator))
+    if (ref == null) continue
+    const category = s.slice(separator + 1).trim().toLowerCase()
+    if (!(GYOSEKI_ORDER as readonly string[]).includes(category)) continue
+    // Delete before set, so the surviving entry keeps the *last* position too.
+    byRef.delete(ref)
+    byRef.set(ref, `${ref}=${category}`)
+  }
+  const out = Array.from(byRef.values())
+  return out.length > 0 ? out : undefined
+}
+
+/**
+ * Canonicalize `orderPins` references; drops unusable entries.
+ *
+ * Duplicates keep the **first** occurrence — unlike `normalizeCategoryPins`,
+ * because here the position *is* the value: the first place a ref appears is
+ * the display position it asked for, and a stray repeat further down must not
+ * move it.
+ */
+function normalizeOrderPins(
+  pins: string[] | undefined,
+): string[] | undefined {
+  if (!pins) return undefined
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of pins) {
+    const ref = canonicalizePinRef(raw)
+    if (ref == null || seen.has(ref)) continue
+    seen.add(ref)
+    out.push(ref)
+  }
+  return out.length > 0 ? out : undefined
+}
+
 /** Fill in the defaults so downstream code never has to branch on `undefined`. */
 export function normalizeConfig(partial: Partial<ListConfig>): ListConfig {
   const seeds = partial.seeds ?? {}
@@ -567,6 +668,15 @@ export function normalizeConfig(partial: Partial<ListConfig>): ListConfig {
   if (include) config.include = include
   const exclude = normalizeRefs(partial.exclude)
   if (exclude) config.exclude = exclude
+  // The three gyoseki fields are written only when they say something: absent,
+  // `'standard'` and an empty pin list all serialize as *no field at all*, so
+  // a config from before they existed keeps its exact bytes — and therefore
+  // its `configHash` cache key.
+  if (partial.taxonomy === 'gyoseki') config.taxonomy = 'gyoseki'
+  const categoryPins = normalizeCategoryPins(partial.categoryPins)
+  if (categoryPins) config.categoryPins = categoryPins
+  const orderPins = normalizeOrderPins(partial.orderPins)
+  if (orderPins) config.orderPins = orderPins
   if (partial.boldNames?.length) config.boldNames = partial.boldNames
   if (partial.from) config.from = partial.from
   if (partial.to) config.to = partial.to

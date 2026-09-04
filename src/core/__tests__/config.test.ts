@@ -20,12 +20,15 @@ import {
   DEFAULT_PREPRINTS,
   DEFAULT_REVIEW_POLICY,
   DEFAULT_STYLE,
+  DEFAULT_TAXONOMY,
   LIST_ID_PATTERN,
   SNAPSHOT_HEADING_LEVEL,
+  configHash,
   decodeListValue,
   headingLevelFor,
   encodeListValue,
   isListId,
+  normalizeCategoryPins,
   normalizeConfig,
   parseConfigFromDataset,
   parseConfigFromSearchParams,
@@ -775,5 +778,203 @@ describe('a PubMed seed marked trusted', () => {
         grace: 12,
       },
     ])
+  })
+})
+
+/**
+ * The gyoseki plumbing: `taxonomy`, `categoryPins`, `orderPins`.
+ *
+ * All three are inert for now — nothing downstream reads them — so what these
+ * tests pin is the *transport* contract: both string parsers carry them, the
+ * normalizer canonicalizes and fail-safes them, and a config that never asked
+ * for them serializes byte-for-byte as it did before they existed.
+ */
+describe('taxonomy', () => {
+  it('defaults to standard, and the default is never written out', () => {
+    expect(DEFAULT_TAXONOMY).toBe('standard')
+    const config = normalizeConfig(fromQuery(`orcid=${ORCID}`).config)
+    expect(config.taxonomy).toBeUndefined()
+    expect(serializeConfig(config)).not.toContain('taxonomy')
+  })
+
+  it('reads gyoseki from both inline transports and the registry file', () => {
+    expect(fromQuery('taxonomy=gyoseki').config.taxonomy).toBe('gyoseki')
+    expect(
+      fromAttributes({ 'data-taxonomy': 'gyoseki' }).config.taxonomy,
+    ).toBe('gyoseki')
+    expect(fromJson({ v: 1, seeds: {}, taxonomy: 'gyoseki' }).taxonomy).toBe(
+      'gyoseki',
+    )
+  })
+
+  it('survives normalizeConfig and a registry-file round trip', () => {
+    const config = normalizeConfig(fromQuery('taxonomy=gyoseki').config)
+    expect(config.taxonomy).toBe('gyoseki')
+    const json = serializeConfig(config)
+    expect(JSON.parse(json).taxonomy).toBe('gyoseki')
+    expect(normalizeConfig(JSON.parse(json) as ListConfig)).toEqual(config)
+  })
+
+  it('writes nothing for an explicit standard — it is the default, spelled out', () => {
+    // Same shape as a redundant `trust: 'candidate'` on a PubMed seed: the
+    // field only appears when it says something.
+    const config = normalizeConfig(fromQuery('taxonomy=standard').config)
+    expect(config.taxonomy).toBeUndefined()
+  })
+
+  it('drops an unrecognized value so the standard default survives', () => {
+    expect(fromQuery('taxonomy=cv').config.taxonomy).toBeUndefined()
+    expect(
+      fromAttributes({ 'data-taxonomy': 'GYOSEKI ' }).config.taxonomy,
+    ).toBe('gyoseki') // trimmed and lowercased like every closed vocabulary
+    expect(
+      normalizeConfig(fromQuery('taxonomy=cv').config).taxonomy,
+    ).toBeUndefined()
+  })
+})
+
+describe('categoryPins', () => {
+  it('round-trips through both parsers, camelCase alias included', () => {
+    const expected = ['doi:10.1136/bmj.n71=en-original', 'pmid:123=ja-review']
+    const attrs = fromAttributes({
+      'data-category-pins': 'doi:10.1136/bmj.n71=en-original,pmid:123=ja-review',
+    })
+    const query = fromQuery(
+      'category-pins=doi:10.1136/bmj.n71%3Den-original,pmid:123%3Dja-review',
+    )
+    const camel = fromQuery(
+      'categoryPins=doi:10.1136/bmj.n71%3Den-original,pmid:123%3Dja-review',
+    )
+    for (const parsed of [attrs, query, camel]) {
+      expect(parsed.config.categoryPins).toEqual(expected)
+      expect(normalizeConfig(parsed.config).categoryPins).toEqual(expected)
+    }
+  })
+
+  it('splits on the last =, so a DOI containing one stays whole', () => {
+    // `=` is legal inside a DOI suffix; the category token never contains one.
+    expect(normalizeCategoryPins(['doi:10.1000/abc=def=ja-report'])).toEqual([
+      'doi:10.1000/abc=def=ja-report',
+    ])
+  })
+
+  it('accepts rm:<digits> and canonicalizes the ref like include/exclude', () => {
+    expect(
+      normalizeCategoryPins([
+        ' RM:123456789 =award',
+        'doi:https://doi.org/10.1136/BMJ.n71=EN-ORIGINAL',
+      ]),
+    ).toEqual(['rm:123456789=award', 'doi:10.1136/bmj.n71=en-original'])
+  })
+
+  it('drops an entry whose category token is not a GyosekiCategory', () => {
+    // Fail-safe direction: a typo un-pins the record, it never mis-pins it.
+    expect(
+      normalizeCategoryPins([
+        'pmid:1=en-orginal', // typo
+        'pmid:2=', // empty
+        'pmid:3', // no category at all
+        'pmid:4=original', // the *standard* vocabulary, not this one
+      ]),
+    ).toBeUndefined()
+  })
+
+  it('drops an rm ref whose value is not digits', () => {
+    expect(normalizeCategoryPins(['rm:abc=award'])).toBeUndefined()
+  })
+
+  it('dedupes by ref with the last pin winning', () => {
+    expect(
+      normalizeCategoryPins([
+        'pmid:1=en-original',
+        'pmid:2=award',
+        'pmid:1=ja-review',
+      ]),
+    ).toEqual(['pmid:2=award', 'pmid:1=ja-review'])
+  })
+
+  it('is absent from a normalized config when empty, keeping serialization stable', () => {
+    const config = normalizeConfig({ categoryPins: ['pmid:1=nope'] })
+    expect(config.categoryPins).toBeUndefined()
+    expect(serializeConfig(config)).not.toContain('categoryPins')
+  })
+
+  it('survives a registry-file round trip', () => {
+    const config = normalizeConfig({
+      categoryPins: ['rm:42=domestic-presentation'],
+    })
+    const json = serializeConfig(config)
+    expect(JSON.parse(json).categoryPins).toEqual(['rm:42=domestic-presentation'])
+    expect(normalizeConfig(JSON.parse(json) as ListConfig)).toEqual(config)
+  })
+})
+
+describe('orderPins', () => {
+  it('round-trips through both parsers, camelCase alias included', () => {
+    const expected = ['doi:10.1136/bmj.n71', 'rm:99', 'pmid:123']
+    const attrs = fromAttributes({
+      'data-order-pins': 'doi:10.1136/bmj.n71,rm:99,pmid:123',
+    })
+    const query = fromQuery('order-pins=doi:10.1136/bmj.n71,rm:99,pmid:123')
+    const camel = fromQuery('orderPins=doi:10.1136/bmj.n71,rm:99,pmid:123')
+    for (const parsed of [attrs, query, camel]) {
+      expect(parsed.config.orderPins).toEqual(expected)
+      expect(normalizeConfig(parsed.config).orderPins).toEqual(expected)
+    }
+  })
+
+  it('dedupes keeping the first occurrence — position is the value here', () => {
+    expect(
+      normalizeConfig({ orderPins: ['pmid:1', 'pmid:2', 'pmid:1'] }).orderPins,
+    ).toEqual(['pmid:1', 'pmid:2'])
+  })
+
+  it('canonicalizes refs and drops a malformed rm entry', () => {
+    expect(
+      normalizeConfig({
+        orderPins: ['DOI:10.1136/BMJ.N71', 'rm:abc', 'rm:7'],
+      }).orderPins,
+    ).toEqual(['doi:10.1136/bmj.n71', 'rm:7'])
+  })
+})
+
+/**
+ * The compatibility tripwire for the gyoseki fields.
+ *
+ * `configHash` keys the localStorage cache, so a config that says nothing
+ * about the new fields must hash to exactly what it hashed to before they
+ * existed — otherwise every existing user's cache silently invalidates on
+ * deploy. The two literals below were computed on the checkout *preceding*
+ * this change (commit 5683dcb) by running these same fixtures through
+ * `configHash`; they are pinned as literals precisely so that a serialization
+ * change shows up as a failing test rather than as a mystery refetch.
+ */
+describe('configHash stability for pre-gyoseki configs', () => {
+  it('hashes a representative config to its pre-change value', () => {
+    const config = normalizeConfig({
+      seeds: {
+        orcid: ['0000-0003-1317-0220'],
+        researchmap: ['yfurukawa'],
+        pubmed: [{ query: '"SLEEPI"[cn]', trust: 'confirmed' }],
+      },
+      include: ['pmid:12345678'],
+      exclude: ['doi:10.1136/bmj.n71'],
+      boldNames: ['Furukawa Y'],
+      style: 'apa',
+      groupBy: 'year',
+      from: '2015-04',
+      to: '2026-12',
+      limit: 50,
+    })
+    expect(configHash(config)).toBe('288b5c8d')
+  })
+
+  it('hashes the minimal all-defaults config to its pre-change value', () => {
+    expect(configHash(normalizeConfig({}))).toBe('43e0798d')
+  })
+
+  it('does change once the config opts in — the fields are real when present', () => {
+    const config = normalizeConfig({ taxonomy: 'gyoseki' })
+    expect(configHash(config)).not.toBe('43e0798d')
   })
 })

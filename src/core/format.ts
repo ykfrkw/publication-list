@@ -156,12 +156,12 @@ function normalizeName(value: string): string {
  * author lists (中点 and comma/period variants), then lowercase, which is a
  * no-op for kana and kanji but keeps a stray romaji fragment comparable.
  *
- * "古川　雄基" → "古川雄基", "ふるかわ・ゆうき" → "ふるかわゆうき"
+ * "古川\u{3000}雄基" (ideographic space) → "古川雄基", "ふるかわ・ゆうき" → "ふるかわゆうき"
  */
 export function normalizeNameCjk(value: string): string {
   return value
     .normalize('NFKC')
-    .replace(/[\s　]+/g, '')
+    .replace(/[\s\u3000]+/g, '')
     .replace(/[・･·．.、,，]/g, '')
     .toLowerCase()
 }

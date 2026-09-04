@@ -3,7 +3,9 @@
  * self-contained IIFE at dist/embed.js (and dist/v1/embed.js).
  *
  * This script is injected into other people's pages. It must stay
- * framework-free and small (< 20KB gzip); import only from `src/core`.
+ * framework-free and small (< 25KB gzip); import only from `src/core`.
+ * (The budget was 20KB until the 業績集 taxonomy joined `src/core`; its
+ * fetchers and classifier cost ~2.5KB gzip and are needed at embed runtime.)
  *
  * ──────────────────────────────────────────────────────────────────────────
  * HARD CONSTRAINT — THE TWO TRAILER LINES ARE OFF LIMITS

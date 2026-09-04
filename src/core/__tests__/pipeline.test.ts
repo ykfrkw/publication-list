@@ -15,7 +15,9 @@ import {
   mergeMembers,
   resolveBoldNames,
   triageCandidates,
+  withJapaneseBoldVariants,
 } from '../pipeline'
+import { formatCitation } from '../format'
 import type { Member, Publication } from '../types'
 import type { FetchStub } from '../sources/__tests__/helpers'
 import { loadFixture, stubFetch } from '../sources/__tests__/helpers'
@@ -374,6 +376,51 @@ describe('buildList — seed profiles and author-name order', () => {
       // Yuri — so the bold decision had nothing to work with.
       expect(cbti?.authorsFull[2]).toBe('Yuki Furukawa')
       expect(cbti?.authors[3]).toBe('van Dalfsen JH')
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'derives Japanese bold variants from the researchmap profile',
+    async () => {
+      // ykanekopsy's profile carries 金子/宜之 alongside the English name. A
+      // record whose author list is written in Japanese script can only bold
+      // the member through those variants — `matchesBoldName` never crosses
+      // scripts, and nobody configured a bold name at all here.
+      useRoutes({
+        researchmapPapers: {
+          total_items: 1,
+          items: [
+            {
+              paper_title: { ja: '睡眠薬の適正使用に関する研究' },
+              publication_name: { ja: '日本睡眠学会誌' },
+              authors: { ja: [{ name: '金子 宜之' }, { name: '田口 良子' }] },
+              publication_date: '2024-04-01',
+              languages: ['jpn'],
+              published_paper_type: 'scientific_journal',
+              identifiers: { doi: ['10.9999/suimin.2024.001'] },
+            },
+          ],
+        },
+      })
+
+      const model = await buildList(
+        normalizeConfig({ seeds: { researchmap: [RESEARCHMAP] } }),
+      )
+
+      // The effective set: the resolved English name plus both ways a
+      // researchmap ja author list writes the member (family-first).
+      expect(model.config.boldNames).toContain('Yoshiyuki Kaneko')
+      expect(model.config.boldNames).toContain('金子 宜之')
+      expect(model.config.boldNames).toContain('金子宜之')
+
+      const jaPub = model.publications.find(
+        (p) => p.doi === '10.9999/suimin.2024.001',
+      )
+      expect(jaPub).toBeDefined()
+      const html = formatCitation(jaPub!, 'vancouver', model.config.boldNames)
+      expect(html).toContain('<b>金子 宜之</b>')
+      expect(html).not.toContain('<b>田口 良子</b>')
     },
     TIMEOUT,
   )
@@ -972,13 +1019,24 @@ describe('mergeMembers', () => {
     ])
   })
 
-  it('keeps members without a Latin name distinct', () => {
+  it('keeps differently named Japanese members and unnamed members distinct', () => {
     const members: Member[] = [
       { id: 'a', researchmap: 'a', name: '古川由己' },
       { id: 'b', researchmap: 'b', name: '金子宜之' },
       { id: 'c', researchmap: 'c' },
     ]
     expect(mergeMembers(members).length).toBe(3)
+  })
+
+  it('merges two members with the same Japanese name across space variants', () => {
+    const merged = mergeMembers([
+      { id: 'a', orcid: 'a', name: '古川 雄基' },
+      { id: 'b', researchmap: 'b', name: '古川雄基' },
+    ])
+
+    expect(merged).toEqual([
+      { id: 'a', name: '古川 雄基', orcid: 'a', researchmap: 'b' },
+    ])
   })
 })
 
@@ -1004,6 +1062,60 @@ describe('isShortFormName', () => {
     expect(isShortFormName('Furukawa')).toBe(true)
     expect(isShortFormName('Yuki Furukawa')).toBe(false)
     expect(isShortFormName('Annemieke van Straten')).toBe(false)
+  })
+
+  it('never counts a Japanese-script name as short form', () => {
+    // A CJK name carries no initials and cannot be abbreviated; mirrors
+    // `isFullPersonName` in sources/names.ts.
+    expect(isShortFormName('古川雄基')).toBe(false)
+    expect(isShortFormName('古川 雄基')).toBe(false)
+    expect(isShortFormName('ふるかわゆうき')).toBe(false)
+  })
+})
+
+describe('withJapaneseBoldVariants', () => {
+  it('adds 姓 名 and 姓名 for a bolded member with a ja profile name', () => {
+    expect(
+      withJapaneseBoldVariants(
+        ['Yoshiyuki Kaneko'],
+        [{ memberName: 'Yoshiyuki Kaneko', family: '金子', given: '宜之' }],
+      ),
+    ).toEqual(['Yoshiyuki Kaneko', '金子 宜之', '金子宜之'])
+  })
+
+  it('adds nothing for a member whose name is not in the bold set', () => {
+    expect(
+      withJapaneseBoldVariants(
+        ['Yuki Furukawa'],
+        [{ memberName: 'Yoshiyuki Kaneko', family: '金子', given: '宜之' }],
+      ),
+    ).toEqual(['Yuki Furukawa'])
+  })
+
+  it('adds nothing for a pair with no member display name', () => {
+    expect(
+      withJapaneseBoldVariants(['Yuki Furukawa'], [{ family: '金子', given: '宜之' }]),
+    ).toEqual(['Yuki Furukawa'])
+  })
+
+  it('does not duplicate a variant that is already configured', () => {
+    expect(
+      withJapaneseBoldVariants(
+        ['Yoshiyuki Kaneko', '金子 宜之'],
+        [{ memberName: 'Yoshiyuki Kaneko', family: '金子', given: '宜之' }],
+      ),
+    ).toEqual(['Yoshiyuki Kaneko', '金子 宜之', '金子宜之'])
+  })
+
+  it('works when the member display name is itself Japanese', () => {
+    // A profile with no English name resolves the member to 姓 名; the default
+    // bold set then holds that same string, and the unspaced variant follows.
+    expect(
+      withJapaneseBoldVariants(
+        ['金子 宜之'],
+        [{ memberName: '金子 宜之', family: '金子', given: '宜之' }],
+      ),
+    ).toEqual(['金子 宜之', '金子宜之'])
   })
 })
 

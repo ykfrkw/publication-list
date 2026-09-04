@@ -277,10 +277,14 @@ describe('fetchResearchmapProfile', () => {
     restore = stub.restore
 
     // The split is the point: it is the only name-order anchor a researchmap
-    // seed with no ORCID alongside it can get.
+    // seed with no ORCID alongside it can get. The Japanese halves ride
+    // along even when the English name wins, so `pipeline.ts` can derive the
+    // 姓 名 / 姓名 bold variants for a member displayed under the English form.
     await expect(fetchResearchmapProfile('7000024045')).resolves.toEqual({
       name: 'Kenichi Osaka',
       anchor: { given: 'Kenichi', family: 'Osaka' },
+      familyJa: '尾坂',
+      givenJa: '兼一',
     })
   })
 
@@ -294,6 +298,31 @@ describe('fetchResearchmapProfile', () => {
     await expect(fetchResearchmapProfile('ykanekopsy')).resolves.toEqual({
       name: '金子 宜之',
       anchor: { given: '宜之', family: '金子' },
+      familyJa: '金子',
+      givenJa: '宜之',
+    })
+  })
+
+  it('leaves the Japanese halves off a profile that has none', async () => {
+    const stub = stubFetch(() => ({
+      family_name: { en: 'Osaka' },
+      given_name: { en: 'Kenichi' },
+    }))
+    restore = stub.restore
+
+    await expect(fetchResearchmapProfile('7000024045')).resolves.toEqual({
+      name: 'Kenichi Osaka',
+      anchor: { given: 'Kenichi', family: 'Osaka' },
+    })
+  })
+
+  it('exposes a lone Japanese half without building an anchor from it', async () => {
+    const stub = stubFetch(() => ({ family_name: { ja: '尾坂' } }))
+    restore = stub.restore
+
+    await expect(fetchResearchmapProfile('7000024045')).resolves.toEqual({
+      name: '尾坂',
+      familyJa: '尾坂',
     })
   })
 

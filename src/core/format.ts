@@ -19,6 +19,7 @@
  */
 
 import type { CitationStyle, Publication } from './types'
+import { hasJapaneseCharacters } from './sources/names'
 
 // ───────────────────────────────────────────────────────────── escaping ──
 
@@ -143,6 +144,28 @@ function normalizeName(value: string): string {
     .trim()
 }
 
+/**
+ * Normalize a Japanese-script name for exact comparison.
+ *
+ * `normalizeName` above strips everything outside `[a-z ]`, so any CJK string
+ * becomes `''` and can never match. This is the CJK counterpart: NFKC first
+ * (full-width Latin and half-width kana fold to their canonical forms, and the
+ * ideographic space U+3000 folds to an ASCII space), then every kind of
+ * whitespace is removed — Japanese names are written with a space, an
+ * ideographic space, or nothing at all — then the separators that decorate
+ * author lists (中点 and comma/period variants), then lowercase, which is a
+ * no-op for kana and kanji but keeps a stray romaji fragment comparable.
+ *
+ * "古川　雄基" → "古川雄基", "ふるかわ・ゆうき" → "ふるかわゆうき"
+ */
+export function normalizeNameCjk(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/[\s　]+/g, '')
+    .replace(/[・･·．.、,，]/g, '')
+    .toLowerCase()
+}
+
 /** Split a bold name into leading given-name parts and the family name. */
 function splitBoldName(parts: string[]): { initials: string; family: string } {
   let surnameStart = parts.length - 1
@@ -210,12 +233,34 @@ function matchesAllParts(authorParts: string[], boldParts: string[]): boolean {
  * carries no information that separates Yuki from Yuri, so it matches both.
  * To disambiguate co-authors who share a surname and an initial, the bold name
  * must be spelled out.
+ *
+ * Japanese-script names take neither regime: they are compared whole, by exact
+ * equality under `normalizeNameCjk` (see the comment at the check below).
  */
 export function matchesBoldName(
   fullName: string,
   boldNames: readonly string[],
 ): boolean {
   if (!fullName || boldNames.length === 0) return false
+
+  // Japanese-script path, before the ASCII one: `normalizeName` erases CJK
+  // text entirely, so without this branch a 日本語 author list could never
+  // bold anyone. The match is EXACT equality after `normalizeNameCjk` — a
+  // surname-only bold name of "古川" must NOT match "古川雄基". CJK names
+  // carry no initials to fall back on, and this codebase deliberately errs
+  // toward under-bolding (see the Yuki/Yuri history in the file header):
+  // a prefix or substring rule would bold 古川雄大 for a 古川雄基 bold name.
+  // Mixed-script pairs (a CJK bold name against a Latin author name, or the
+  // reverse) never match — transliteration is a guess, and the pipeline or
+  // the user supplies both forms in boldNames instead.
+  if (hasJapaneseCharacters(fullName)) {
+    const nameCjk = normalizeNameCjk(fullName)
+    for (const bn of boldNames) {
+      if (hasJapaneseCharacters(bn) && normalizeNameCjk(bn) === nameCjk) {
+        return true
+      }
+    }
+  }
 
   const nameNorm = normalizeName(fullName)
   if (nameNorm === '') return false

@@ -104,6 +104,10 @@ export interface ResearchmapProfile {
   name?: string
   /** Only set when the profile carries both halves in the same script. */
   anchor?: PersonNameAnchor
+  /** Japanese-script 姓, whenever the profile carries one. */
+  familyJa?: string
+  /** Japanese-script 名, whenever the profile carries one. */
+  givenJa?: string
 }
 
 function clean(value: string | null | undefined): string {
@@ -304,24 +308,31 @@ export async function fetchResearchmapProfile(
     )
     const familyEn = clean(data.family_name?.en)
     const givenEn = clean(data.given_name?.en)
-    if (familyEn !== '' && givenEn !== '') {
-      return {
-        name: `${givenEn} ${familyEn}`,
-        anchor: { given: givenEn, family: familyEn },
-      }
-    }
-
     const familyJa = clean(data.family_name?.ja)
     const givenJa = clean(data.given_name?.ja)
+
+    // The Japanese halves ride along whatever else the profile yields: they
+    // are what lets `pipeline.ts` derive Japanese bold-name variants for a
+    // member whose display name resolved to the English form.
+    const profile: ResearchmapProfile = {}
+    if (familyJa !== '') profile.familyJa = familyJa
+    if (givenJa !== '') profile.givenJa = givenJa
+
+    if (familyEn !== '' && givenEn !== '') {
+      profile.name = `${givenEn} ${familyEn}`
+      profile.anchor = { given: givenEn, family: familyEn }
+      return profile
+    }
+
     if (familyJa !== '' && givenJa !== '') {
-      return {
-        name: `${familyJa} ${givenJa}`,
-        anchor: { given: givenJa, family: familyJa },
-      }
+      profile.name = `${familyJa} ${givenJa}`
+      profile.anchor = { given: givenJa, family: familyJa }
+      return profile
     }
 
     const name = familyEn || familyJa || givenEn || givenJa
-    return name === '' ? {} : { name }
+    if (name !== '') profile.name = name
+    return profile
   } catch (err) {
     if (signal?.aborted) throw err
     return {}

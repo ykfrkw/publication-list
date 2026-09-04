@@ -44,7 +44,7 @@ import {
 } from './ids'
 import { dedupePublications } from './dedupe'
 import { categorizeAll, isOpenReviewJournal } from './categorize'
-import { matchesBoldName } from './format'
+import { matchesBoldName, normalizeNameCjk } from './format'
 import { fetchOrcidPerson, fetchOrcidWorksWithWarnings } from './sources/orcid'
 import {
   fetchResearchmapProfile,
@@ -73,7 +73,7 @@ import {
   yearMonthBound,
 } from './seeds'
 import { chunk, errorMessage, getJson } from './sources/http'
-import { formatAuthorShort } from './sources/names'
+import { formatAuthorShort, hasJapaneseCharacters } from './sources/names'
 import type { PersonNameAnchor } from './sources/names'
 
 export interface BuildListOptions {
@@ -97,18 +97,24 @@ const OPENALEX_SELECT =
  * Port of `normalize_name` (`publication-list-generator/app.R:119-125`):
  * lowercase, strip diacritics, keep letters and spaces, collapse whitespace.
  *
- * A purely Japanese name normalizes to `''`; the caller treats that as "no
- * key" rather than merging every such member into one row (dplyr's `group_by`
- * would have grouped all the `NA`s together — that is a bug, not a feature).
+ * The Latin pass erases a purely Japanese name to `''`; those fall back to
+ * `normalizeNameCjk`, so two members named `古川 雄基` and `古川雄基` share a
+ * real key — `mergeMembers` merges them instead of `#index`-splitting, and
+ * `locateBoldName`'s distinct-set gets a key it can compare. (The R original
+ * had no fallback; its callers treated `''` as "no key" rather than merging
+ * every such member into one row — dplyr's `group_by` would have grouped all
+ * the `NA`s together, and that is a bug, not a feature.)
  */
 export function normalizeMemberName(name: string): string {
-  return name
+  const latin = name
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z ]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
+  if (latin === '' && hasJapaneseCharacters(name)) return normalizeNameCjk(name)
+  return latin
 }
 
 /**
@@ -122,7 +128,8 @@ export function mergeMembers(members: Member[]): Member[] {
 
   members.forEach((member, index) => {
     const normalized = member.name ? normalizeMemberName(member.name) : ''
-    // `#index` keeps unnamed / non-Latin-named members distinct.
+    // `#index` keeps unnamed members distinct. (Japanese names get a real
+    // key from the `normalizeNameCjk` fallback above and merge normally.)
     const key = normalized === '' ? `#${index}` : normalized
     const group = groups.get(key)
     if (group) {
@@ -156,6 +163,13 @@ interface SeedResolution {
    * the two requests overlap.
    */
   anchors: Promise<PersonNameAnchor[]>
+  /**
+   * Japanese-script 姓/名 pairs pulled off the researchmap profiles, each
+   * paired with the display name the same member resolved to. Same timing as
+   * `members`; consumed by `withJapaneseBoldVariants` so a bolded member's
+   * Japanese author-list renderings bold too, without manual bold names.
+   */
+  jaNamePairs: Promise<JapaneseNamePair[]>
 }
 
 /**
@@ -188,7 +202,11 @@ async function resolveSeeds(
   const orcids = seedIdList(config.seeds.orcid)
   const researchmaps = seedIdList(config.seeds.researchmap)
   if (orcids.length === 0 && researchmaps.length === 0) {
-    return { members: Promise.resolve([]), anchors: Promise.resolve([]) }
+    return {
+      members: Promise.resolve([]),
+      anchors: Promise.resolve([]),
+      jaNamePairs: Promise.resolve([]),
+    }
   }
 
   const people = await Promise.all(orcids.map((id) => fetchOrcidPerson(id, signal)))
@@ -231,7 +249,25 @@ async function resolveSeeds(
     return mergeMembers(raw)
   })
 
-  return { members, anchors }
+  const jaNamePairs = profiles.then((resolved) => {
+    const pairs: JapaneseNamePair[] = []
+    researchmaps.forEach((_id, i) => {
+      const profile = resolved[i]
+      // Both halves or nothing: a lone 姓 cannot build a full bold variant,
+      // and a surname-only bold name is exactly what the CJK matcher refuses.
+      if (!profile.familyJa || !profile.givenJa) return
+      const pair: JapaneseNamePair = {
+        family: profile.familyJa,
+        given: profile.givenJa,
+      }
+      const memberName = profile.name ?? inheritedName
+      if (memberName) pair.memberName = memberName
+      pairs.push(pair)
+    })
+    return pairs
+  })
+
+  return { members, anchors, jaNamePairs }
 }
 
 // ────────────────────────────────────────────────────────── bold names ──
@@ -248,8 +284,12 @@ const PARTICLES = new Set([
  * Short forms carry no information that separates `Furukawa Yuki` from
  * `Furukawa Yuri`, so a bold name in short form can never be resolved by
  * fetching more data — only by the user spelling it out.
+ *
+ * A Japanese-script name is never short form: it carries no initials and
+ * cannot be abbreviated (mirrors `isFullPersonName` in `sources/names.ts`).
  */
 export function isShortFormName(name: string): boolean {
+  if (hasJapaneseCharacters(name)) return false
   const parts = normalizeMemberName(name).split(' ').filter((p) => p !== '')
   const words = parts.filter((p) => p.length >= 2 && !PARTICLES.has(p))
   return words.length < 2
@@ -287,6 +327,50 @@ export function resolveBoldNames(
     )
     const resolved = full ?? name
     if (!out.includes(resolved)) out.push(resolved)
+  }
+  return out
+}
+
+/** A member's Japanese-script name halves, from their researchmap profile. */
+export interface JapaneseNamePair {
+  /** Display name the same member resolved to (usually the English form). */
+  memberName?: string
+  /** 姓 in Japanese script. */
+  family: string
+  /** 名 in Japanese script. */
+  given: string
+}
+
+/**
+ * Extend a resolved bold-name set with Japanese variants derived from the
+ * researchmap profiles.
+ *
+ * `matchesBoldName` never crosses scripts — a Latin bold name cannot bold a
+ * 日本語 author-list rendering of the same person. So when a member whose
+ * display name is bolded also has Japanese name halves on their profile, both
+ * ways researchmap writes a Japanese author (`姓 名` and `姓名`, family-first
+ * — that is how researchmap ja author lists are written) join the effective
+ * set, the same way `resolveBoldNames` upgrades a short form to the member's
+ * full name: automatically, and without disturbing what was configured.
+ */
+export function withJapaneseBoldVariants(
+  boldNames: readonly string[],
+  pairs: readonly JapaneseNamePair[],
+): string[] {
+  const out = [...boldNames]
+  for (const pair of pairs) {
+    // Only a member who is actually bolded contributes variants; a seed whose
+    // name is not in the bold set stays unbolded in every script.
+    if (!pair.memberName || !matchesBoldName(pair.memberName, boldNames)) {
+      continue
+    }
+    const variants = [
+      `${pair.family} ${pair.given}`,
+      `${pair.family}${pair.given}`,
+    ]
+    for (const variant of variants) {
+      if (!out.includes(variant)) out.push(variant)
+    }
   }
   return out
 }
@@ -563,7 +647,12 @@ export async function buildList(
   }
 
   const members = await seeds.members
-  const boldNames = resolveBoldNames(config.boldNames, members)
+  // Japanese variants ride on top of the resolved set: a member bolded under
+  // their English name is bolded under their researchmap 姓 名 / 姓名 too.
+  const boldNames = withJapaneseBoldVariants(
+    resolveBoldNames(config.boldNames, members),
+    await seeds.jaNamePairs,
+  )
 
   // PubMed runs serially: `sources/pubmed.ts` already funnels every request
   // through one rate limiter, so parallelism here would only queue.

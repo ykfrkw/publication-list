@@ -250,6 +250,59 @@ describe('bold-name matching', () => {
     expect(matchesBoldName('Yuri Furukawa', ['Furukawa Y'])).toBe(true)
   })
 
+  // Japanese-script matching is EXACT equality after `normalizeNameCjk` —
+  // no surname-only or prefix matching, in keeping with this module's
+  // under-bolding stance (see the Yuki/Yuri cases above).
+  describe('Japanese-script names', () => {
+    it('matches kanji names across space variants', () => {
+      expect(matchesBoldName('古川雄基', ['古川雄基'])).toBe(true)
+      expect(matchesBoldName('古川 雄基', ['古川雄基'])).toBe(true)
+      expect(matchesBoldName('古川　雄基', ['古川雄基'])).toBe(true)
+      expect(matchesBoldName('古川雄基', ['古川 雄基'])).toBe(true)
+      expect(matchesBoldName('古川雄基', ['古川　雄基'])).toBe(true)
+    })
+
+    it('matches kana names across space variants', () => {
+      expect(matchesBoldName('ふるかわゆうき', ['ふるかわ ゆうき'])).toBe(true)
+      expect(matchesBoldName('ふるかわ ゆうき', ['ふるかわゆうき'])).toBe(true)
+    })
+
+    it('matches a 中点-separated author string', () => {
+      expect(matchesBoldName('古川・雄基', ['古川雄基'])).toBe(true)
+      expect(matchesBoldName('ふるかわ・ゆうき', ['ふるかわゆうき'])).toBe(true)
+    })
+
+    it('does not let a bare surname sweep up a full name', () => {
+      expect(matchesBoldName('古川雄基', ['古川'])).toBe(false)
+      expect(matchesBoldName('古川', ['古川雄基'])).toBe(false)
+    })
+
+    it('does not match a near-miss that shares a prefix', () => {
+      expect(matchesBoldName('古川雄基', ['古川雄大'])).toBe(false)
+      expect(matchesBoldName('古川雄大', ['古川雄基'])).toBe(false)
+    })
+
+    it('never matches across scripts', () => {
+      expect(matchesBoldName('古川雄基', ['Yuki Furukawa'])).toBe(false)
+      expect(matchesBoldName('Yuki Furukawa', ['古川雄基'])).toBe(false)
+    })
+
+    it('bolds both renderings when boldNames carries both forms', () => {
+      const boldNames = ['Yuki Furukawa', '古川雄基']
+      // The Latin author list…
+      const latin = formatCitation(makePub(), 'vancouver', boldNames)
+      expect(latin).toContain('<b>Furukawa Y</b>')
+      // …and the Japanese one, from the same bold-name set.
+      const ja = makePub({
+        authors: ['古川 雄基', '佐藤 花子'],
+        authorsFull: ['古川 雄基', '佐藤 花子'],
+      })
+      const html = formatCitation(ja, 'vancouver', boldNames)
+      expect(html).toContain('<b>古川 雄基</b>')
+      expect(html).not.toContain('<b>佐藤 花子</b>')
+    })
+  })
+
   it('escapes the author name it bolds', () => {
     const evil = makePub({
       authors: ['<script>Furukawa Y'],

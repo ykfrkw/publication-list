@@ -33,8 +33,9 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { configHash } from '@/core/config'
-import type { Publication } from '@/core/types'
+import type { GyosekiCategory, Publication } from '@/core/types'
 import { parseNameList } from './lib/parse'
+import { overlayDraftPins, setCategoryPin } from './lib/pins'
 import {
   EXAMPLE_ORCID,
   GROUP_BY_DEFAULT,
@@ -197,6 +198,22 @@ export default function App() {
   )
 
   /**
+   * The two pin edits from the preview. Unlike Remove above, neither triggers
+   * a rebuild: a pin changes where a record files or sits, not what is
+   * fetched, and `outputModel`'s overlay applies it — to the preview and to
+   * the snippet — the moment the draft changes.
+   */
+  const pinCategory = useCallback(
+    (pub: Publication, category: GyosekiCategory) =>
+      setDraft((prev) => setCategoryPin(prev, pub, category)),
+    [],
+  )
+  const pinOrder = useCallback(
+    (orderPins: string[]) => setDraft((prev) => ({ ...prev, orderPins })),
+    [],
+  )
+
+  /**
    * Adopt a draft restored from a pasted snippet.
    *
    * Deliberately *not* `rerunWith`: restoring settings and spending ten seconds
@@ -232,19 +249,33 @@ export default function App() {
    * projection, the iframe URL — then reads it from `config` with no further
    * plumbing.
    */
-  const outputModel = useMemo(
-    () =>
-      model == null
-        ? null
-        : {
-            ...model,
-            config: {
-              ...model.config,
-              disclaimer: (draft.disclaimer ? 'show' : 'hide') as 'show' | 'hide',
-            },
-          },
-    [model, draft.disclaimer],
-  )
+  const outputModel = useMemo(() => {
+    if (model == null) return null
+    // The pins overlay is here for the same reason the disclaimer is: a pin
+    // has to move the preview and rewrite the snippet the moment it is made,
+    // and a rebuild would spend the network re-fetching records nobody
+    // changed. `overlayDraftPins` recomputes exactly what the pipeline will
+    // compute on the next build, so nothing jumps when one does run — and it
+    // deliberately does NOT start one.
+    const pinned = overlayDraftPins(model, {
+      taxonomy: draft.taxonomy,
+      categoryPins: draft.categoryPins,
+      orderPins: draft.orderPins,
+    })
+    return {
+      ...pinned,
+      config: {
+        ...pinned.config,
+        disclaimer: (draft.disclaimer ? 'show' : 'hide') as 'show' | 'hide',
+      },
+    }
+  }, [
+    model,
+    draft.disclaimer,
+    draft.taxonomy,
+    draft.categoryPins,
+    draft.orderPins,
+  ])
   const boldNames = useMemo(() => parseNameList(draft.boldNames), [draft.boldNames])
   const showQueue =
     model != null && (model.candidates.length > 0 || hasNameQuery(model.config))
@@ -393,6 +424,8 @@ export default function App() {
             onRemove={removeOne}
             removed={removedEntries(draft)}
             onRestore={restoreOne}
+            onCategoryPin={pinCategory}
+            onOrderPins={pinOrder}
           />
 
           <SnippetPanel

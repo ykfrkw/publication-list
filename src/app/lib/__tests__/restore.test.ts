@@ -787,3 +787,57 @@ describe('a hostile paste', () => {
     expect(draft.orcid).toBe('0000-0003-1317-0220')
   })
 })
+
+describe('the round trip of the gyoseki taxonomy and pins', () => {
+  const GYOSEKI_DRAFT: WizardDraft = {
+    ...emptyDraft('person'),
+    orcid: '0000-0003-1317-0220',
+    researchmap: 'yukifurukawa',
+    taxonomy: 'gyoseki',
+    categoryPins: {
+      'doi:10.1136/bmj.n71': 'en-review',
+      'rm:12345': 'award',
+    },
+    orderPins: ['pmid:33782057', 'doi:10.1136/bmj.n71'],
+  }
+
+  it('comes back off the script snippet, pins and all', async () => {
+    const config = draftToConfig(GYOSEKI_DRAFT)
+    const { draft } = await restoreFromPaste(snippetFor(GYOSEKI_DRAFT))
+
+    expect(draft.taxonomy).toBe('gyoseki')
+    expect(draft.categoryPins).toEqual(GYOSEKI_DRAFT.categoryPins)
+    expect(draft.orderPins).toEqual(GYOSEKI_DRAFT.orderPins)
+    expect(comparable(draftToConfig(draft))).toEqual(comparable(config))
+  })
+
+  it('comes back off the iframe snippet too', async () => {
+    const config = draftToConfig(GYOSEKI_DRAFT)
+    const { draft, form } = await restoreFromPaste(buildIframeSnippet(config))
+
+    expect(form).toBe('iframe')
+    expect(draft.taxonomy).toBe('gyoseki')
+    expect(draft.categoryPins).toEqual(GYOSEKI_DRAFT.categoryPins)
+    expect(draft.orderPins).toEqual(GYOSEKI_DRAFT.orderPins)
+  })
+
+  it('survives a pin ref that contains a comma', async () => {
+    const draft: WizardDraft = {
+      ...emptyDraft('person'),
+      orcid: '0000-0003-1317-0220',
+      taxonomy: 'gyoseki',
+      categoryPins: { 'doi:10.1000/a,b': 'ja-original' },
+      orderPins: ['doi:10.1000/a,b'],
+    }
+    const restored = await restoreFromPaste(snippetFor(draft))
+    expect(restored.draft.categoryPins).toEqual(draft.categoryPins)
+    expect(restored.draft.orderPins).toEqual(draft.orderPins)
+  })
+
+  it('a snippet that says nothing restores a standard draft', async () => {
+    const { draft } = await restoreFromPaste(snippetFor(PERSON_DRAFT))
+    expect(draft.taxonomy).toBe('standard')
+    expect(draft.categoryPins).toEqual({})
+    expect(draft.orderPins).toEqual([])
+  })
+})

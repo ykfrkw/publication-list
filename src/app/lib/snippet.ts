@@ -137,6 +137,15 @@ export function configToDataAttributes(config: ListConfig): DataAttribute[] {
   if (config.disclaimer && config.disclaimer !== DEFAULT_DISCLAIMER) {
     push('data-disclaimer', config.disclaimer)
   }
+  // Same rule as the other closed vocabularies: only the non-default value is
+  // written, so a list that never opted into the 業績集 scheme carries no
+  // attribute at all. The two pin lists ride the comma-joined transport like
+  // `include` does — a DOI ref may contain a comma, and `encodeListValue` in
+  // `joinList` is what keeps one intact. `push` drops an empty join, so an
+  // absent pin list writes nothing.
+  if (config.taxonomy === 'gyoseki') push('data-taxonomy', 'gyoseki')
+  push('data-category-pins', joinList(config.categoryPins))
+  push('data-order-pins', joinList(config.orderPins))
   push('data-from', config.from)
   push('data-to', config.to)
   if (config.limit != null) push('data-limit', String(config.limit))

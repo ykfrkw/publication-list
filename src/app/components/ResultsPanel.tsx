@@ -57,7 +57,7 @@ import {
   renderRis,
   renderWordpressBlocks,
 } from '@/core/render'
-import type { ListModel, Publication } from '@/core/types'
+import type { GyosekiCategory, ListModel, Publication } from '@/core/types'
 import { CopyButton, DownloadButton } from './CopyButton'
 import { PreviewList } from './PreviewList'
 import { copyRich } from '../lib/clipboard'
@@ -70,6 +70,8 @@ export function ResultsPanel({
   onRemove,
   removed = [],
   onRestore,
+  onCategoryPin,
+  onOrderPins,
 }: {
   model: ListModel
   /** The "Include a credit link" checkbox, shared with the embed snippets. */
@@ -80,6 +82,10 @@ export function ResultsPanel({
   removed?: RemovedEntry[]
   /** Undo one removal. */
   onRestore?: (ref: string) => void
+  /** Re-file one record under another 業績集 section. See `PreviewList`. */
+  onCategoryPin?: (pub: Publication, category: GyosekiCategory) => void
+  /** Adopt the recomputed explicit order after a drag. See `PreviewList`. */
+  onOrderPins?: (orderPins: string[]) => void
 }) {
   const staticHtml = useMemo(() => renderHtml(model, { credit }), [model, credit])
   const count = model.publications.length
@@ -192,7 +198,12 @@ export function ResultsPanel({
           // copied output carries, so the preview cannot show one treatment
           // while the snippet pastes another.
           <div className="publist-preview text-sm leading-relaxed [&_.publist-disclaimer]:mt-4 [&_.publist-heading]:mt-4 [&_.publist-heading]:mb-1.5 [&_.publist-heading]:font-medium [&_.publist-heading:first-child]:mt-0 [&_.publist-subheading]:mt-3 [&_.publist-subheading]:mb-1 [&_.publist-subheading]:text-xs [&_.publist-subheading]:font-medium [&_.publist-subheading]:text-muted-foreground [&_a]:underline [&_li]:mb-2 [&_ol]:list-decimal [&_ol]:ps-5">
-            <PreviewList model={model} onRemove={onRemove} />
+            <PreviewList
+              model={model}
+              onRemove={onRemove}
+              onCategoryPin={onCategoryPin}
+              onOrderPins={onOrderPins}
+            />
           </div>
         )}
       </CardContent>

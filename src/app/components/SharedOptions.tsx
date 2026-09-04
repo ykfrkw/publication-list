@@ -59,6 +59,18 @@ const HEADING_LEVEL_LABELS: Record<string, string> = {
   '5': 'H5',
 }
 
+/**
+ * The two sectioning vocabularies. Standard is the scheme this tool has always
+ * had (`CATEGORY_LABELS`); 業績集 is the ten numbered Japanese sections a
+ * Japanese academic CV expects (`GYOSEKI_LABELS`). Only shown in person and
+ * lab modes — the reference-list mode is a flat numbered list where sections
+ * make no sense either way, and its grouping default is already `'none'`.
+ */
+const TAXONOMY = [
+  { value: 'standard' as const, label: 'Standard (English categories)' },
+  { value: 'gyoseki' as const, label: '業績集（10 カテゴリ・日本語見出し）' },
+]
+
 const JAPANESE = [
   { value: 'separate' as const, label: 'In a section of their own' },
   { value: 'merge' as const, label: 'Mixed in with everything else' },
@@ -92,6 +104,20 @@ export function SharedOptions({
 
   return (
     <div className="flex flex-col gap-4">
+      {draft.mode !== 'article' ? (
+        <SelectField
+          label="List format"
+          hint={
+            draft.taxonomy === 'gyoseki'
+              ? '業績集のカテゴリ 4〜10（和文総説・報告書・著書・学会発表・受賞歴）は researchmap からしか取れません。researchmap の ID を情報源に入れていないと、それらのセクションは空のままです。'
+              : 'Standard files papers under English publication-type headings. 業績集 files everything under the ten numbered Japanese sections of an academic CV — papers by language and type, plus books, presentations and awards.'
+          }
+          value={draft.taxonomy}
+          onChange={(taxonomy) => update({ taxonomy })}
+          options={TAXONOMY}
+        />
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <SelectField
           label="Citation style"

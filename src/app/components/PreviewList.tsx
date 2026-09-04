@@ -29,13 +29,48 @@
  * nothing about it. The Remove controls are a wizard affordance and must never
  * appear in anything anyone copies or embeds — `RemoveControl.test.tsx` pins
  * that by reading what the copy buttons actually put on the clipboard.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
+ * PINNING: DRAG AND DROP, AND THE SELECT BESIDE IT
+ *
+ * When the caller supplies `onOrderPins`, every record with a pin reference
+ * gets a drag handle. Dragging within a section rewrites that section's
+ * explicit order (`rebuildOrderPins` in `../lib/pins.ts` owns the rule);
+ * dragging into another 業績集 section re-files the record there
+ * (`onCategoryPin`). Under the gyoseki taxonomy each record also gets a small
+ * section `<select>` doing the same re-filing — the keyboard- and
+ * screen-reader-reachable spelling of the same action, and the only way to
+ * reach a section that is currently empty (an empty section renders no
+ * heading, so there is nothing to drop onto).
+ *
+ * The decisions themselves are not made here: drag events are translated into
+ * the pure helpers of `../lib/pins.ts`, which is where they are tested — a
+ * real drag cannot be exercised under jsdom.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
 import { Fragment } from 'react'
-import { XIcon } from 'lucide-react'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { GripVerticalIcon, XIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatCitation } from '@/core/format'
+import { categorizeGyoseki } from '@/core/gyoseki'
 import {
   DISCLAIMER_TEXT,
   PUBMED_BASE,
@@ -45,8 +80,15 @@ import {
   pmidOf,
 } from '@/core/render'
 import { DEFAULT_DISCLAIMER } from '@/core/config'
-import type { ListModel, Publication } from '@/core/types'
-import { formatIdRef } from '@/core/ids'
+import {
+  GYOSEKI_LABELS,
+  GYOSEKI_ORDER,
+  type GyosekiCategory,
+  type ListModel,
+  type Publication,
+} from '@/core/types'
+import { formatCategoryPinRef, formatIdRef } from '@/core/ids'
+import { rebuildOrderPins, type SectionRefs } from '../lib/pins'
 
 /**
  * Why a record can be beyond the reach of Remove.
@@ -59,6 +101,16 @@ import { formatIdRef } from '@/core/ids'
  */
 export const UNREMOVABLE_REASON =
   'This record has neither a DOI nor a PMID, so there is no identifier to exclude it by. Correct it in ORCID, PubMed or researchmap instead.'
+
+/**
+ * Same statement about the pins: they address records by `doi:` / `pmid:` /
+ * `rm:` reference (`formatCategoryPinRef`), so a record with none of the three
+ * has no handle a saved order or section override could name it by.
+ */
+export const UNPINNABLE_REASON =
+  'This record has no DOI, PMID or researchmap id, so a saved position or ' +
+  'section for it could not name it. Correct it in the source it came from ' +
+  'instead.'
 
 function RemoveControl({
   pub,
@@ -111,20 +163,70 @@ function RemoveControl({
   return removable ? button : <span title={label}>{button}</span>
 }
 
-function PreviewItem({
+/**
+ * The keyboard/screen-reader spelling of the cross-section drag: a native
+ * `<select>` over all ten 業績集 sections. Choosing the record's natural
+ * category deletes the pin rather than storing a no-op one — that logic lives
+ * with the caller (`setCategoryPin` in `../lib/pins.ts`); this control only
+ * reports the chosen category.
+ */
+function CategorySelect({
+  pub,
+  onCategoryPin,
+}: {
+  pub: Publication
+  onCategoryPin: (pub: Publication, category: GyosekiCategory) => void
+}) {
+  const pinRef = formatCategoryPinRef(pub)
+  const title = (pub.title ?? '').trim() || pub.key
+  const value = pub.gyosekiCategory ?? categorizeGyoseki(pub)
+  const label =
+    pinRef != null
+      ? `Section for “${title}”`
+      : `Cannot re-file “${title}”. ${UNPINNABLE_REASON}`
+
+  const select = (
+    <select
+      value={value}
+      disabled={pinRef == null}
+      aria-label={label}
+      title={pinRef != null ? label : undefined}
+      onChange={(e) =>
+        onCategoryPin(pub, e.currentTarget.value as GyosekiCategory)
+      }
+      className="publist-category-select ms-1.5 h-6 max-w-44 truncate rounded border border-input bg-transparent px-1 align-baseline text-xs text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed"
+    >
+      {GYOSEKI_ORDER.map((category) => (
+        <option key={category} value={category}>
+          {GYOSEKI_LABELS[category]}
+        </option>
+      ))}
+    </select>
+  )
+
+  // Same wrapper trick as RemoveControl: a disabled control shows no `title`
+  // of its own, so the reason rides on a span around it.
+  return pinRef != null ? select : <span title={label}>{select}</span>
+}
+
+/** Everything inside an item's `<li>` except the drag handle. */
+function ItemContent({
   pub,
   style,
   boldNames,
   onRemove,
+  onCategoryPin,
 }: {
   pub: Publication
   style: Parameters<typeof formatCitation>[1]
   boldNames: readonly string[]
   onRemove?: (pub: Publication) => void
+  /** Present only under the gyoseki taxonomy; renders the section select. */
+  onCategoryPin?: (pub: Publication, category: GyosekiCategory) => void
 }) {
   const pmid = pmidOf(pub)
   return (
-    <li className="publist-item">
+    <>
       <span
         // Every field is escaped by `format.ts`; the only markup here is <b>,
         // <em> and one doi.org link — the same string `renderHtml` emits.
@@ -143,22 +245,172 @@ function PreviewItem({
           </span>
         </>
       )}
+      {onCategoryPin ? (
+        <CategorySelect pub={pub} onCategoryPin={onCategoryPin} />
+      ) : null}
       {onRemove ? <RemoveControl pub={pub} onRemove={onRemove} /> : null}
+    </>
+  )
+}
+
+function PreviewItem({
+  pub,
+  style,
+  boldNames,
+  onRemove,
+  onCategoryPin,
+}: {
+  pub: Publication
+  style: Parameters<typeof formatCitation>[1]
+  boldNames: readonly string[]
+  onRemove?: (pub: Publication) => void
+  onCategoryPin?: (pub: Publication, category: GyosekiCategory) => void
+}) {
+  return (
+    <li className="publist-item">
+      <ItemContent
+        pub={pub}
+        style={style}
+        boldNames={boldNames}
+        onRemove={onRemove}
+        onCategoryPin={onCategoryPin}
+      />
     </li>
   )
 }
 
+/**
+ * A `PreviewItem` that can be dragged.
+ *
+ * The listeners sit on a dedicated handle rather than on the `<li>`: the item
+ * body holds a link, a select and a button, and a whole-row activator would
+ * fight every one of them for the pointer and the keyboard. A record with no
+ * pin reference keeps the handle — greyed out, with the reason in its tooltip
+ * — because a row where the handle silently vanished would read as a bug, not
+ * a rule.
+ */
+function SortablePreviewItem({
+  pub,
+  style,
+  boldNames,
+  onRemove,
+  onCategoryPin,
+}: {
+  pub: Publication
+  style: Parameters<typeof formatCitation>[1]
+  boldNames: readonly string[]
+  onRemove?: (pub: Publication) => void
+  onCategoryPin?: (pub: Publication, category: GyosekiCategory) => void
+}) {
+  const pinRef = formatCategoryPinRef(pub)
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    // Sortable ids are the pin refs, because a drag's outcome is written in
+    // refs. The dedupe key stands in for an unpinnable record so the hook has
+    // a unique id, but with `disabled` set it neither drags nor receives.
+    id: pinRef ?? pub.key,
+    disabled: pinRef == null,
+  })
+  const title = (pub.title ?? '').trim() || pub.key
+  const handleLabel =
+    pinRef != null
+      ? `Drag to reorder “${title}”, or drop it on another section`
+      : `Cannot move “${title}”. ${UNPINNABLE_REASON}`
+
+  const handle = (
+    <button
+      type="button"
+      disabled={pinRef == null}
+      aria-label={handleLabel}
+      title={pinRef != null ? handleLabel : undefined}
+      className="me-1.5 inline-flex size-5 cursor-grab items-center justify-center rounded align-text-bottom text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+      {...attributes}
+      {...listeners}
+    >
+      <GripVerticalIcon aria-hidden="true" className="size-3.5" />
+    </button>
+  )
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`publist-item${isDragging ? ' opacity-60' : ''}`}
+    >
+      {pinRef != null ? handle : <span title={handleLabel}>{handle}</span>}
+      <ItemContent
+        pub={pub}
+        style={style}
+        boldNames={boldNames}
+        onRemove={onRemove}
+        onCategoryPin={onCategoryPin}
+      />
+    </li>
+  )
+}
+
+/** One innermost rendered list, with the 業績集 section it belongs to. */
+interface FlatSection {
+  key: string
+  category: GyosekiCategory | null
+  items: Publication[]
+}
+
+/** The gyoseki category a group key names, or `null` for every other group. */
+function gyosekiCategoryOf(groupKey: string): GyosekiCategory | null {
+  if (!groupKey.startsWith('gyoseki:')) return null
+  const rest = groupKey.slice('gyoseki:'.length)
+  return (GYOSEKI_ORDER as readonly string[]).includes(rest)
+    ? (rest as GyosekiCategory)
+    : null
+}
+
+const refsOf = (items: readonly Publication[]): string[] =>
+  items
+    .map(formatCategoryPinRef)
+    .filter((ref): ref is string => ref != null)
+
 export function PreviewList({
   model,
   onRemove,
+  onCategoryPin,
+  onOrderPins,
 }: {
   model: ListModel
   /** Omit to render the list with no controls at all. */
   onRemove?: (pub: Publication) => void
+  /**
+   * Re-file one record under another 業績集 section (a category pin). Only
+   * meaningful — and only rendered — when the model's taxonomy is `'gyoseki'`.
+   */
+  onCategoryPin?: (pub: Publication, category: GyosekiCategory) => void
+  /**
+   * Adopt a recomputed `orderPins` after a drag. Its presence is what switches
+   * the drag-and-drop on, in either taxonomy.
+   */
+  onOrderPins?: (orderPins: string[]) => void
 }) {
   const style = model.config.style ?? 'vancouver'
   const boldNames = model.config.boldNames ?? []
+  const gyoseki = model.config.taxonomy === 'gyoseki'
   const groups = buildGroups(model)
+  const editable = onOrderPins != null
+  const categoryPin = gyoseki && onCategoryPin != null ? onCategoryPin : undefined
+
+  const sensors = useSensors(
+    // The activation distance is what keeps a plain click a click: without it
+    // every press on the handle starts a zero-length drag and the browser
+    // never sees the click at all.
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
   /*
    * The same two levels the string renderers use, from the same function.
    *
@@ -173,25 +425,113 @@ export function PreviewList({
   const Heading = `h${heading}` as 'h3'
   const SubHeading = `h${sub}` as 'h4'
 
-  const list = (items: Publication[], key: string) => (
-    <ol key={key} className="publist-list">
-      {items.map((pub) => (
+  // Every innermost list, flattened, in display order — the shape both drag
+  // outcomes are computed against. Rebuilt per render; the preview renders a
+  // few dozen rows and `buildGroups` above already did the heavy walk.
+  const sections: FlatSection[] = []
+  for (const group of groups) {
+    const category = gyosekiCategoryOf(group.key)
+    if (group.sections) {
+      for (const section of group.sections) {
+        if (section.items.length > 0) {
+          sections.push({ key: section.key, category, items: section.items })
+        }
+      }
+    } else if (group.items.length > 0) {
+      sections.push({ key: group.key, category, items: group.items })
+    }
+  }
+
+  const sectionOfRef = (ref: string): FlatSection | undefined =>
+    sections.find((section) =>
+      section.items.some((pub) => formatCategoryPinRef(pub) === ref),
+    )
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (over == null || onOrderPins == null) return
+    const activeRef = String(active.id)
+    const overRef = String(over.id)
+    const from = sectionOfRef(activeRef)
+    const to = sectionOfRef(overRef)
+    if (from == null || to == null) return
+
+    if (from.key === to.key) {
+      // A drop within the section: rewrite that section's explicit order.
+      if (activeRef === overRef) return
+      const refs = refsOf(from.items)
+      const next = arrayMove(refs, refs.indexOf(activeRef), refs.indexOf(overRef))
+      const sectionRefs: SectionRefs[] = sections.map((section) => ({
+        key: section.key,
+        refs: refsOf(section.items),
+      }))
+      onOrderPins(
+        rebuildOrderPins(
+          sectionRefs,
+          model.config.orderPins ?? [],
+          from.key,
+          next,
+        ),
+      )
+      return
+    }
+
+    // A drop on another section: under the gyoseki taxonomy that re-files the
+    // record there (`setCategoryPin` in the caller deletes the pin when the
+    // target is the record's natural category). In the standard taxonomy the
+    // sections are computed from record metadata and cannot be assigned, so a
+    // cross-section drop is a no-op — as is a drop on a different *year* of
+    // the same gyoseki section, which no pin can express either.
+    if (categoryPin != null && to.category != null && to.category !== from.category) {
+      const pub = from.items.find((p) => formatCategoryPinRef(p) === activeRef)
+      if (pub) categoryPin(pub, to.category)
+    }
+  }
+
+  const list = (items: Publication[], key: string) => {
+    const rows = items.map((pub) =>
+      editable ? (
+        <SortablePreviewItem
+          key={pub.key}
+          pub={pub}
+          style={style}
+          boldNames={boldNames}
+          onRemove={onRemove}
+          onCategoryPin={categoryPin}
+        />
+      ) : (
         <PreviewItem
           key={pub.key}
           pub={pub}
           style={style}
           boldNames={boldNames}
           onRemove={onRemove}
+          onCategoryPin={categoryPin}
         />
-      ))}
-    </ol>
-  )
+      ),
+    )
+    const body = (
+      <ol key={key} className="publist-list">
+        {rows}
+      </ol>
+    )
+    if (!editable) return body
+    return (
+      <SortableContext
+        key={key}
+        items={refsOf(items)}
+        strategy={verticalListSortingStrategy}
+      >
+        {body}
+      </SortableContext>
+    )
+  }
 
   // Fragments rather than wrapper `<div>`s: the headings and lists have to stay
   // flat siblings of `<section class="publist">`, exactly as `renderHtml` emits
   // them. A wrapper per group would make every group's heading a `:first-child`
   // and collapse the spacing the preview stylesheet puts between them.
-  return (
+  const content = (
     <section className="publist">
       {groups.map((group) => {
         if (group.items.length === 0) return null
@@ -224,5 +564,16 @@ export function PreviewList({
         </p>
       ) : null}
     </section>
+  )
+
+  if (!editable) return content
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+    >
+      {content}
+    </DndContext>
   )
 }

@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_GROUP_BY, configHash, normalizeConfig } from '@/core/config'
 import { buildList } from '@/core/pipeline'
 import type { FetchStub } from '@/core/sources/__tests__/helpers'
 import { loadFixture, stubFetch } from '@/core/sources/__tests__/helpers'
 import type { ListModel, Publication } from '@/core/types'
 import {
+  DRAFT_STORAGE_KEY,
   GROUP_BY_DEFAULT,
   applyFreeze,
   applyReviewDecisions,
@@ -16,6 +17,7 @@ import {
   hasNameQuery,
   initialChecked,
   isRunnable,
+  loadDraft,
   pickMode,
   planFreeze,
   removePublication,
@@ -1011,5 +1013,198 @@ describe('draftHasContent', () => {
     expect(draftHasContent({ ...emptyDraft('person'), orcid: 'x' })).toBe(true)
     expect(draftHasContent({ ...emptyDraft('lab'), members: 'x' })).toBe(true)
     expect(draftHasContent({ ...emptyDraft(), exclude: ['pmid:1'] })).toBe(true)
+  })
+})
+
+describe('the gyoseki taxonomy in the draft', () => {
+  it('projects onto no config field at all while standard is selected', () => {
+    const config = draftToConfig({ ...emptyDraft('person'), orcid: 'x' })
+    expect(config.taxonomy).toBeUndefined()
+    expect(config.categoryPins).toBeUndefined()
+    expect(config.orderPins).toBeUndefined()
+  })
+
+  it('a standard draft with gyoseki fields empty hashes as it always did', () => {
+    // The whole point of "absent means standard": opting nobody in changes
+    // nobody's cache key.
+    const config = draftToConfig({ ...emptyDraft('person'), orcid: 'x' })
+    const before = normalizeConfig({ seeds: { orcid: ['x'] } })
+    expect(configHash(config)).toBe(configHash(before))
+  })
+
+  it('writes taxonomy: gyoseki when the draft opted in', () => {
+    const config = draftToConfig({
+      ...emptyDraft('person'),
+      orcid: 'x',
+      taxonomy: 'gyoseki',
+    })
+    expect(config.taxonomy).toBe('gyoseki')
+  })
+
+  it('projects the pin map onto ref=category entries sorted by ref', () => {
+    const config = draftToConfig({
+      ...emptyDraft('person'),
+      orcid: 'x',
+      taxonomy: 'gyoseki',
+      categoryPins: {
+        'pmid:2': 'ja-review',
+        'doi:10.1/a': 'en-review',
+        'rm:99': 'award',
+      },
+    })
+    expect(config.categoryPins).toEqual([
+      'doi:10.1/a=en-review',
+      'pmid:2=ja-review',
+      'rm:99=award',
+    ])
+  })
+
+  it('the same pins in a different insertion order serialize identically', () => {
+    const a = draftToConfig({
+      ...emptyDraft('person'),
+      orcid: 'x',
+      categoryPins: { 'pmid:2': 'ja-review', 'pmid:1': 'en-review' },
+    })
+    const b = draftToConfig({
+      ...emptyDraft('person'),
+      orcid: 'x',
+      categoryPins: { 'pmid:1': 'en-review', 'pmid:2': 'ja-review' },
+    })
+    expect(configHash(a)).toBe(configHash(b))
+  })
+
+  it('passes orderPins through when non-empty', () => {
+    const config = draftToConfig({
+      ...emptyDraft('person'),
+      orcid: 'x',
+      orderPins: ['pmid:2', 'doi:10.1/a'],
+    })
+    expect(config.orderPins).toEqual(['pmid:2', 'doi:10.1/a'])
+  })
+
+  it('configToDraft reads all three back', () => {
+    const config = normalizeConfig({
+      seeds: { orcid: ['x'] },
+      taxonomy: 'gyoseki',
+      categoryPins: ['doi:10.1/a=en-review', 'pmid:2=ja-review'],
+      orderPins: ['pmid:2', 'doi:10.1/a'],
+    })
+    const draft = configToDraft(config)
+    expect(draft.taxonomy).toBe('gyoseki')
+    expect(draft.categoryPins).toEqual({
+      'doi:10.1/a': 'en-review',
+      'pmid:2': 'ja-review',
+    })
+    expect(draft.orderPins).toEqual(['pmid:2', 'doi:10.1/a'])
+  })
+
+  it('splits a pin entry on the last =, so a DOI containing one survives', () => {
+    const draft = configToDraft(
+      normalizeConfig({
+        seeds: { orcid: ['x'] },
+        categoryPins: ['doi:10.1000/abc=def=ja-original'],
+      }),
+    )
+    expect(draft.categoryPins).toEqual({ 'doi:10.1000/abc=def': 'ja-original' })
+  })
+
+  it('drops a pin entry whose category is not in the vocabulary', () => {
+    // Reaches parseCategoryPinEntries directly: normalizeConfig would already
+    // have dropped it, and the draft must apply the same rule on its own.
+    const draft = emptyDraft('person')
+    draft.orcid = 'x'
+    const config = draftToConfig(draft)
+    const reopened = configToDraft({
+      ...config,
+      categoryPins: ['pmid:1=not-a-category', 'pmid:2=award'],
+    })
+    expect(reopened.categoryPins).toEqual({ 'pmid:2': 'award' })
+  })
+
+  it('round-trips draft → config → draft, pins included', () => {
+    const original = {
+      ...emptyDraft('person'),
+      orcid: '0000-0003-1317-0220',
+      taxonomy: 'gyoseki' as const,
+      categoryPins: {
+        'doi:10.1136/bmj.n71': 'en-review' as const,
+        'rm:12345': 'award' as const,
+      },
+      orderPins: ['pmid:2', 'doi:10.1136/bmj.n71'],
+    }
+    const config = draftToConfig(original)
+    const reopened = configToDraft(config)
+    expect(reopened.taxonomy).toBe('gyoseki')
+    expect(reopened.categoryPins).toEqual(original.categoryPins)
+    expect(reopened.orderPins).toEqual(original.orderPins)
+    // And the reopened draft projects onto the same config again.
+    expect(draftToConfig(reopened)).toEqual(config)
+  })
+})
+
+describe('loadDraft — forward compatibility of the stored gyoseki fields', () => {
+  // This suite runs on node, where `globalThis.localStorage` does not exist;
+  // a Map-backed stand-in is enough for the two calls loadDraft makes.
+  const store = new Map<string, string>()
+
+  beforeEach(() => {
+    store.clear()
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => void store.set(key, value),
+        removeItem: (key: string) => void store.delete(key),
+      },
+    })
+  })
+
+  afterEach(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage
+  })
+
+  function save(draft: object): void {
+    store.set(DRAFT_STORAGE_KEY, JSON.stringify({ v: 1, draft }))
+  }
+
+  it('a draft stored before the fields existed gets the defaults', () => {
+    const old = { ...emptyDraft('person'), orcid: 'x' } as Record<string, unknown>
+    delete old.taxonomy
+    delete old.categoryPins
+    delete old.orderPins
+    save(old)
+    const loaded = loadDraft()
+    expect(loaded).not.toBeNull()
+    expect(loaded!.taxonomy).toBe('standard')
+    expect(loaded!.categoryPins).toEqual({})
+    expect(loaded!.orderPins).toEqual([])
+    expect(loaded!.orcid).toBe('x')
+  })
+
+  it('an unrecognized taxonomy falls back to standard', () => {
+    save({ ...emptyDraft('person'), taxonomy: 'fancy' })
+    expect(loadDraft()!.taxonomy).toBe('standard')
+    save({ ...emptyDraft('person'), taxonomy: 'gyoseki' })
+    expect(loadDraft()!.taxonomy).toBe('gyoseki')
+  })
+
+  it('categoryPins must be a plain object, and its values must be categories', () => {
+    save({ ...emptyDraft('person'), categoryPins: ['pmid:1=award'] })
+    expect(loadDraft()!.categoryPins).toEqual({})
+
+    save({
+      ...emptyDraft('person'),
+      categoryPins: { 'pmid:1': 'award', 'pmid:2': 'no-such-section' },
+    })
+    // The stale value un-pins its record rather than mis-filing it.
+    expect(loadDraft()!.categoryPins).toEqual({ 'pmid:1': 'award' })
+  })
+
+  it('orderPins must be an array of strings', () => {
+    save({ ...emptyDraft('person'), orderPins: 'pmid:1' })
+    expect(loadDraft()!.orderPins).toEqual([])
+
+    save({ ...emptyDraft('person'), orderPins: ['pmid:1', 7, null, 'doi:10.1/a'] })
+    expect(loadDraft()!.orderPins).toEqual(['pmid:1', 'doi:10.1/a'])
   })
 })

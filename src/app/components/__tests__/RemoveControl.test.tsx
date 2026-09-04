@@ -211,13 +211,22 @@ function preview(): HTMLElement {
   return el
 }
 
-/** The Remove control on the row whose citation contains `text`. */
+/**
+ * The Remove control on the row whose citation contains `text`.
+ *
+ * Found by its accessible name rather than as "the row's button": since the
+ * pinning UI landed, every row also carries a drag handle (and, under the
+ * gyoseki taxonomy, a section select), so "the first button" stopped meaning
+ * Remove.
+ */
 function removeButton(text: string): HTMLButtonElement {
   const item = Array.from(preview().querySelectorAll('li.publist-item')).find(
     (li) => (li.textContent ?? '').includes(text),
   )
   if (!item) throw new Error(`no list item containing "${text}"`)
-  const button = item.querySelector('button')
+  const button = Array.from(item.querySelectorAll('button')).find((b) =>
+    /^(Remove|Cannot remove)/.test(b.getAttribute('aria-label') ?? ''),
+  )
   if (!button) throw new Error(`no Remove control on "${text}"`)
   return button
 }

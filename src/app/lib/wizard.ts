@@ -20,11 +20,14 @@ import { INCLUDE_SEED_ID, seedId, seedWindowOf } from '@/core/seeds'
 import { CACHE_PREFIX } from '@/core/cache'
 import type {
   CitationStyle,
+  GyosekiCategory,
   ListConfig,
   ListModel,
   Publication,
   Seed,
+  Taxonomy,
 } from '@/core/types'
+import { GYOSEKI_ORDER } from '@/core/types'
 import {
   commentOutLine,
   formatMemberWindow,
@@ -99,6 +102,30 @@ export interface WizardDraft {
   members: string
 
   style: CitationStyle
+  /**
+   * Which sectioning vocabulary the list uses. `'standard'` is the default and
+   * projects onto *no* config field at all (see `draftToConfig`), so a draft
+   * that never opted into the 業績集 scheme produces the exact config — and
+   * `configHash` — it always did.
+   */
+  taxonomy: Taxonomy
+  /**
+   * Manual 業績集 section overrides, keyed by the record's pin reference
+   * (`doi:…` / `pmid:…` / `rm:<digits>` — see `formatCategoryPinRef`).
+   *
+   * A map rather than the config's `ref=cat` strings because the UI's two
+   * questions — "is this record pinned?" and "pin it / un-pin it" — are both
+   * lookups by ref. `draftToConfig` projects it onto sorted `<ref>=<category>`
+   * entries; sorted by ref so the same set of pins always serializes to the
+   * same config, whatever order the user made them in.
+   */
+  categoryPins: Record<string, GyosekiCategory>
+  /**
+   * Explicit display order, as pin references, projected 1:1 onto
+   * `ListConfig.orderPins`. Written wholesale by the preview's drag-and-drop
+   * (see `rebuildOrderPins` in `./pins.ts` for the rule).
+   */
+  orderPins: string[]
   from: string
   to: string
   groupBy: NonNullable<ListConfig['groupBy']>
@@ -207,6 +234,9 @@ export function emptyDraft(mode: WizardMode = 'article'): WizardDraft {
     pubmedTrusted: [],
     members: '',
     style: 'vancouver',
+    taxonomy: 'standard',
+    categoryPins: {},
+    orderPins: [],
     from: '',
     to: '',
     groupBy: GROUP_BY_DEFAULT[mode],
@@ -233,6 +263,48 @@ export function exampleDraft(): WizardDraft {
 }
 
 // ───────────────────────────────────────────────────── draft → ListConfig ──
+
+/**
+ * The draft's category-pin map as the config's `<ref>=<category>` entries.
+ *
+ * Sorted by ref, deliberately: a map has no order, so without a rule here the
+ * same pins could serialize differently run to run — and `configHash`, the
+ * cache key and the snippet would all wobble with them. `normalizeCategoryPins`
+ * keeps last-wins order for a hand-written list; entries the wizard emits are
+ * unique by construction, so sorting loses nothing.
+ */
+export function projectCategoryPins(
+  pins: Readonly<Record<string, GyosekiCategory>>,
+): string[] {
+  return Object.entries(pins)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([ref, category]) => `${ref}=${category}`)
+}
+
+/**
+ * Inverse of `projectCategoryPins`: `<ref>=<category>` entries back into the
+ * draft's map. The split is on the **last** `=` — a DOI may contain one, a
+ * category token never does — the same rule `normalizeCategoryPins` applies.
+ * An entry whose category is not a `GyosekiCategory` is dropped, so a typo
+ * un-pins rather than mis-pins; later entries for the same ref win, matching
+ * the config normalizer.
+ */
+export function parseCategoryPinEntries(
+  entries: readonly string[] | undefined,
+): Record<string, GyosekiCategory> {
+  const out: Record<string, GyosekiCategory> = {}
+  for (const raw of entries ?? []) {
+    const s = raw.trim()
+    const separator = s.lastIndexOf('=')
+    if (separator <= 0) continue
+    const ref = s.slice(0, separator).trim()
+    const category = s.slice(separator + 1).trim().toLowerCase()
+    if (ref === '') continue
+    if (!(GYOSEKI_ORDER as readonly string[]).includes(category)) continue
+    out[ref] = category as GyosekiCategory
+  }
+  return out
+}
 
 /**
  * One member's identifier as a seed.
@@ -308,6 +380,15 @@ export function draftToConfig(draft: WizardDraft): ListConfig {
 
   const bold = parseNameList(draft.boldNames)
   if (bold.length > 0) partial.boldNames = bold
+
+  // Only `'gyoseki'` is ever written — `'standard'` is what an absent field
+  // means, and `normalizeConfig` would drop it anyway. Pins are meaningful in
+  // either taxonomy (`orderPins` reorders standard sections too), so they are
+  // not gated on it.
+  if (draft.taxonomy === 'gyoseki') partial.taxonomy = 'gyoseki'
+  const categoryPins = projectCategoryPins(draft.categoryPins)
+  if (categoryPins.length > 0) partial.categoryPins = categoryPins
+  if (draft.orderPins.length > 0) partial.orderPins = [...draft.orderPins]
 
   partial.style = draft.style
   partial.groupBy = draft.groupBy
@@ -486,6 +567,10 @@ export function configToDraft(
 
   draft.pins = (config.include ?? []).join('\n')
   draft.exclude = [...(config.exclude ?? [])]
+
+  draft.taxonomy = config.taxonomy === 'gyoseki' ? 'gyoseki' : 'standard'
+  draft.categoryPins = parseCategoryPinEntries(config.categoryPins)
+  draft.orderPins = [...(config.orderPins ?? [])]
 
   draft.style = config.style ?? DEFAULT_STYLE
   draft.groupBy = config.groupBy ?? DEFAULT_GROUP_BY
@@ -964,6 +1049,29 @@ export function loadDraft(): WizardDraft | null {
         !Array.isArray(draft.removed)
           ? draft.removed
           : {},
+      // A draft stored before the taxonomy existed — or one carrying a value
+      // the select cannot show — falls back to the standard sections, which is
+      // exactly what such a draft was built under.
+      taxonomy: draft.taxonomy === 'gyoseki' ? 'gyoseki' : 'standard',
+      // Same shape of guard as `removed`: the pins must be a plain object
+      // (an array is also `typeof 'object'`) or the lookups-by-ref would
+      // quietly misbehave. Values are re-validated so a stale category name
+      // un-pins rather than mis-files.
+      categoryPins:
+        draft.categoryPins != null &&
+        typeof draft.categoryPins === 'object' &&
+        !Array.isArray(draft.categoryPins)
+          ? Object.fromEntries(
+              Object.entries(draft.categoryPins).filter(([, category]) =>
+                (GYOSEKI_ORDER as readonly string[]).includes(category as string),
+              ),
+            ) as Record<string, GyosekiCategory>
+          : {},
+      // An array of strings or nothing: a draft from before the field existed
+      // has no explicit order, which is the default sort it was saved with.
+      orderPins: Array.isArray(draft.orderPins)
+        ? draft.orderPins.filter((ref): ref is string => typeof ref === 'string')
+        : [],
     }
   } catch {
     return null

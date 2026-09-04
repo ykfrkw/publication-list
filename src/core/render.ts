@@ -17,8 +17,20 @@
  * through `escapeHtml` / `escapeUrl` from `./format`.
  */
 
-import type { HeadingLevel, ListModel, Publication } from './types'
-import { CATEGORY_LABELS, CATEGORY_ORDER } from './types'
+import type {
+  GyosekiCategory,
+  HeadingLevel,
+  ListModel,
+  Publication,
+} from './types'
+import {
+  CATEGORY_LABELS,
+  CATEGORY_ORDER,
+  GYOSEKI_LABELS,
+  GYOSEKI_ORDER,
+} from './types'
+import type { IdRef } from './ids'
+import { matchesIdRef, parseIdRef } from './ids'
 import {
   AUTO_HEADING_FALLBACK,
   DEFAULT_DISCLAIMER,
@@ -304,6 +316,67 @@ function groupByCategoryYear(pubs: Publication[]): RenderGroup[] {
   })
 }
 
+/**
+ * Where a record files when the pipeline has not written `gyosekiCategory`.
+ *
+ * The pipeline normally sets the field on every record when the taxonomy is
+ * `'gyoseki'`; this fallback exists so a hand-built or cached model from
+ * before the field existed still renders every record somewhere visible
+ * rather than silently dropping it. The mapping is by `kind` alone — the
+ * least-wrong section for each kind, not a re-implementation of the
+ * pipeline's categorization.
+ */
+function fallbackGyosekiCategory(pub: Publication): GyosekiCategory {
+  switch (pub.kind ?? 'paper') {
+    case 'book':
+      return 'book-lead'
+    case 'presentation':
+      return 'domestic-presentation'
+    case 'award':
+      return 'award'
+    default:
+      return 'en-original'
+  }
+}
+
+/**
+ * The ten 業績集 sections, in `GYOSEKI_ORDER`, with the numbered Japanese
+ * headings from `GYOSEKI_LABELS`. Empty sections are omitted, consistent with
+ * `groupByCategory` — a heading over nothing is noise, and the numbering is
+ * part of the label so the visible numbers stay stable either way.
+ */
+function groupByGyoseki(pubs: Publication[]): RenderGroup[] {
+  const groups: RenderGroup[] = []
+  for (const category of GYOSEKI_ORDER) {
+    const items = pubs.filter(
+      (p) => (p.gyosekiCategory ?? fallbackGyosekiCategory(p)) === category,
+    )
+    if (items.length === 0) continue
+    groups.push({
+      key: `gyoseki:${category}`,
+      label: GYOSEKI_LABELS[category],
+      items,
+    })
+  }
+  return groups
+}
+
+/** The gyoseki twin of `groupByCategoryYear`: sections divided into years. */
+function groupByGyosekiYear(pubs: Publication[]): RenderGroup[] {
+  return groupByGyoseki(pubs).map((group) => {
+    const sections: RenderSection[] = groupByYear(group.items).map((year) => ({
+      key: `${group.key}:${year.key}`,
+      label: year.label,
+      items: year.items,
+    }))
+    return {
+      ...group,
+      items: sections.flatMap((section) => section.items),
+      sections,
+    }
+  })
+}
+
 function groupByYear(pubs: Publication[]): RenderGroup[] {
   const years: number[] = []
   for (const pub of pubs) {
@@ -323,6 +396,76 @@ function groupByYear(pubs: Publication[]): RenderGroup[] {
   }))
 }
 
+// ─────────────────────────────────────────────────────────── order pins ──
+
+/**
+ * Reorder `pubs` so the records the parsed pins name come first, in pin
+ * order; everything unpinned keeps its existing relative order. A ref that
+ * matches nothing is skipped — a stale pin must never hide a record.
+ */
+function reorderByPins(pubs: Publication[], refs: readonly IdRef[]): Publication[] {
+  if (refs.length === 0) return pubs
+  const pinned: Publication[] = []
+  const rest = [...pubs]
+  for (const ref of refs) {
+    const hit = rest.findIndex((p) => matchesIdRef(p, ref))
+    if (hit === -1) continue
+    pinned.push(rest[hit])
+    rest.splice(hit, 1)
+  }
+  return pinned.length === 0 ? pubs : [...pinned, ...rest]
+}
+
+/**
+ * Apply `config.orderPins` to one finalized list of records.
+ *
+ * Each pin is a `doi:…` / `pmid:…` / `rm:<digits>` reference (see
+ * `parseIdRef`); a pinned record moves to the front of the list in pin order,
+ * unpinned records keep the default sort behind them. Unparsable pins and
+ * pins matching nothing are ignored, and an absent `orderPins` is a no-op —
+ * the list comes back untouched.
+ *
+ * Applies in both taxonomies: pins address records, not sections.
+ */
+export function applyOrderPins(
+  pubs: Publication[],
+  orderPins: readonly string[] | undefined,
+): Publication[] {
+  return reorderByPins(pubs, parseOrderPins(orderPins))
+}
+
+/** The parsed refs of `orderPins`, dropping anything unparsable. */
+function parseOrderPins(orderPins: readonly string[] | undefined): IdRef[] {
+  if (orderPins == null || orderPins.length === 0) return []
+  return orderPins
+    .map(parseIdRef)
+    .filter((ref): ref is IdRef => ref !== null)
+}
+
+/**
+ * Pin-reorder every finalized item array of a group.
+ *
+ * Pins move a record to the front of the *innermost* list it renders in: a
+ * year section under `groupBy: 'category-year'`, the group's flat list
+ * otherwise. Moving it further — ahead of a newer year's section — would
+ * break the year headings, which are labels over contiguous runs. `items` is
+ * rebuilt from the sections so the two can never disagree.
+ */
+function pinGroup(group: RenderGroup, refs: readonly IdRef[]): RenderGroup {
+  if (group.sections) {
+    const sections = group.sections.map((section) => ({
+      ...section,
+      items: reorderByPins(section.items, refs),
+    }))
+    return {
+      ...group,
+      sections,
+      items: sections.flatMap((section) => section.items),
+    }
+  }
+  return { ...group, items: reorderByPins(group.items, refs) }
+}
+
 /**
  * Turn a model into the ordered sections every renderer shares.
  *
@@ -333,10 +476,19 @@ function groupByYear(pubs: Publication[]): RenderGroup[] {
  * limit and always land in a single trailing section.
  */
 export function buildGroups(model: ListModel): RenderGroup[] {
+  const gyoseki = model.config.taxonomy === 'gyoseki'
   // A model normally arrives with a normalized config, so these fall back only
   // for a hand-built one. They read the same constants `normalizeConfig` does,
   // so the two can never disagree about what "unset" means.
-  const japanese = model.config.japanese ?? DEFAULT_JAPANESE
+  //
+  // Precedence: `taxonomy: 'gyoseki'` outranks `japanese` entirely. The
+  // gyoseki scheme subdivides by language itself (英文/和文 sections are the
+  // taxonomy), so a separate trailing Japanese section would duplicate its
+  // own headings, and `'hide'` would empty half the list. Records flow
+  // through as if `japanese` were `'merge'`, whatever the config says.
+  const japanese = gyoseki
+    ? 'merge'
+    : (model.config.japanese ?? DEFAULT_JAPANESE)
   const groupBy = model.config.groupBy ?? DEFAULT_GROUP_BY
 
   let pubs = [...(model.publications ?? [])]
@@ -352,7 +504,7 @@ export function buildGroups(model: ListModel): RenderGroup[] {
   let groups: RenderGroup[]
   switch (groupBy) {
     case 'category':
-      groups = groupByCategory(main)
+      groups = gyoseki ? groupByGyoseki(main) : groupByCategory(main)
       break
     case 'year':
       groups = groupByYear(main)
@@ -364,7 +516,7 @@ export function buildGroups(model: ListModel): RenderGroup[] {
     // config that slipped past validation lands where an absent `groupBy` would.
     case 'category-year':
     default:
-      groups = groupByCategoryYear(main)
+      groups = gyoseki ? groupByGyosekiYear(main) : groupByCategoryYear(main)
       break
   }
 
@@ -374,7 +526,13 @@ export function buildGroups(model: ListModel): RenderGroup[] {
   if (jp.length > 0) {
     groups.push({ key: 'japanese', label: JAPANESE_GROUP_LABEL, items: jp })
   }
-  return groups
+
+  // Order pins run last, on the finalized item arrays, so a pin reorders
+  // exactly what a reader sees — in either taxonomy and under every grouping.
+  const pinRefs = parseOrderPins(model.config.orderPins)
+  return pinRefs.length === 0
+    ? groups
+    : groups.map((group) => pinGroup(group, pinRefs))
 }
 
 function styleOf(model: ListModel) {
@@ -745,7 +903,17 @@ export function renderBibtex(model: ListModel): string {
 
   for (const group of buildGroups(model)) {
     for (const pub of group.items) {
-      const type = pub.category === 'preprint' ? 'misc' : 'article'
+      const kind = pub.kind ?? 'paper'
+      // Awards are not citable objects — there is no document a BibTeX entry
+      // would resolve to, so emitting one would only corrupt a .bib import.
+      if (kind === 'award') continue
+
+      const type =
+        kind === 'book'
+          ? 'book'
+          : kind === 'presentation' || pub.category === 'preprint'
+            ? 'misc'
+            : 'article'
       const fields: string[] = []
 
       const authors = (pub.authorsFull?.length ? pub.authorsFull : pub.authors) ?? []
@@ -753,7 +921,16 @@ export function renderBibtex(model: ListModel): string {
         fields.push(`  author = {${authors.map(bibtexEscape).join(' and ')}}`)
       }
       if (pub.title) fields.push(`  title = {{${bibtexEscape(pub.title)}}}`)
-      if (pub.journal) fields.push(`  journal = {${bibtexEscape(pub.journal)}}`)
+      if (kind === 'book') {
+        if (pub.publisher) {
+          fields.push(`  publisher = {${bibtexEscape(pub.publisher)}}`)
+        }
+      } else if (kind === 'presentation') {
+        const event = pub.event ?? pub.eventJa
+        if (event) fields.push(`  howpublished = {${bibtexEscape(event)}}`)
+      } else if (pub.journal) {
+        fields.push(`  journal = {${bibtexEscape(pub.journal)}}`)
+      }
       if (typeof pub.year === 'number' && pub.year > 0) {
         fields.push(`  year = {${pub.year}}`)
       }
@@ -785,14 +962,29 @@ export function renderRis(model: ListModel): string {
 
   for (const group of buildGroups(model)) {
     for (const pub of group.items) {
+      const kind = pub.kind ?? 'paper'
+      // Awards are not citable objects — same reasoning as `renderBibtex`.
+      if (kind === 'award') continue
+
       const lines: string[] = []
-      lines.push(`TY  - ${pub.category === 'preprint' ? 'UNPB' : 'JOUR'}`)
+      const type =
+        kind === 'book'
+          ? 'BOOK'
+          : kind === 'presentation'
+            ? 'GEN'
+            : pub.category === 'preprint'
+              ? 'UNPB'
+              : 'JOUR'
+      lines.push(`TY  - ${type}`)
 
       const authors = (pub.authorsFull?.length ? pub.authorsFull : pub.authors) ?? []
       for (const author of authors) lines.push(`AU  - ${risValue(author)}`)
 
       if (pub.title) lines.push(`TI  - ${risValue(pub.title)}`)
-      if (pub.journal) lines.push(`JO  - ${risValue(pub.journal)}`)
+      if (kind === 'book' && pub.publisher) {
+        lines.push(`PB  - ${risValue(pub.publisher)}`)
+      }
+      if (kind === 'paper' && pub.journal) lines.push(`JO  - ${risValue(pub.journal)}`)
       if (typeof pub.year === 'number' && pub.year > 0) {
         lines.push(`PY  - ${pub.year}`)
         const month =

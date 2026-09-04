@@ -437,6 +437,247 @@ describe('segments that already end in a period', () => {
   })
 })
 
+// ─────────────────────────────────────── kind-aware citations (業績集) ──
+
+describe('book citations', () => {
+  const jaBook = makePub({
+    kind: 'book',
+    title: '不眠症診療の実際',
+    authors: ['古川 雄基', '佐藤 花子'],
+    authorsFull: ['古川 雄基', '佐藤 花子'],
+    journal: '',
+    doi: undefined,
+    pmid: undefined,
+    publisher: '医学書院',
+    year: 2024,
+  })
+
+  it('renders the Japanese template with 、：．punctuation', () => {
+    expect(formatCitationPlain(jaBook, 'vancouver')).toBe(
+      '古川 雄基、佐藤 花子：不眠症診療の実際．医学書院、2024.',
+    )
+  })
+
+  it('appends the 担当 range before the final period', () => {
+    const withRange = makePub({ ...jaBook, bookRange: '第3章 pp. 45-60' })
+    expect(formatCitationPlain(withRange, 'vancouver')).toBe(
+      '古川 雄基、佐藤 花子：不眠症診療の実際．医学書院、2024（担当：第3章 pp. 45-60）.',
+    )
+  })
+
+  it('bolds a Japanese author through the shared CJK matching path', () => {
+    // The bold name has no space; the author list does. `normalizeNameCjk`
+    // equality has to bridge that, exactly as it does for papers.
+    const html = formatCitation(jaBook, 'vancouver', ['古川雄基'])
+    expect(html).toContain('<b>古川 雄基</b>、佐藤 花子：')
+    expect(html).not.toContain('<b>佐藤 花子</b>')
+  })
+
+  it('falls back to Latin punctuation when nothing is Japanese-script', () => {
+    const latin = makePub({
+      kind: 'book',
+      title: 'Clinical Handbook of Insomnia',
+      journal: '',
+      doi: undefined,
+      publisher: 'Springer',
+      year: 2023,
+    })
+    expect(formatCitationPlain(latin, 'vancouver')).toBe(
+      'Furukawa Y, Sakata M, Cipriani A: Clinical Handbook of Insomnia. Springer; 2023.',
+    )
+  })
+
+  it('ignores the citation style beyond the Latin author separators', () => {
+    const latin = makePub({
+      kind: 'book',
+      title: 'Clinical Handbook of Insomnia',
+      journal: '',
+      doi: undefined,
+      publisher: 'Springer',
+      year: 2023,
+    })
+    // APA's "&" joins the authors, but the template stays the fixed book one —
+    // no "(2023)." and no trailing journal segment.
+    expect(formatCitationPlain(latin, 'apa')).toBe(
+      'Furukawa Y, Sakata M, & Cipriani A: Clinical Handbook of Insomnia. Springer; 2023.',
+    )
+  })
+
+  it('keeps the linked doi tail — the one link a non-paper may carry', () => {
+    const withDoi = makePub({
+      kind: 'book',
+      title: 'Clinical Handbook of Insomnia',
+      journal: '',
+      publisher: 'Springer',
+      doi: '10.1000/book.1',
+    })
+    const html = formatCitation(withDoi, 'vancouver')
+    expect(html).toContain('Springer; 2024.')
+    expect(html).toContain(
+      'doi: <a href="https://doi.org/10.1000/book.1" target="_blank">10.1000/book.1</a>',
+    )
+  })
+
+  it('escapes the publisher in the HTML flavour', () => {
+    const evil = makePub({
+      kind: 'book',
+      journal: '',
+      doi: undefined,
+      publisher: 'Springer & <b>Sons</b>',
+    })
+    const html = formatCitation(evil, 'vancouver')
+    expect(html).toContain('Springer &amp; &lt;b&gt;Sons&lt;/b&gt;')
+    expect(html).not.toContain('<b>Sons</b>')
+  })
+})
+
+describe('presentation citations', () => {
+  const jaTalk = makePub({
+    kind: 'presentation',
+    title: '不眠症の行動療法',
+    authors: ['古川 雄基'],
+    authorsFull: ['古川 雄基'],
+    journal: '',
+    doi: undefined,
+    pmid: undefined,
+    event: 'Annual Meeting of the Japanese Society of Sleep Research',
+    eventJa: '日本睡眠学会第48回定期学術集会',
+    year: 2024,
+    month: 7,
+  })
+
+  it('renders the Japanese template, preferring eventJa, with 年月', () => {
+    expect(formatCitationPlain(jaTalk, 'vancouver')).toBe(
+      '古川 雄基：不眠症の行動療法．日本睡眠学会第48回定期学術集会、2024年7月.',
+    )
+  })
+
+  it('marks an invited talk 招待講演 before the final period', () => {
+    const invited = makePub({ ...jaTalk, invited: true })
+    expect(formatCitationPlain(invited, 'vancouver')).toBe(
+      '古川 雄基：不眠症の行動療法．日本睡眠学会第48回定期学術集会、2024年7月（招待講演）.',
+    )
+  })
+
+  it('bolds a Japanese presenter from a kanji bold name', () => {
+    const html = formatCitation(jaTalk, 'vancouver', ['古川雄基'])
+    expect(html).toContain('<b>古川 雄基</b>：')
+  })
+
+  const latinTalk = makePub({
+    kind: 'presentation',
+    title: 'Behavioural treatment of insomnia',
+    journal: '',
+    doi: undefined,
+    event: 'World Sleep Congress',
+    year: 2024,
+    month: 6,
+  })
+
+  it('renders the Latin template with an abbreviated month', () => {
+    expect(formatCitationPlain(latinTalk, 'vancouver')).toBe(
+      'Furukawa Y, Sakata M, Cipriani A: Behavioural treatment of insomnia. World Sleep Congress, Jun 2024.',
+    )
+  })
+
+  it('drops the month cleanly when the record has none', () => {
+    const undatedMonth = makePub({ ...latinTalk, month: undefined })
+    expect(formatCitationPlain(undatedMonth, 'vancouver')).toBe(
+      'Furukawa Y, Sakata M, Cipriani A: Behavioural treatment of insomnia. World Sleep Congress, 2024.',
+    )
+  })
+
+  it('marks an invited Latin talk with (invited)', () => {
+    const invited = makePub({ ...latinTalk, invited: true })
+    expect(formatCitationPlain(invited, 'vancouver')).toContain(
+      'World Sleep Congress, Jun 2024 (invited).',
+    )
+  })
+
+  it('falls back to the other-language event name when only one exists', () => {
+    // A Latin-script talk whose record carries only the Japanese event name
+    // still shows the event, rather than losing it to the preference order.
+    const onlyJa = makePub({
+      ...latinTalk,
+      event: undefined,
+      eventJa: '日本睡眠学会',
+    })
+    expect(formatCitationPlain(onlyJa, 'vancouver')).toContain('. 日本睡眠学会,')
+  })
+
+  it('never links a presentation, even when a doi is present', () => {
+    const withDoi = makePub({ ...latinTalk, doi: '10.1000/talk.1' })
+    const html = formatCitation(withDoi, 'vancouver')
+    expect(html).not.toContain('<a ')
+    expect(html).not.toContain('doi:')
+  })
+})
+
+describe('award citations', () => {
+  it('renders the Japanese template with no author list', () => {
+    const ja = makePub({
+      kind: 'award',
+      title: '最優秀演題賞',
+      journal: '',
+      doi: undefined,
+      pmid: undefined,
+      awardAssociation: '日本睡眠学会',
+      year: 2023,
+    })
+    expect(formatCitationPlain(ja, 'vancouver')).toBe(
+      '最優秀演題賞．日本睡眠学会、2023.',
+    )
+    // The record carries authors; the template must not.
+    expect(formatCitationPlain(ja, 'vancouver')).not.toContain('Furukawa')
+  })
+
+  it('renders the Latin template', () => {
+    const latin = makePub({
+      kind: 'award',
+      title: 'Early Career Investigator Award',
+      authors: [],
+      authorsFull: [],
+      journal: '',
+      doi: undefined,
+      awardAssociation: 'World Sleep Society',
+      year: 2023,
+    })
+    expect(formatCitationPlain(latin, 'vancouver')).toBe(
+      'Early Career Investigator Award. World Sleep Society, 2023.',
+    )
+  })
+
+  it('never links an award, even when a doi is present', () => {
+    const withDoi = makePub({
+      kind: 'award',
+      title: 'Best Paper Award',
+      journal: '',
+      awardAssociation: 'World Sleep Society',
+      doi: '10.1000/award.1',
+    })
+    expect(formatCitation(withDoi, 'vancouver')).not.toContain('<a ')
+  })
+})
+
+describe('kind defaults to paper', () => {
+  it('renders an explicit kind: paper byte-identically to an absent one', () => {
+    for (const style of [
+      'vancouver',
+      'apa',
+      'harvard',
+      'chicago',
+      'nature',
+    ] as const) {
+      expect(formatCitation(makePub({ kind: 'paper' }), style)).toBe(
+        formatCitation(makePub(), style),
+      )
+      expect(formatCitationPlain(makePub({ kind: 'paper' }), style)).toBe(
+        formatCitationPlain(makePub(), style),
+      )
+    }
+  })
+})
+
 describe('HTML escaping of upstream metadata', () => {
   it('escapes the title and the journal', () => {
     const pub = makePub({

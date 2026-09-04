@@ -6,6 +6,7 @@ import {
   DISCLAIMER_SELECTOR,
   TRAILER_STYLE,
   TRAILER_STYLE_PROPS,
+  applyOrderPins,
   buildGroups,
   headingLevelsOf,
   renderBibtex,
@@ -15,6 +16,7 @@ import {
   renderRis,
   renderWordpressBlocks,
 } from '../render'
+import { GYOSEKI_ORDER } from '../types'
 import type { ListConfig, ListModel, Publication } from '../types'
 
 // ─────────────────────────────────────────────────────────────── fixtures ──
@@ -1002,5 +1004,490 @@ describe('renderClipboard', () => {
     expect(html).toContain('<em>JAMA Psychiatry</em>')
     expect(plain).toContain('JAMA Psychiatry')
     expect(plain).not.toContain('<em>')
+  })
+})
+
+// ─────────────────────────────────────────────── 業績集 (gyoseki) grouping ──
+
+describe('buildGroups under taxonomy: gyoseki', () => {
+  const oneOfEach = () =>
+    GYOSEKI_ORDER.map((category, i) =>
+      pub({
+        gyosekiCategory: category,
+        year: 2024 - (i % 3),
+        kind:
+          category === 'book-lead' || category === 'book-chapter'
+            ? 'book'
+            : category === 'intl-presentation' ||
+                category === 'domestic-presentation'
+              ? 'presentation'
+              : category === 'award'
+                ? 'award'
+                : 'paper',
+      }),
+    )
+
+  it('renders all ten sections in GYOSEKI_ORDER with the numbered labels', () => {
+    // Shuffled input; the order comes from GYOSEKI_ORDER, not the data.
+    const m = model([...oneOfEach()].reverse(), {
+      taxonomy: 'gyoseki',
+      groupBy: 'category',
+    })
+    const groups = buildGroups(m)
+    expect(groups.map((g) => g.key)).toEqual(
+      GYOSEKI_ORDER.map((c) => `gyoseki:${c}`),
+    )
+    expect(groups.map((g) => g.label)).toEqual([
+      '1. 英文原著論文',
+      '2. 英文総説（Commentary, Editorial を含む）',
+      '3. 和文原著（ケースレポート等を含む）',
+      '4. 和文総説・解説',
+      '5. 和文報告書（座談会記録を含む）',
+      '6. 著書・訳書（主著・編）',
+      '7. 著書・訳書（分担執筆）',
+      '8. 国際学会発表・講演',
+      '9. 国内学会発表・講演等',
+      '10. 受賞歴',
+    ])
+  })
+
+  it('omits empty sections, consistent with groupByCategory', () => {
+    const m = model(
+      [
+        pub({ gyosekiCategory: 'ja-original' }),
+        pub({ gyosekiCategory: 'award', kind: 'award' }),
+      ],
+      { taxonomy: 'gyoseki', groupBy: 'category' },
+    )
+    expect(buildGroups(m).map((g) => g.key)).toEqual([
+      'gyoseki:ja-original',
+      'gyoseki:award',
+    ])
+  })
+
+  it('divides each section into descending years under category-year', () => {
+    const m = model(
+      [
+        pub({ gyosekiCategory: 'en-original', year: 2021 }),
+        pub({ gyosekiCategory: 'en-original', year: 2024 }),
+        pub({ gyosekiCategory: 'ja-review', year: 2023 }),
+      ],
+      { taxonomy: 'gyoseki', groupBy: 'category-year' },
+    )
+    const groups = buildGroups(m)
+    expect(groups.map((g) => g.key)).toEqual([
+      'gyoseki:en-original',
+      'gyoseki:ja-review',
+    ])
+    expect(groups[0].sections?.map((s) => s.key)).toEqual([
+      'gyoseki:en-original:year:2024',
+      'gyoseki:en-original:year:2021',
+    ])
+    expect(groups[0].sections?.map((s) => s.label)).toEqual(['2024', '2021'])
+    // items stays the sections concatenated, as everywhere else.
+    expect(groups[0].items).toEqual(groups[0].sections?.flatMap((s) => s.items))
+  })
+
+  it('keeps groupBy year and none flat, exactly as in the standard taxonomy', () => {
+    const pubs = [
+      pub({ gyosekiCategory: 'en-original', year: 2024 }),
+      pub({ gyosekiCategory: 'award', kind: 'award', year: 2022 }),
+    ]
+    const byYear = buildGroups(
+      model(pubs, { taxonomy: 'gyoseki', groupBy: 'year' }),
+    )
+    expect(byYear.map((g) => g.label)).toEqual(['2024', '2022'])
+
+    const flat = buildGroups(
+      model(pubs, { taxonomy: 'gyoseki', groupBy: 'none' }),
+    )
+    expect(flat).toHaveLength(1)
+    expect(flat[0].label).toBe('')
+    expect(flat[0].items).toHaveLength(2)
+  })
+
+  it('ignores japanese: separate — the taxonomy subdivides by language itself', () => {
+    const m = model(
+      [
+        pub({ gyosekiCategory: 'ja-original', language: 'ja' }),
+        pub({ gyosekiCategory: 'en-original' }),
+      ],
+      { taxonomy: 'gyoseki', groupBy: 'category', japanese: 'separate' },
+    )
+    const groups = buildGroups(m)
+    expect(groups.map((g) => g.key)).toEqual([
+      'gyoseki:en-original',
+      'gyoseki:ja-original',
+    ])
+    expect(groups.some((g) => g.key === 'japanese')).toBe(false)
+  })
+
+  it('ignores japanese: hide — a 業績集 without its 和文 sections is half a list', () => {
+    const m = model(
+      [
+        pub({ gyosekiCategory: 'ja-original', language: 'ja' }),
+        pub({ gyosekiCategory: 'en-original' }),
+      ],
+      { taxonomy: 'gyoseki', groupBy: 'category', japanese: 'hide' },
+    )
+    expect(buildGroups(m).flatMap((g) => g.items)).toHaveLength(2)
+  })
+
+  it('files a record with no gyosekiCategory by its kind', () => {
+    // The pipeline normally writes the field; the fallback keeps a cached or
+    // hand-built record visible rather than dropping it.
+    const m = model(
+      [
+        pub({}),
+        pub({ kind: 'book' }),
+        pub({ kind: 'presentation' }),
+        pub({ kind: 'award' }),
+      ],
+      { taxonomy: 'gyoseki', groupBy: 'category' },
+    )
+    expect(buildGroups(m).map((g) => g.key)).toEqual([
+      'gyoseki:en-original',
+      'gyoseki:book-lead',
+      'gyoseki:domestic-presentation',
+      'gyoseki:award',
+    ])
+  })
+
+  it('leaves the standard taxonomy alone when the config says nothing', () => {
+    // `gyosekiCategory` on a record must be inert without the opt-in.
+    const m = model([pub({ gyosekiCategory: 'ja-original' })], {
+      groupBy: 'category',
+    })
+    expect(buildGroups(m).map((g) => g.key)).toEqual(['category:original'])
+  })
+})
+
+describe('gyoseki headings across renderers', () => {
+  const m = () =>
+    model(
+      [
+        pub({ gyosekiCategory: 'en-original', year: 2024 }),
+        pub({ gyosekiCategory: 'en-original', year: 2023 }),
+        pub({
+          gyosekiCategory: 'award',
+          kind: 'award',
+          title: '最優秀演題賞',
+          awardAssociation: '日本睡眠学会',
+          journal: '',
+          doi: undefined,
+          pmid: undefined,
+          year: 2023,
+        }),
+      ],
+      { taxonomy: 'gyoseki', groupBy: 'category' },
+    )
+
+  it('renders the numbered headings in renderHtml', () => {
+    const html = renderHtml(m(), { credit: false, disclaimer: false })
+    expect(html).toContain(
+      '<h3 class="publist-heading">1. 英文原著論文</h3>',
+    )
+    expect(html).toContain('<h3 class="publist-heading">10. 受賞歴</h3>')
+    expect(html).toContain('最優秀演題賞．日本睡眠学会、2023.')
+  })
+
+  it('renders the headings with counts in the Word clipboard', () => {
+    const { html, plain } = renderClipboard(m())
+    expect(html).toContain('1. 英文原著論文 (2)')
+    expect(html).toContain('10. 受賞歴 (1)')
+    expect(plain).toContain('1. 英文原著論文 (2)')
+    expect(plain).toContain('10. 受賞歴 (1)')
+  })
+
+  it('renders the headings in WordPress blocks and Markdown', () => {
+    expect(renderWordpressBlocks(m())).toContain(
+      '<h3 class="wp-block-heading">1. 英文原著論文</h3>',
+    )
+    expect(renderMarkdown(m())).toContain('### 10. 受賞歴')
+  })
+})
+
+// ───────────────────────────────────────────────────────────── order pins ──
+
+describe('applyOrderPins', () => {
+  const three = () => [
+    pub({ pmid: '11', doi: undefined, title: 'First by default' }),
+    pub({ pmid: '22', doi: undefined, title: 'Second by default' }),
+    pub({ pmid: '33', doi: '10.1000/pin.33', title: 'Third by default' }),
+  ]
+
+  it('moves pinned records to the front, in pin order', () => {
+    const out = applyOrderPins(three(), ['pmid:33', 'pmid:22'])
+    expect(out.map((p) => p.pmid)).toEqual(['33', '22', '11'])
+  })
+
+  it('keeps unpinned records in their existing order behind the pins', () => {
+    const out = applyOrderPins(three(), ['pmid:22'])
+    expect(out.map((p) => p.pmid)).toEqual(['22', '11', '33'])
+  })
+
+  it('matches doi: and rm: refs too', () => {
+    const withRm = [...three(), pub({ pmid: undefined, doi: undefined, rmId: '99' })]
+    const out = applyOrderPins(withRm, ['rm:99', 'doi:10.1000/pin.33'])
+    expect(out[0].rmId).toBe('99')
+    expect(out[1].pmid).toBe('33')
+  })
+
+  it('is a no-op for an absent, empty, unknown or unparsable pin list', () => {
+    const pubs = three()
+    expect(applyOrderPins(pubs, undefined)).toEqual(pubs)
+    expect(applyOrderPins(pubs, [])).toEqual(pubs)
+    expect(applyOrderPins(pubs, ['pmid:404404'])).toEqual(pubs)
+    expect(applyOrderPins(pubs, ['not a ref'])).toEqual(pubs)
+  })
+})
+
+describe('orderPins in buildGroups', () => {
+  it('reorders the flat list under groupBy none', () => {
+    // Same year, so the default sort is by title; the pin overrides it.
+    const m = model(
+      [
+        pub({ pmid: '11', doi: undefined, title: 'Aardvark study' }),
+        pub({ pmid: '22', doi: undefined, title: 'Zebra study' }),
+      ],
+      { groupBy: 'none', orderPins: ['pmid:22'] },
+    )
+    expect(buildGroups(m)[0].items.map((p) => p.pmid)).toEqual(['22', '11'])
+  })
+
+  it('moves a pinned record to the front of its own group only', () => {
+    const m = model(
+      [
+        pub({ pmid: '11', doi: undefined, title: 'A original', category: 'original' }),
+        pub({ pmid: '22', doi: undefined, title: 'B original', category: 'original' }),
+        pub({ pmid: '33', doi: undefined, title: 'A letter', category: 'letter' }),
+      ],
+      { groupBy: 'category', orderPins: ['pmid:22'] },
+    )
+    const groups = buildGroups(m)
+    expect(groups.map((g) => g.key)).toEqual([
+      'category:original',
+      'category:letter',
+    ])
+    expect(groups[0].items.map((p) => p.pmid)).toEqual(['22', '11'])
+    expect(groups[1].items.map((p) => p.pmid)).toEqual(['33'])
+  })
+
+  it('reorders within a year section under category-year, keeping items in sync', () => {
+    const m = model(
+      [
+        pub({ pmid: '11', doi: undefined, title: 'A study', year: 2024 }),
+        pub({ pmid: '22', doi: undefined, title: 'B study', year: 2024 }),
+        pub({ pmid: '33', doi: undefined, title: 'C study', year: 2023 }),
+      ],
+      { groupBy: 'category-year', orderPins: ['pmid:22'] },
+    )
+    const group = buildGroups(m)[0]
+    expect(group.sections?.[0].items.map((p) => p.pmid)).toEqual(['22', '11'])
+    // A pin reorders inside its year, it does not pull a record above a newer
+    // year's heading.
+    expect(group.sections?.map((s) => s.label)).toEqual(['2024', '2023'])
+    expect(group.items).toEqual(group.sections?.flatMap((s) => s.items))
+  })
+
+  it('works under the gyoseki taxonomy as well', () => {
+    const m = model(
+      [
+        pub({ pmid: '11', doi: undefined, title: 'A study', gyosekiCategory: 'en-original' }),
+        pub({ pmid: '22', doi: undefined, title: 'B study', gyosekiCategory: 'en-original' }),
+        pub({ pmid: '33', doi: undefined, title: 'C study', gyosekiCategory: 'ja-original' }),
+      ],
+      { taxonomy: 'gyoseki', groupBy: 'category', orderPins: ['pmid:22'] },
+    )
+    const groups = buildGroups(m)
+    expect(groups[0].items.map((p) => p.pmid)).toEqual(['22', '11'])
+    expect(groups[1].items.map((p) => p.pmid)).toEqual(['33'])
+  })
+
+  it('reaches the rendered HTML in pin order', () => {
+    const m = model(
+      [
+        pub({ pmid: '11', doi: undefined, title: 'Aardvark study' }),
+        pub({ pmid: '22', doi: undefined, title: 'Zebra study' }),
+      ],
+      { groupBy: 'none', orderPins: ['pmid:22'] },
+    )
+    const html = renderHtml(m, { credit: false, disclaimer: false })
+    expect(html.indexOf('Zebra study')).toBeLessThan(html.indexOf('Aardvark study'))
+  })
+})
+
+// ─────────────────────────────────────────────── BibTeX / RIS kind mapping ──
+
+describe('BibTeX and RIS kind mapping', () => {
+  const book = () =>
+    pub({
+      kind: 'book',
+      title: 'Clinical Handbook of Insomnia',
+      journal: '',
+      publisher: 'Springer',
+      pmid: undefined,
+      doi: '10.1000/book.1',
+    })
+  const talk = () =>
+    pub({
+      kind: 'presentation',
+      title: 'Behavioural treatment of insomnia',
+      journal: '',
+      pmid: undefined,
+      doi: undefined,
+      event: 'World Sleep Congress',
+      eventJa: '世界睡眠会議',
+    })
+  const award = () =>
+    pub({
+      kind: 'award',
+      title: 'Best Paper Award',
+      journal: '',
+      pmid: undefined,
+      doi: undefined,
+      awardAssociation: 'World Sleep Society',
+    })
+
+  it('maps a book to @book with a publisher field and no journal', () => {
+    const bib = renderBibtex(model([book()]))
+    expect(bib).toContain('@book{')
+    expect(bib).toContain('publisher = {Springer}')
+    expect(bib).not.toContain('journal =')
+  })
+
+  it('maps a presentation to @misc with howpublished', () => {
+    const bib = renderBibtex(model([talk()]))
+    expect(bib).toContain('@misc{')
+    expect(bib).toContain('howpublished = {World Sleep Congress}')
+    expect(bib).not.toContain('journal =')
+  })
+
+  it('skips awards in BibTeX — they are not citable objects', () => {
+    const bib = renderBibtex(model([award(), pub({ title: 'A paper' })]))
+    expect(bib).not.toContain('Best Paper Award')
+    expect(bib).toContain('@article{')
+  })
+
+  it('maps a book to TY - BOOK with PB in RIS', () => {
+    const ris = renderRis(model([book()]))
+    expect(ris).toContain('TY  - BOOK')
+    expect(ris).toContain('PB  - Springer')
+    expect(ris).not.toContain('JO  - ')
+  })
+
+  it('maps a presentation to TY - GEN in RIS', () => {
+    expect(renderRis(model([talk()]))).toContain('TY  - GEN')
+  })
+
+  it('skips awards in RIS too', () => {
+    const ris = renderRis(model([award(), pub({ title: 'A paper' })]))
+    expect(ris).not.toContain('Best Paper Award')
+    expect(ris).toContain('TY  - JOUR')
+  })
+
+  it('leaves papers on @article / TY - JOUR, preprints on @misc / UNPB', () => {
+    const bib = renderBibtex(model([pub(), pub({ category: 'preprint' })]))
+    expect(bib).toContain('@article{')
+    expect(bib).toContain('@misc{')
+    const ris = renderRis(model([pub(), pub({ category: 'preprint' })]))
+    expect(ris).toContain('TY  - JOUR')
+    expect(ris).toContain('TY  - UNPB')
+  })
+})
+
+// ──────────────────────────────── regression: default output is unchanged ──
+
+/**
+ * Byte-identical regression pin for the default (taxonomy absent) output.
+ *
+ * The expected strings were generated by rendering this exact fixture on the
+ * clean `main` checkout (17048b6), BEFORE any Phase 5 change was made, and
+ * pasted here verbatim. If gyoseki rendering ever leaks into a model that
+ * never opted in, this fails on the byte where it leaked.
+ */
+describe('default-taxonomy output is byte-identical to pre-gyoseki main', () => {
+  function fixturePub(overrides: Partial<Publication>): Publication {
+    return {
+      key: 'pmid:1',
+      title: 'Placeholder',
+      authors: ['Furukawa Y', 'Sakata M'],
+      authorsFull: ['Yuki Furukawa', 'Masatsugu Sakata'],
+      journal: 'JAMA Psychiatry',
+      year: 2024,
+      month: 3,
+      sources: ['pubmed'],
+      seedIds: ['orcid:0000-0003-1317-0220'],
+      trust: 'confirmed',
+      category: 'original',
+      ...overrides,
+    }
+  }
+
+  const fixtureModel: ListModel = {
+    config: {
+      v: 1,
+      seeds: {},
+      style: 'vancouver',
+      boldNames: ['Yuki Furukawa'],
+      japanese: 'separate',
+    },
+    members: [],
+    publications: [
+      fixturePub({
+        key: 'doi:10.1001/jamapsychiatry.2024.0888',
+        title: 'Digital cognitive behavioural therapy for insomnia',
+        doi: '10.1001/jamapsychiatry.2024.0888',
+        pmid: '38809561',
+        year: 2024,
+        month: 6,
+      }),
+      fixturePub({
+        key: 'pmid:2002',
+        title: 'Sleep restriction therapy',
+        pmid: '2002',
+        year: 2022,
+        month: 1,
+        category: 'letter',
+      }),
+      fixturePub({
+        key: 'pmid:2003',
+        title: 'Components of insomnia treatment',
+        pmid: '2003',
+        year: 2024,
+        month: 2,
+        category: 'original',
+        journal: 'Sleep Med.',
+      }),
+      fixturePub({
+        key: 'title:不眠症の認知行動療法',
+        title: '不眠症の認知行動療法',
+        authors: ['古川 雄基'],
+        authorsFull: ['古川 雄基'],
+        journal: '精神医学',
+        year: 2023,
+        language: 'ja',
+        category: 'other',
+      }),
+    ],
+    candidates: [],
+    warnings: [],
+    generatedAt: '2026-08-05T00:00:00.000Z',
+  }
+
+  it('renderHtml', () => {
+    expect(renderHtml(fixtureModel, { credit: true })).toBe(
+      '<section class="publist">\n<h3 class="publist-heading">Original Articles &amp; Reviews</h3>\n<h4 class="publist-subheading">2024</h4>\n<ol class="publist-list">\n<li class="publist-item"><b>Furukawa Y</b>, Sakata M. Digital cognitive behavioural therapy for insomnia. <em>JAMA Psychiatry</em>. 2024. doi: <a href="https://doi.org/10.1001/jamapsychiatry.2024.0888" target="_blank">10.1001/jamapsychiatry.2024.0888</a> <span class="publist-pmid">PMID: <a href="https://pubmed.ncbi.nlm.nih.gov/38809561" target="_blank">38809561</a></span></li>\n<li class="publist-item"><b>Furukawa Y</b>, Sakata M. Components of insomnia treatment. <em>Sleep Med.</em> 2024. <span class="publist-pmid">PMID: <a href="https://pubmed.ncbi.nlm.nih.gov/2003" target="_blank">2003</a></span></li>\n</ol>\n<h3 class="publist-heading">Letters</h3>\n<h4 class="publist-subheading">2022</h4>\n<ol class="publist-list">\n<li class="publist-item"><b>Furukawa Y</b>, Sakata M. Sleep restriction therapy. <em>JAMA Psychiatry</em>. 2022. <span class="publist-pmid">PMID: <a href="https://pubmed.ncbi.nlm.nih.gov/2002" target="_blank">2002</a></span></li>\n</ol>\n<h3 class="publist-heading">Japanese-language publications</h3>\n<ol class="publist-list">\n<li class="publist-item">古川 雄基. 不眠症の認知行動療法. <em>精神医学</em>. 2023.</li>\n</ol>\n<p class="publist-disclaimer" style="font-size:0.8em;opacity:0.75">Compiled automatically from ORCID, PubMed and researchmap; errors or omissions in those records appear here too.</p>\n<p class="publist-credit" style="font-size:0.8em;opacity:0.75">Auto-updated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>\n</section>',
+    )
+  })
+
+  it('renderClipboard', () => {
+    const { html, plain } = renderClipboard(fixtureModel)
+    expect(html).toBe(
+      '<div style="font-family:serif;font-size:12pt;"><p style="color:red;font-weight:bold;">[Disclaimer] This list is generated from a combination of ORCID, PubMed, and researchmap. If any of these sources contain errors, relevant publications may be missing or unrelated publications may be included. Please verify the final list.</p><p style="font-size:16px;font-weight:bold;margin-bottom:8px;">Original Articles &amp; Reviews (2)</p><ol><li><b>Furukawa Y</b>, Sakata M. Digital cognitive behavioural therapy for insomnia. <em>JAMA Psychiatry</em>. 2024. doi: <a href="https://doi.org/10.1001/jamapsychiatry.2024.0888" target="_blank">10.1001/jamapsychiatry.2024.0888</a> <span class="publist-pmid">PMID: <a href="https://pubmed.ncbi.nlm.nih.gov/38809561" target="_blank">38809561</a></span></li><li><b>Furukawa Y</b>, Sakata M. Components of insomnia treatment. <em>Sleep Med.</em> 2024. <span class="publist-pmid">PMID: <a href="https://pubmed.ncbi.nlm.nih.gov/2003" target="_blank">2003</a></span></li></ol><p style="font-size:16px;font-weight:bold;margin-bottom:8px;">Letters (1)</p><ol><li><b>Furukawa Y</b>, Sakata M. Sleep restriction therapy. <em>JAMA Psychiatry</em>. 2022. <span class="publist-pmid">PMID: <a href="https://pubmed.ncbi.nlm.nih.gov/2002" target="_blank">2002</a></span></li></ol><p style="font-size:16px;font-weight:bold;margin-bottom:8px;">Japanese-language publications (1)</p><ol><li>古川 雄基. 不眠症の認知行動療法. <em>精神医学</em>. 2023.</li></ol></div><p style="font-size:9pt;color:gray;">Generated with <a href="https://yukifurukawa.jp/publication-list-generator/">Publication List Generator</a></p>',
+    )
+    expect(plain).toBe(
+      '[Disclaimer] This list is generated from a combination of ORCID, PubMed, and researchmap. If any of these sources contain errors, relevant publications may be missing or unrelated publications may be included. Please verify the final list.\n\nOriginal Articles & Reviews (2)\n\n1. Furukawa Y, Sakata M. Digital cognitive behavioural therapy for insomnia. JAMA Psychiatry. 2024. doi: 10.1001/jamapsychiatry.2024.0888 PMID: 38809561\n2. Furukawa Y, Sakata M. Components of insomnia treatment. Sleep Med. 2024. PMID: 2003\n\nLetters (1)\n\n1. Furukawa Y, Sakata M. Sleep restriction therapy. JAMA Psychiatry. 2022. PMID: 2002\n\nJapanese-language publications (1)\n\n1. 古川 雄基. 不眠症の認知行動療法. 精神医学. 2023.\nGenerated with Publication List Generator (https://yukifurukawa.jp/publication-list-generator/)',
+    )
   })
 })

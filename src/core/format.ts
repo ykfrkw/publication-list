@@ -327,11 +327,35 @@ function joinForStyle(parts: string[], style: CitationStyle): string {
 }
 
 /**
- * Build the author segment.
+ * The display names with bold markup applied, plus which ones matched.
  *
  * Display uses the short forms in `pub.authors`; bold status is decided from
  * `pub.authorsFull` when the two lists line up (R falls back to the short form
- * on any length mismatch, and so does this).
+ * on any length mismatch, and so does this). Shared by the paper author list
+ * below and the Japanese-joined list the 業績集 templates use, so every kind
+ * of record bolds its authors through the same matching path — CJK equality
+ * in `matchesBoldName` included.
+ */
+function boldedAuthors(
+  pub: Publication,
+  boldNames: readonly string[],
+  html: boolean,
+): { formatted: string[]; isBold: boolean[] } {
+  const authors = (pub.authors ?? []).filter((a) => a && a.trim() !== '')
+
+  const full = pub.authorsFull ?? []
+  const matchAgainst = full.length === authors.length ? full : authors
+
+  const isBold = matchAgainst.map((name) => matchesBoldName(name, boldNames))
+  const formatted = authors.map((name, i) => {
+    const text = html ? escapeHtml(name) : name
+    return html && isBold[i] ? markBold(text) : text
+  })
+  return { formatted, isBold }
+}
+
+/**
+ * Build the author segment.
  *
  * Truncation follows the R version: more than six authors → first three, then
  * any bolded author who would have been hidden, then "et al." The older TS
@@ -343,17 +367,8 @@ function formatAuthorList(
   boldNames: readonly string[],
   html: boolean,
 ): string {
-  const authors = (pub.authors ?? []).filter((a) => a && a.trim() !== '')
-  if (authors.length === 0) return ''
-
-  const full = pub.authorsFull ?? []
-  const matchAgainst = full.length === authors.length ? full : authors
-
-  const isBold = matchAgainst.map((name) => matchesBoldName(name, boldNames))
-  const formatted = authors.map((name, i) => {
-    const text = html ? escapeHtml(name) : name
-    return html && isBold[i] ? markBold(text) : text
-  })
+  const { formatted, isBold } = boldedAuthors(pub, boldNames, html)
+  if (formatted.length === 0) return ''
 
   if (formatted.length > 6) {
     const visible = formatted.slice(0, 3)
@@ -396,12 +411,198 @@ function terminate(segment: string): string {
   return endsWithTerminalPunctuation(segment) ? segment : `${segment}.`
 }
 
+/**
+ * The `doi: …` tail of a citation, linked in the HTML flavour.
+ *
+ * Shared between the paper styles and the book template — a book may carry a
+ * DOI, and it should be presented (and escaped) exactly the way a paper's is.
+ * Presentations and awards never get one: they are events, not resolvable
+ * documents, and a link would lend them a permanence they do not have.
+ */
+function doiSegment(pub: Publication, html: boolean): string {
+  const doi = (pub.doi ?? '').trim()
+  if (doi === '') return ''
+  return html
+    ? `doi: <a href="${escapeUrl(DOI_BASE + doi)}" target="_blank">${escapeHtml(doi)}</a>`
+    : `doi: ${doi}`
+}
+
+// ─────────────────────────────────────────────── 業績集 (non-paper) kinds ──
+
+/**
+ * Capitalized month abbreviations for the Latin presentation date ("Mar 2024").
+ * The lowercase set in `render.ts` is BibTeX's `month = {mar}` vocabulary and
+ * deliberately not shared: BibTeX's tokens are syntax, these are prose.
+ */
+const LATIN_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
+
+/**
+ * Does this record read as Japanese-script, for punctuation purposes?
+ *
+ * Decided from the text the citation will actually show — the author list and
+ * the title — rather than from `pub.language`, which describes the venue and
+ * is not reliably set on researchmap books, presentations and awards.
+ */
+function isJapaneseScriptCitation(pub: Publication): boolean {
+  if (hasJapaneseCharacters(pub.title ?? '')) return true
+  return (pub.authors ?? []).some((a) => hasJapaneseCharacters(a))
+}
+
+/**
+ * Authors for a Japanese-script 業績集 template: every author, joined 「、」.
+ *
+ * No truncation and no per-style separators — "et al." is Latin furniture,
+ * and a 業績集 lists every author. Bolding still runs through the shared
+ * `boldedAuthors` path, so the CJK exact-equality matching applies.
+ */
+function formatAuthorsJapanese(
+  pub: Publication,
+  boldNames: readonly string[],
+  html: boolean,
+): string {
+  return boldedAuthors(pub, boldNames, html).formatted.join('、')
+}
+
+/** The month/year segment of a presentation: 「2024年3月」 / "Mar 2024". */
+function presentationDate(pub: Publication, japanese: boolean): string {
+  const year =
+    typeof pub.year === 'number' && pub.year > 0 ? String(pub.year) : ''
+  if (year === '') return ''
+  const month =
+    pub.month != null && pub.month >= 1 && pub.month <= 12 ? pub.month : null
+  if (japanese) return month == null ? year : `${year}年${month}月`
+  return month == null ? year : `${LATIN_MONTHS[month - 1]} ${year}`
+}
+
+/**
+ * Book: 「著者、著者：書名．出版社、2024（担当：pp. 12-34）.」
+ * Latin: "Authors: Title. Publisher; 2024 (pp. 12-34)."
+ *
+ * Ignores `CitationStyle` except for the Latin author separators — the 業績集
+ * templates are fixed, which is the point of the taxonomy.
+ */
+function buildBookCitation(
+  pub: Publication,
+  style: CitationStyle,
+  boldNames: readonly string[],
+  html: boolean,
+): string {
+  const japanese = isJapaneseScriptCitation(pub)
+  const authorStr = japanese
+    ? formatAuthorsJapanese(pub, boldNames, html)
+    : formatAuthorList(pub, style, boldNames, html)
+
+  const rawTitle = (pub.title ?? '').trim()
+  const title = html ? escapeHtml(rawTitle) : rawTitle
+  const rawPublisher = (pub.publisher ?? '').trim()
+  const publisher = html ? escapeHtml(rawPublisher) : rawPublisher
+  const year =
+    typeof pub.year === 'number' && pub.year > 0 ? String(pub.year) : ''
+  const rawRange = (pub.bookRange ?? '').trim()
+  const range = html ? escapeHtml(rawRange) : rawRange
+
+  let out = ''
+  if (authorStr !== '') out += japanese ? `${authorStr}：` : `${authorStr}: `
+  out += title
+  if (publisher !== '') out += japanese ? `．${publisher}` : `. ${publisher}`
+  if (year !== '') out += japanese ? `、${year}` : `; ${year}`
+  if (range !== '') out += japanese ? `（担当：${range}）` : ` (${range})`
+  out += '.'
+
+  const doiPart = doiSegment(pub, html)
+  return doiPart === '' ? out : `${out} ${doiPart}`
+}
+
+/**
+ * Presentation: 「発表者：演題．学会名、2024年3月（招待講演）.」
+ * Latin: "Presenters: Title. Event, Mar 2024 (invited)."
+ *
+ * The event name follows the script of the citation: `eventJa` first for a
+ * Japanese-script record, `event` first otherwise, each falling back to the
+ * other so a record that carries only one name still shows it.
+ */
+function buildPresentationCitation(
+  pub: Publication,
+  style: CitationStyle,
+  boldNames: readonly string[],
+  html: boolean,
+): string {
+  const japanese = isJapaneseScriptCitation(pub)
+  const authorStr = japanese
+    ? formatAuthorsJapanese(pub, boldNames, html)
+    : formatAuthorList(pub, style, boldNames, html)
+
+  const rawTitle = (pub.title ?? '').trim()
+  const title = html ? escapeHtml(rawTitle) : rawTitle
+  const rawEvent = (
+    (japanese ? (pub.eventJa ?? pub.event) : (pub.event ?? pub.eventJa)) ?? ''
+  ).trim()
+  const event = html ? escapeHtml(rawEvent) : rawEvent
+  const date = presentationDate(pub, japanese)
+
+  let out = ''
+  if (authorStr !== '') out += japanese ? `${authorStr}：` : `${authorStr}: `
+  out += title
+  if (event !== '') out += japanese ? `．${event}` : `. ${event}`
+  if (date !== '') out += japanese ? `、${date}` : `, ${date}`
+  if (pub.invited === true) out += japanese ? '（招待講演）' : ' (invited)'
+  out += '.'
+  return out
+}
+
+/**
+ * Award: 「賞の名称．授与団体、2024.」 / "Award title. Association, 2024."
+ * No author list — the record's owner is the recipient, and a 業績集 does not
+ * repeat their name on every line of their own award section.
+ */
+function buildAwardCitation(pub: Publication, html: boolean): string {
+  const japanese = isJapaneseScriptCitation(pub)
+  const rawTitle = (pub.title ?? '').trim()
+  const title = html ? escapeHtml(rawTitle) : rawTitle
+  const rawAssociation = (pub.awardAssociation ?? '').trim()
+  const association = html ? escapeHtml(rawAssociation) : rawAssociation
+  const year =
+    typeof pub.year === 'number' && pub.year > 0 ? String(pub.year) : ''
+
+  let out = title
+  if (association !== '') out += japanese ? `．${association}` : `. ${association}`
+  if (year !== '') out += japanese ? `、${year}` : `, ${year}`
+  out += '.'
+  return out
+}
+
 function buildCitation(
   pub: Publication,
   style: CitationStyle,
   boldNames: readonly string[],
   html: boolean,
 ): string {
+  // Non-paper kinds (books, presentations, awards — the 業績集 additions) use
+  // fixed templates of their own and ignore the citation style. `'paper'` is
+  // what an absent `kind` means, so every record from before the field existed
+  // renders byte-identically through the five styles below.
+  switch (pub.kind ?? 'paper') {
+    case 'book':
+      return buildBookCitation(pub, style, boldNames, html)
+    case 'presentation':
+      return buildPresentationCitation(pub, style, boldNames, html)
+    case 'award':
+      return buildAwardCitation(pub, html)
+  }
+
   const authorStr = formatAuthorList(pub, style, boldNames, html)
 
   const rawTitle = (pub.title ?? '').trim()
@@ -419,13 +620,7 @@ function buildCitation(
     typeof pub.year === 'number' && pub.year > 0 ? String(pub.year) : ''
   const yearBold = html ? `<b>${year}</b>` : year
 
-  const doi = (pub.doi ?? '').trim()
-  const doiPart =
-    doi === ''
-      ? ''
-      : html
-        ? `doi: <a href="${escapeUrl(DOI_BASE + doi)}" target="_blank">${escapeHtml(doi)}</a>`
-        : `doi: ${doi}`
+  const doiPart = doiSegment(pub, html)
 
   let parts: string[]
   switch (style) {

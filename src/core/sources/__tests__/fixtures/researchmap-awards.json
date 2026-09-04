@@ -1,0 +1,44 @@
+{
+  "_fixture_note": "awards captured 2026-09-05, trimmed: item 1 from api.researchmap.jp/yk_frkw (bilingual), items 2-3 from /ykanekopsy (ja-only; the second has a year-only award_date).",
+  "total_items": 3,
+  "items": [
+    {
+      "@id": "https://api.researchmap.jp/yk_frkw/awards/53667839",
+      "rm:id": "53667839",
+      "major_achievement": true,
+      "award_name": {
+        "ja": "若手研究者賞",
+        "en": "Young Investigator Prize"
+      },
+      "association": {
+        "ja": "欧州不眠症学会",
+        "en": "European Insomnia Network"
+      },
+      "award_date": "2026-05"
+    },
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/awards/49626595",
+      "rm:id": "49626595",
+      "major_achievement": false,
+      "award_name": {
+        "ja": "第48回定期学術集会 ベストプレゼンテーション賞"
+      },
+      "association": {
+        "ja": "日本睡眠学会"
+      },
+      "award_date": "2024-06"
+    },
+    {
+      "@id": "https://api.researchmap.jp/ykanekopsy/awards/44094685",
+      "rm:id": "44094685",
+      "major_achievement": false,
+      "award_name": {
+        "ja": "日本大学医学部同窓会６０周年記念医学奨励金研究助成金"
+      },
+      "association": {
+        "ja": "日本大学医学部"
+      },
+      "award_date": "2022"
+    }
+  ]
+}

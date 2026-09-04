@@ -198,15 +198,60 @@ function mergeGroup(group: Publication[]): Publication {
   const category = firstDefined(ordered, (p) => p.category)
   if (category !== undefined) merged.category = category
 
+  // ── gyoseki fields ────────────────────────────────────────────────────
+  const kind = firstDefined(ordered, (p) => p.kind)
+  if (kind !== undefined) merged.kind = kind
+  const gyosekiCategory = firstDefined(ordered, (p) => p.gyosekiCategory)
+  if (gyosekiCategory !== undefined) merged.gyosekiCategory = gyosekiCategory
+  const rmId = firstString(ordered, (p) => p.rmId)
+  if (rmId !== undefined) merged.rmId = rmId
+  const miscType = firstString(ordered, (p) => p.miscType)
+  if (miscType !== undefined) merged.miscType = miscType
+  const publisher = firstString(ordered, (p) => p.publisher)
+  if (publisher !== undefined) merged.publisher = publisher
+  const bookRole = firstString(ordered, (p) => p.bookRole)
+  if (bookRole !== undefined) merged.bookRole = bookRole
+  const bookRange = firstString(ordered, (p) => p.bookRange)
+  if (bookRange !== undefined) merged.bookRange = bookRange
+  const isbn = firstString(ordered, (p) => p.isbn)
+  if (isbn !== undefined) merged.isbn = isbn
+  const event = firstString(ordered, (p) => p.event)
+  if (event !== undefined) merged.event = event
+  const eventJa = firstString(ordered, (p) => p.eventJa)
+  if (eventJa !== undefined) merged.eventJa = eventJa
+  const presentationType = firstString(ordered, (p) => p.presentationType)
+  if (presentationType !== undefined) merged.presentationType = presentationType
+  const invited = firstDefined(ordered, (p) => p.invited)
+  if (invited !== undefined) merged.invited = invited
+  const awardAssociation = firstString(ordered, (p) => p.awardAssociation)
+  if (awardAssociation !== undefined) merged.awardAssociation = awardAssociation
+  // `fromMisc` only survives when EVERY record in the group carried it: a
+  // paper found in both `published_papers` and `misc` is a paper, and letting
+  // the misc flag through would make `categorizeGyoseki` file it as a review
+  // on the misc signal alone.
+  if (ordered.every((p) => p.fromMisc)) merged.fromMisc = true
+
   return merged
 }
 
-/** Title+year signature for the near-duplicate pass; `null` when unusable. */
+/**
+ * Title+year signature for the near-duplicate pass; `null` when unusable.
+ *
+ * Non-paper kinds prefix the signature with the kind, so a book and a paper
+ * sharing a title and a year (a monograph and the article it grew from, say)
+ * never pass-2 merge. Presentations additionally carry the event: the same
+ * talk given at two conferences in one year is two 業績集 entries.
+ */
 function titleYearSignature(pub: Publication): string | null {
   const slug = titleSlug(pub.title ?? '')
   if (slug === '') return null
   if (!Number.isFinite(pub.year) || pub.year <= 0) return null
-  return `${slug}|${pub.year}`
+  const kind = pub.kind ?? 'paper'
+  let signature = `${slug}|${pub.year}`
+  if (kind === 'presentation') {
+    signature += `|${titleSlug(pub.event ?? pub.eventJa ?? '')}`
+  }
+  return kind === 'paper' ? signature : `${kind}|${signature}`
 }
 
 /**

@@ -48,17 +48,17 @@ const RESEARCHMAP_BASE = 'https://api.researchmap.jp'
 /** researchmap paginates; 1000 covers any realistic personal record. */
 const PAPER_LIMIT = 1000
 
-interface Bilingual {
+export interface Bilingual {
   en?: string | null
   ja?: string | null
 }
 
-interface BilingualAuthors {
+export interface BilingualAuthors {
   en?: Array<{ name?: string | null }> | null
   ja?: Array<{ name?: string | null }> | null
 }
 
-interface ResearchmapPaper {
+export interface ResearchmapPaper {
   paper_title?: Bilingual | null
   publication_name?: Bilingual | null
   authors?: BilingualAuthors | null
@@ -110,17 +110,20 @@ export interface ResearchmapProfile {
   givenJa?: string
 }
 
-function clean(value: string | null | undefined): string {
+/** Base URL shared with `researchmapGyoseki.ts`. */
+export const RESEARCHMAP_API_BASE = RESEARCHMAP_BASE
+
+export function clean(value: string | null | undefined): string {
   return (value ?? '').trim()
 }
 
 /** English first, Japanese as the fallback — matches `R/fetch_researchmap.R`. */
-function preferEnglish(field: Bilingual | null | undefined): string {
+export function preferEnglish(field: Bilingual | null | undefined): string {
   const en = clean(field?.en)
   return en !== '' ? en : clean(field?.ja)
 }
 
-function firstIdentifier(
+export function firstIdentifier(
   identifiers: Record<string, string[] | undefined> | null | undefined,
   key: string,
 ): string | undefined {
@@ -133,7 +136,7 @@ function firstIdentifier(
   return undefined
 }
 
-const LANGUAGE_MAP: Record<string, string> = {
+export const LANGUAGE_MAP: Record<string, string> = {
   eng: 'en',
   jpn: 'ja',
   ger: 'de',
@@ -170,29 +173,21 @@ function splitFullNames(names: string[]): string[] {
   return names.every((n) => isFullPersonName(n)) ? [...names] : []
 }
 
-/** One `items[]` entry → `Publication`. Exported for the unit tests. */
-export function parseResearchmapPaper(
-  item: ResearchmapPaper,
-  permalink: string,
+/**
+ * Authors. Which way round `authors.en` is written varies by account, so the
+ * order is measured against the seed member's own name rather than assumed
+ * (see `detectNameOrder`). A record with only `authors.ja` keeps its names
+ * verbatim — initialising 田口 良子 to "田口 良" would be wrong.
+ *
+ * Shared with `researchmapGyoseki.ts`: `books_etc.authors` and
+ * `presentations.presenters` have exactly this bilingual shape.
+ */
+export function parseResearchmapAuthors(
+  raw: BilingualAuthors | null | undefined,
   anchors: readonly PersonNameAnchor[] = [],
-): Publication | undefined {
-  const titleEn = clean(item.paper_title?.en)
-  const titleJa = clean(item.paper_title?.ja)
-  const title = titleEn !== '' ? titleEn : titleJa
-  const rawDoi = firstIdentifier(item.identifiers, 'doi')
-  const pmid = firstIdentifier(item.identifiers, 'pm_id')
-  if (title === '' && !rawDoi && !pmid) return undefined
-
-  const doi = rawDoi ? normalizeDoi(rawDoi) : undefined
-  const doiVersion = doi ? stripDoiVersion(doi).version : undefined
-  const { year, month } = parseResearchmapDate(item.publication_date)
-
-  // Authors. Which way round `authors.en` is written varies by account, so the
-  // order is measured against the seed member's own name rather than assumed
-  // (see `detectNameOrder`). A record with only `authors.ja` keeps its names
-  // verbatim — initialising 田口 良子 to "田口 良" would be wrong.
-  const authorsEn = (item.authors?.en ?? []).map((a) => clean(a.name)).filter((n) => n !== '')
-  const authorsJa = (item.authors?.ja ?? []).map((a) => clean(a.name)).filter((n) => n !== '')
+): { authors: string[]; authorsFull: string[] } {
+  const authorsEn = (raw?.en ?? []).map((a) => clean(a.name)).filter((n) => n !== '')
+  const authorsJa = (raw?.ja ?? []).map((a) => clean(a.name)).filter((n) => n !== '')
 
   let authors: string[]
   let authorsFull: string[]
@@ -217,6 +212,34 @@ export function parseResearchmapPaper(
     }
     authorsFull = splitFullNames(authorsEn)
   }
+
+  return { authors, authorsFull }
+}
+
+/**
+ * One paper-shaped `items[]` entry → `Publication`.
+ *
+ * `published_papers` and `misc` items share this shape field for field
+ * (`misc` adds `misc_type` on top), so `researchmapGyoseki.ts` calls this
+ * too rather than re-deriving the title/author/language rules.
+ */
+export function parseResearchmapPaperLike(
+  item: ResearchmapPaper,
+  permalink: string,
+  anchors: readonly PersonNameAnchor[] = [],
+): Publication | undefined {
+  const titleEn = clean(item.paper_title?.en)
+  const titleJa = clean(item.paper_title?.ja)
+  const title = titleEn !== '' ? titleEn : titleJa
+  const rawDoi = firstIdentifier(item.identifiers, 'doi')
+  const pmid = firstIdentifier(item.identifiers, 'pm_id')
+  if (title === '' && !rawDoi && !pmid) return undefined
+
+  const doi = rawDoi ? normalizeDoi(rawDoi) : undefined
+  const doiVersion = doi ? stripDoiVersion(doi).version : undefined
+  const { year, month } = parseResearchmapDate(item.publication_date)
+
+  const { authors, authorsFull } = parseResearchmapAuthors(item.authors, anchors)
 
   // Language: an item with no English title at all is a Japanese-language
   // paper, whatever `languages` claims. Otherwise trust `languages[0]`.
@@ -246,6 +269,15 @@ export function parseResearchmapPaper(
     seedIds: [permalink],
     trust: 'confirmed',
   }
+}
+
+/** One `items[]` entry → `Publication`. Exported for the unit tests. */
+export function parseResearchmapPaper(
+  item: ResearchmapPaper,
+  permalink: string,
+  anchors: readonly PersonNameAnchor[] = [],
+): Publication | undefined {
+  return parseResearchmapPaperLike(item, permalink, anchors)
 }
 
 /** Fetch a researchmap `published_papers` record, with the failure reason. */

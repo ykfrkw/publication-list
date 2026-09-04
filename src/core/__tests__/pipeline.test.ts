@@ -32,11 +32,18 @@ interface RouteOverrides {
   orcidWorks?: unknown
   researchmapProfile?: unknown
   researchmapPapers?: unknown
+  researchmapMisc?: unknown
+  researchmapBooks?: unknown
+  researchmapPresentations?: unknown
+  researchmapAwards?: unknown
   esearch?: unknown
   esummary?: unknown
   openalex?: unknown
   crossref?: unknown
 }
+
+/** An empty gyoseki endpoint page, the default when a test does not opt in. */
+const EMPTY_PAGE = { total_items: 0, items: [] }
 
 /**
  * Route a request URL to a fixture.
@@ -53,9 +60,16 @@ function makeRouter(o: RouteOverrides = {}) {
         : (o.orcidWorks ?? loadFixture('orcid-works.json'))
     }
     if (url.includes('api.researchmap.jp')) {
-      return url.includes('published_papers')
-        ? (o.researchmapPapers ?? loadFixture('researchmap-papers.json'))
-        : (o.researchmapProfile ?? loadFixture('researchmap-profile.json'))
+      if (url.includes('published_papers')) {
+        return o.researchmapPapers ?? loadFixture('researchmap-papers.json')
+      }
+      if (url.includes('/misc')) return o.researchmapMisc ?? EMPTY_PAGE
+      if (url.includes('/books_etc')) return o.researchmapBooks ?? EMPTY_PAGE
+      if (url.includes('/presentations')) {
+        return o.researchmapPresentations ?? EMPTY_PAGE
+      }
+      if (url.includes('/awards')) return o.researchmapAwards ?? EMPTY_PAGE
+      return o.researchmapProfile ?? loadFixture('researchmap-profile.json')
     }
     if (url.includes('esearch.fcgi')) {
       return o.esearch ?? loadFixture('pubmed-esearch.json')
@@ -1234,6 +1248,197 @@ describe('buildList — seed time windows', () => {
         ),
       ).toBe(true)
       expect(model.publications.length).toBe(2)
+    },
+    TIMEOUT,
+  )
+})
+
+/**
+ * The 業績集 taxonomy, end to end.
+ *
+ * The classifier's branches live in `gyoseki.test.ts`; what these pin is the
+ * wiring: the four extra endpoints are fetched exactly when `taxonomy` asks
+ * for them, non-papers stay out of the enrichment requests, the researchmap
+ * profile is never skipped under gyoseki, and the categories (plus the manual
+ * pins) actually land on the model.
+ */
+describe('buildList — gyoseki taxonomy', () => {
+  const GYOSEKI_ENDPOINTS = ['/misc?', '/books_etc?', '/presentations?', '/awards?']
+
+  function gyosekiEndpointCalls() {
+    return stub!.calls.filter((url) =>
+      GYOSEKI_ENDPOINTS.some((endpoint) => url.includes(endpoint)),
+    )
+  }
+
+  it(
+    'fetches no gyoseki endpoints when the taxonomy is absent',
+    async () => {
+      useRoutes()
+      await buildList(
+        normalizeConfig({ seeds: { researchmap: [RESEARCHMAP] } }),
+      )
+
+      expect(gyosekiEndpointCalls()).toEqual([])
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'fetches all four gyoseki endpoints per researchmap seed under gyoseki',
+    async () => {
+      useRoutes()
+      await buildList(
+        normalizeConfig({
+          seeds: { researchmap: [RESEARCHMAP] },
+          taxonomy: 'gyoseki',
+        }),
+      )
+
+      const calls = gyosekiEndpointCalls()
+      expect(calls).toHaveLength(4)
+      for (const endpoint of GYOSEKI_ENDPOINTS) {
+        expect(calls.some((url) => url.includes(endpoint))).toBe(true)
+      }
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'keeps presentations (and books, awards) out of the enrichment requests',
+    async () => {
+      useRoutes({
+        researchmapPresentations: loadFixture('researchmap-presentations.json'),
+        researchmapBooks: loadFixture('researchmap-books.json'),
+        researchmapAwards: loadFixture('researchmap-awards.json'),
+      })
+      await buildList(
+        normalizeConfig({
+          seeds: { researchmap: [RESEARCHMAP] },
+          taxonomy: 'gyoseki',
+        }),
+      )
+
+      // A presentation has no DOI or PMID, so without the paper-only gate the
+      // OpenAlex title search would burn a slot on each one.
+      const enrichment = stub!.calls.filter(
+        (url) => url.includes('api.openalex.org') || url.includes('api.crossref.org'),
+      )
+      for (const url of enrichment) {
+        expect(url).not.toContain('CBT') // fixture talk title
+        expect(url).not.toContain(encodeURIComponent('World Sleep Congress'))
+      }
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'still fetches the profile under gyoseki when ORCID supplied name and anchor',
+    async () => {
+      // The exact configuration `resolveSeeds` would otherwise skip the
+      // profile for — under gyoseki the skip must not happen, because only
+      // the profile carries the Japanese 姓/名 pair the bold variants need.
+      useRoutes({
+        orcidWorks: { group: [] },
+        researchmapPapers: loadFixture('researchmap-papers-given-first.json'),
+      })
+      await buildList(
+        normalizeConfig({
+          seeds: { orcid: [ORCID], researchmap: ['yk_frkw'] },
+          taxonomy: 'gyoseki',
+        }),
+      )
+
+      const profileCalls = stub!.calls.filter((url) =>
+        url.includes('api.researchmap.jp/yk_frkw?'),
+      )
+      expect(profileCalls).toHaveLength(1)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'files every record under a gyoseki category, and applies categoryPins',
+    async () => {
+      useRoutes({
+        researchmapMisc: loadFixture('researchmap-misc.json'),
+        researchmapBooks: loadFixture('researchmap-books.json'),
+        researchmapPresentations: loadFixture('researchmap-presentations.json'),
+        researchmapAwards: loadFixture('researchmap-awards.json'),
+      })
+      const model = await buildList(
+        normalizeConfig({
+          seeds: { researchmap: [RESEARCHMAP] },
+          taxonomy: 'gyoseki',
+          // rm:48378592 is the Oxford talk — English, so 8. 国際学会発表 by
+          // rule; the pin drags it into the domestic section.
+          categoryPins: ['rm:48378592=domestic-presentation'],
+        }),
+      )
+
+      expect(model.publications.length).toBeGreaterThan(0)
+      expect(
+        model.publications.every((p) => p.gyosekiCategory !== undefined),
+      ).toBe(true)
+
+      const award = model.publications.find((p) => p.kind === 'award')
+      expect(award?.gyosekiCategory).toBe('award')
+
+      const singleWork = model.publications.find((p) => p.rmId === '50352883')
+      expect(singleWork?.gyosekiCategory).toBe('book-lead')
+      const contributed = model.publications.find((p) => p.rmId === '54195029')
+      expect(contributed?.gyosekiCategory).toBe('book-chapter')
+
+      const jaTalk = model.publications.find((p) => p.rmId === '51665682')
+      expect(jaTalk?.gyosekiCategory).toBe('domestic-presentation')
+
+      // The pin overrode what the classifier would have said.
+      const pinnedTalk = model.publications.find((p) => p.rmId === '48378592')
+      expect(pinnedTalk?.gyosekiCategory).toBe('domestic-presentation')
+
+      // misc records classify on the review side.
+      const miscRecord = model.publications.find((p) => p.rmId === '52217920')
+      expect(miscRecord?.gyosekiCategory).toBe('en-review')
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'warns about a category pin that matches nothing on the list',
+    async () => {
+      useRoutes()
+      const model = await buildList(
+        normalizeConfig({
+          seeds: { researchmap: [RESEARCHMAP] },
+          taxonomy: 'gyoseki',
+          categoryPins: ['rm:999999999=award'],
+        }),
+      )
+
+      expect(
+        model.warnings.some((w) =>
+          w.includes('Category pin "rm:999999999=award" matched no record.'),
+        ),
+      ).toBe(true)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'drops an invalid categoryPins entry at config normalization, before the pipeline',
+    async () => {
+      const config = normalizeConfig({
+        seeds: { researchmap: [RESEARCHMAP] },
+        taxonomy: 'gyoseki',
+        categoryPins: ['rm:48378592=not-a-category', 'garbage'],
+      })
+      // Both entries are unusable, so the field disappears entirely...
+      expect(config.categoryPins).toBeUndefined()
+
+      useRoutes()
+      const model = await buildList(config)
+      // ...and the pipeline neither applies nor warns about them.
+      expect(model.warnings.some((w) => w.includes('Category pin'))).toBe(false)
     },
     TIMEOUT,
   )

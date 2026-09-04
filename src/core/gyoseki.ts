@@ -28,7 +28,15 @@
  *      `report`/`meeting_report` AND isJa → `ja-report`; else isJa →
  *      `ja-review`; else → `en-review`.
  *    - `pub.category` (already set by `categorizeAll`) 'letter' or 'editorial'
- *      → isJa ? `ja-review` : `en-review`.
+ *      → isJa ? `ja-review` : `en-review`. This outranks the SR/MA exception
+ *      below: an actual letter *about* a meta-analysis is still a letter.
+ *    - title matches `SRMA_TITLE_PATTERN` (systematic review / meta-analysis
+ *      / network meta / scoping / umbrella review) → ORIGINAL side, whatever
+ *      `openAlexType` or the journal name says. OpenAlex types SR/MA as
+ *      `review`, conflating them with narrative reviews, but the 業績集
+ *      convention (confirmed against the 東大精神神経科 sample) files SR/MA
+ *      as 原著 — they report new analyses of data, reviews of the literature
+ *      only in method.
  *    - `pub.openAlexType === 'review'` → review side.
  *    - journal name contains a `REVIEW_JOURNAL_TOKENS` token → review side.
  *    - everything else (incl. category 'preprint' and 'other') →
@@ -67,6 +75,19 @@ export const REVIEW_JOURNAL_TOKENS: readonly string[] = [
 
 /** `miscType` / journal / title substrings that mark a 報告書-type record. */
 const REPORT_TOKENS = ['報告', '座談会', 'report', 'meeting_report']
+
+/**
+ * Titles that announce a systematic review, meta-analysis, network / scoping /
+ * umbrella review.
+ *
+ * These file on the ORIGINAL side even when `openAlexType` says `review` or
+ * the journal name carries a review token: OpenAlex's `review` type conflates
+ * narrative reviews with SR/MA, and a 業績集 files SR/MA under 原著論文 —
+ * they produce new quantitative results. Japanese phrasings (メタ解析 etc.)
+ * are not matched yet; `categoryPins` covers those records.
+ */
+export const SRMA_TITLE_PATTERN =
+  /systematic\s+review|meta-?analy(?:sis|ses|tic)|network\s+meta|scoping\s+review|umbrella\s+review/i
 
 function normalizeRole(role: string | undefined): string {
   return (role ?? '').trim().normalize('NFKC').toLowerCase()
@@ -127,8 +148,16 @@ function categorizePaper(pub: Publication): GyosekiCategory {
     return isJa ? 'ja-review' : 'en-review'
   }
 
+  // Deliberately above the SR/MA exception: an actual letter or editorial
+  // *about* a meta-analysis is still a letter, and stays review-side.
   if (pub.category === 'letter' || pub.category === 'editorial') {
     return isJa ? 'ja-review' : 'en-review'
+  }
+  // The SR/MA exception: a title announcing a systematic review or
+  // meta-analysis demotes both weaker review signals below (OpenAlex's
+  // `review` type and the journal-name tokens) — see `SRMA_TITLE_PATTERN`.
+  if (SRMA_TITLE_PATTERN.test(pub.title ?? '')) {
+    return isJa ? 'ja-original' : 'en-original'
   }
   if ((pub.openAlexType ?? '').toLowerCase() === 'review') {
     return isJa ? 'ja-review' : 'en-review'

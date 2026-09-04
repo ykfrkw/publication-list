@@ -214,6 +214,117 @@ describe('categorizeGyoseki — papers', () => {
   })
 })
 
+/**
+ * The SR/MA exception: OpenAlex types systematic reviews and meta-analyses as
+ * `review`, but a 業績集 files them as 原著. A title announcing one demotes
+ * the openAlexType and journal-token signals; the letter/editorial rule and
+ * `fromMisc` still outrank it.
+ */
+describe('categorizeGyoseki — SR/MA titles file as originals', () => {
+  const SRMA_TITLE =
+    'Behavioural therapies for insomnia: a systematic review and network meta-analysis'
+
+  it('systematic review + NMA title beats openAlexType review → en-original', () => {
+    expect(
+      categorizeGyoseki(
+        pub({
+          category: 'original',
+          title: SRMA_TITLE,
+          openAlexType: 'review',
+          language: 'en',
+        }),
+      ),
+    ).toBe('en-original')
+  })
+
+  it('the same title on a Japanese-language paper → ja-original', () => {
+    expect(
+      categorizeGyoseki(
+        pub({
+          category: 'original',
+          title: SRMA_TITLE,
+          openAlexType: 'review',
+          language: 'ja',
+        }),
+      ),
+    ).toBe('ja-original')
+  })
+
+  it('umbrella review → en-original', () => {
+    expect(
+      categorizeGyoseki(
+        pub({
+          category: 'original',
+          title: 'Umbrella review of sleep interventions in depression',
+          openAlexType: 'review',
+          language: 'en',
+        }),
+      ),
+    ).toBe('en-original')
+  })
+
+  it('meta-analytic and scoping phrasings match too', () => {
+    expect(
+      categorizeGyoseki(
+        pub({
+          category: 'original',
+          title: 'A meta-analytic investigation of dose-response',
+          openAlexType: 'review',
+          language: 'en',
+        }),
+      ),
+    ).toBe('en-original')
+    expect(
+      categorizeGyoseki(
+        pub({
+          category: 'original',
+          title: 'Digital CBT-I access: a scoping review',
+          openAlexType: 'review',
+          language: 'en',
+        }),
+      ),
+    ).toBe('en-original')
+  })
+
+  it('a narrative review (no SR/MA tokens) still files as en-review', () => {
+    expect(
+      categorizeGyoseki(
+        pub({
+          category: 'original',
+          title: 'Insomnia: an overview of current treatment',
+          openAlexType: 'review',
+          language: 'en',
+        }),
+      ),
+    ).toBe('en-review')
+  })
+
+  it('a letter about a meta-analysis stays a letter → en-review', () => {
+    expect(
+      categorizeGyoseki(
+        pub({
+          category: 'letter',
+          title: 'Concerns about the network meta-analysis by Smith et al.',
+          language: 'en',
+        }),
+      ),
+    ).toBe('en-review')
+  })
+
+  it('an SR/MA title beats a review-named journal → en-original', () => {
+    expect(
+      categorizeGyoseki(
+        pub({
+          category: 'original',
+          title: 'Exercise for insomnia: a systematic review and meta-analysis',
+          journal: 'Sleep Medicine Reviews',
+          language: 'en',
+        }),
+      ),
+    ).toBe('en-original')
+  })
+})
+
 describe('applyCategoryPins', () => {
   it('moves a record pinned by DOI', () => {
     const input = [
